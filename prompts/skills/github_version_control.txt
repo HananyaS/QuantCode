@@ -1,0 +1,122 @@
+# GitHub Version Control Best Practices
+
+## Core Principles
+- Only commit stable, validated code
+- Keep commits small, atomic, and meaningful
+- Never commit broken or untested code
+- Maintain a clean and readable history
+
+## Preconditions for ANY Commit
+Before committing, ALL must pass:
+- All pytest tests pass
+- Validation checks pass (no leakage, correct alignment)
+- Code runs without errors
+- No debug prints or temporary code
+
+If any condition fails:
+→ DO NOT COMMIT
+
+---
+
+## Commit Structure
+
+### Commit Message Format:
+<type>: <short description>
+
+Examples:
+- feat: add feature engineering pipeline
+- fix: correct label leakage in labeling agent
+- refactor: simplify backtest logic
+- test: add edge case tests for feature agent
+
+### Extended Commit Message (if needed):
+- What was changed
+- Why it was changed
+- Any impact on results/metrics
+
+---
+
+## Commit Types
+
+- feat → new functionality
+- fix → bug fixes
+- refactor → code improvement (no logic change)
+- test → adding/improving tests
+- chore → configs, setup, dependencies
+
+---
+
+## Workflow
+
+1. Review changes
+2. Stage files:
+   git add .
+
+3. Create commit:
+   git commit -m "<message>"
+
+4. (Optional) Push:
+   git push
+
+---
+
+## Rules for AI Behavior
+
+- NEVER modify tests just to pass them
+- NEVER commit failing tests
+- NEVER commit without running validation
+- NEVER overwrite large parts of the codebase without explanation
+
+---
+
+## Incremental Commits
+
+Prefer:
+- small commits per feature/module
+
+Avoid:
+- huge commits with unrelated changes
+
+---
+
+## Branching (Optional Advanced)
+
+For new features:
+- create branch:
+  git checkout -b feature/<name>
+
+- merge only after validation
+
+---
+
+## Safety Checks
+
+Before committing, verify:
+- No hardcoded paths
+- No sensitive data
+- No unused imports
+- No commented-out junk code
+
+---
+
+## Logging in Commit
+
+If relevant, include:
+- key metrics (Sharpe, drawdown)
+- dataset used
+- experiment notes
+
+Example:
+feat: add mean reversion strategy
+
+- Sharpe: 1.12
+- Max DD: -8.5%
+- Uses RSI + z-score features
+
+---
+
+## Final Rule
+
+If unsure whether to commit:
+→ DO NOT COMMIT
+→ Ask for clarification

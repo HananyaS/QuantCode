@@ -1,0 +1,4 @@
+- Add type hints
+- Add docstrings
+- Keep functions < 50 lines
+- Add assertions

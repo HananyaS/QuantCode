@@ -1,0 +1,4 @@
+- Always benchmark against SPY
+- Use walk-forward validation
+- Avoid overfitting
+- Log all experiment parameters

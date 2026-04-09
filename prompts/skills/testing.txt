@@ -1,0 +1,5 @@
+- Always write pytest tests
+- Include edge cases:
+  - empty data
+  - NaNs
+  - constant values

@@ -1,0 +1,4 @@
+- Never use future timestamps
+- All rolling operations must be backward-looking
+- Labels must be shifted correctly
+- If leakage is detected → raise error
