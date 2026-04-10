@@ -1,11 +1,12 @@
-Trailing Stop Mechanism — ATR-Based Dynamic Risk Management
-============================================================
+Trailing Stop Mechanism — ATR-% Based Dynamic Risk Management
+==============================================================
 
 Overview
 --------
 Each open position has an independent trailing stop that protects profits
 and limits drawdown. The stop level ratchets UP as price rises but never
-moves down, regardless of ATR changes.
+moves down. The stop distance is expressed as a PERCENTAGE of price
+(via ATR/Close), making it scale-invariant across different stock prices.
 
 Definitions
 -----------
@@ -17,8 +18,11 @@ ATR (Average True Range):
   )
   ATR[t] = rolling mean of True Range over N periods (default N=14)
 
-Tolerance:
-  tolerance[t, ticker] = trailing_stop_atr_mult × ATR[t, ticker]
+ATR Percentage:
+  atr_pct[t, ticker] = ATR[t, ticker] / Close[t, ticker]
+
+Tolerance (percentage-based):
+  tolerance[t, ticker] = trailing_stop_atr_mult * atr_pct[t, ticker]
   Default: trailing_stop_atr_mult = 1.5
 
 Position State
@@ -33,50 +37,60 @@ On Entry (day T)
 ----------------
   entry_price  = Close[T, ticker]
   hwm          = Close[T, ticker]
-  stop_level   = hwm - tolerance[T, ticker]
+  atr_pct      = ATR[T, ticker] / Close[T, ticker]
+  stop_level   = hwm * (1 - trailing_stop_atr_mult * atr_pct)
 
 Daily Update (each subsequent day t > T)
 -----------------------------------------
   1. Update HWM:
        hwm = max(hwm, Close[t, ticker])
 
-  2. Compute candidate stop:
-       candidate_stop = hwm - trailing_stop_atr_mult × ATR[t, ticker]
+  2. Compute candidate stop (percentage-based):
+       atr_pct = ATR[t, ticker] / Close[t, ticker]
+       candidate_stop = hwm * (1 - trailing_stop_atr_mult * atr_pct)
 
   3. Ratchet stop (never decreases):
        stop_level = max(stop_level, candidate_stop)
 
-  4. Check trigger:
-       if Close[t, ticker] <= stop_level  →  EXIT position at Close[t]
+  4. Check trigger using intraday Low (not just close):
+       if Low[t, ticker] <= stop_level  ->  EXIT position at stop_level
+
+     Using the day's Low rather than Close better mimics real-world
+     stop-limit execution. The exit price is stop_level (assuming the
+     stop-limit order fills at the stop, not at the low).
 
 Key Properties
 --------------
 - Stop only moves UP, never down (even if ATR increases)
+- Tolerance is a PERCENTAGE of price, not a fixed dollar amount
+  -> Works consistently for $5 stocks and $500 stocks
 - Tolerance adapts to each stock's volatility via its own ATR
 - In calm markets (low ATR): tighter stop, locks in more profit
 - In volatile markets (high ATR): wider stop, avoids noise exits
-- Stop is checked BEFORE rank-based exits and new entries each day
+- Stop is checked against intraday Low BEFORE rank-based exits each day
 
 Integration with Portfolio Logic
 ---------------------------------
 Daily execution order (for each test day t):
-  1. Update trailing stops → exit triggered positions
-  2. Rank-based exits     → exit positions below exit_rank threshold
-  3. New entries          → add top entry_rank stocks above min_score
-  4. Compute weights      → equal weight across remaining positions
+  1. Update trailing stops -> exit if Low[t] breached stop
+  2. Rank-based exits      -> exit positions below exit_rank threshold
+  3. New entries           -> add top entry_rank stocks above min z-score
+  4. Compute weights       -> equal weight or score-weighted (softmax)
 
 Configuration
 -------------
-  trailing_stop_atr_mult: 1.5   # multiplier on ATR for stop distance
+  trailing_stop_atr_mult: 1.5   # multiplier on ATR-% for stop distance
   atr_period: 14                # ATR lookback window (trading days)
 
 Example
 -------
-Stock XYZ:
-  Day 0: Enter at $100, ATR=$2.00, tolerance=$3.00, stop=$97.00
-  Day 1: Close=$103, ATR=$2.10, hwm=$103, candidate_stop=$99.85, stop=$99.85
-  Day 2: Close=$106, ATR=$2.00, hwm=$106, candidate_stop=$103.00, stop=$103.00
-  Day 3: Close=$104, ATR=$2.50, hwm=$106, candidate_stop=$102.25, stop=$103.00 (ratchet: keeps $103)
-  Day 4: Close=$102, ATR=$2.50, hwm=$106, candidate_stop=$102.25, stop=$103.00
-         Close $102 <= stop $103 → EXIT TRIGGERED at $102
-         Result: +2% return (entered $100, exited $102)
+Stock XYZ at $100, ATR=$2.00 (atr_pct = 2.0%):
+  Day 0: Enter at $100, tolerance=3.0%, stop=$97.00
+  Day 1: Close=$103, ATR=$2.10, atr_pct=2.04%, hwm=$103,
+         candidate_stop=$103*(1-0.0306)=$99.84, stop=$99.84
+  Day 2: Close=$106, ATR=$2.00, atr_pct=1.89%, hwm=$106,
+         candidate_stop=$106*(1-0.0283)=$103.00, stop=$103.00
+  Day 3: Close=$104, Low=$101, ATR=$2.50, atr_pct=2.40%, hwm=$106,
+         candidate_stop=$106*(1-0.036)=$102.18, stop=$103.00 (ratchet)
+         Low $101 <= stop $103 -> EXIT at $103
+         Result: +3% return (entered $100, exited $103)

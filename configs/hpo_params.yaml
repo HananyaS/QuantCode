@@ -1,0 +1,134 @@
+# Hyperparameter search space for HPO (Optuna / grid search)
+# ============================================================
+# Each parameter specifies:
+#   type         : int | float | bool | categorical
+#   distribution : uniform | log_uniform (float/int only)
+#   low / high   : numeric range (inclusive)
+#   choices      : list of allowed values (categorical / discrete)
+#
+# Constraints that must be enforced during search:
+#   entry_rank <= exit_rank
+#   max_positions <= entry_rank
+#   weighting_temperature only meaningful when score_weighting=true
+
+parameters:
+
+  # ── Features ────────────────────────────────────────────────────────────
+  features:
+    returns_windows:
+      type: categorical
+      choices:
+        - [1, 5, 10]
+        - [1, 5, 20]
+        - [1, 10, 20]
+        - [1, 5, 10, 20]
+
+    volatility_window:
+      type: int
+      distribution: uniform
+      low: 10
+      high: 60
+
+    rsi_period:
+      type: int
+      distribution: uniform
+      low: 7
+      high: 28
+
+    sma_windows:
+      type: categorical
+      choices:
+        - [10, 20]
+        - [20, 50]
+        - [10, 50]
+        - [10, 20, 50]
+
+  # ── Labeling ─────────────────────────────────────────────────────────────
+  labeling:
+    forward_period:
+      type: int
+      distribution: uniform
+      low: 3
+      high: 20
+
+  # ── Model ────────────────────────────────────────────────────────────────
+  model:
+    n_estimators:
+      type: int
+      distribution: uniform
+      low: 100
+      high: 600
+
+    max_depth:
+      type: int
+      distribution: uniform
+      low: 2
+      high: 8
+
+    learning_rate:
+      type: float
+      distribution: log_uniform
+      low: 0.005
+      high: 0.3
+
+    test_size:
+      type: float
+      distribution: uniform
+      low: 0.15
+      high: 0.30
+
+  # ── Portfolio ─────────────────────────────────────────────────────────────
+  portfolio:
+    max_positions:
+      type: int
+      distribution: uniform
+      low: 5
+      high: 50
+
+    entry_rank:
+      type: int
+      distribution: uniform
+      low: 5
+      high: 40
+
+    exit_rank:
+      type: int
+      distribution: uniform
+      low: 10
+      high: 80
+
+    min_score:
+      type: float
+      distribution: uniform
+      low: -1.0
+      high: 2.0
+
+    trailing_stop_atr_mult:
+      type: float
+      distribution: uniform
+      low: 0.5
+      high: 5.0
+
+    atr_period:
+      type: int
+      distribution: uniform
+      low: 5
+      high: 30
+
+    score_weighting:
+      type: bool
+      choices: [true, false]
+
+    weighting_temperature:
+      type: float
+      distribution: log_uniform
+      low: 0.1
+      high: 10.0
+
+  # ── Backtest ──────────────────────────────────────────────────────────────
+  backtest:
+    transaction_cost:
+      type: float
+      distribution: log_uniform
+      low: 0.0001
+      high: 0.005

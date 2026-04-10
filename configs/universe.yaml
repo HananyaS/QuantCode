@@ -37,12 +37,14 @@ model:
   test_size: 0.2
 
 portfolio:
-  max_positions: 20          # hard cap on simultaneous open positions
-  entry_rank: 20             # must be in top-N to open a new position
-  exit_rank: 35              # held position exits if it drops below top-N
-  min_score: 0.0             # minimum predicted return to enter (flat on bearish days)
-  trailing_stop_atr_mult: 1.5  # stop distance = 1.5 × ATR below HWM
+  max_positions: 10          # hard cap on simultaneous open positions
+  entry_rank: 10             # must be in top-N to open a new position
+  exit_rank: 30              # held position exits if it drops below top-N
+  min_score: 0.0             # z-score threshold to enter (0=above avg, 1=1-std above avg)
+  trailing_stop_atr_mult: 1.5  # stop distance = 1.5 × (ATR/price) below HWM (pct-based)
   atr_period: 14             # ATR lookback (trading days)
+  score_weighting: false     # if true, size positions by model score (softmax)
+  weighting_temperature: 1.0 # softmax temperature: higher=more uniform, lower=more concentrated
 
 backtest:
   initial_capital: 100000

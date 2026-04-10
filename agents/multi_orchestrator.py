@@ -123,6 +123,8 @@ class MultiAssetOrchestrator:
                 min_score=p.get("min_score", 0.0),
                 trailing_stop_atr_mult=p.get("trailing_stop_atr_mult", 1.5),
                 atr_period=p.get("atr_period", 14),
+                score_weighting=p.get("score_weighting", False),
+                weighting_temperature=p.get("weighting_temperature", 1.0),
             ),
             MultiAssetBacktestAgent(
                 initial_capital=bt["initial_capital"],

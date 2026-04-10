@@ -7,10 +7,15 @@ Usage:
 import argparse
 import os
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
+import pandas as pd
 import yaml
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from agents.multi_orchestrator import MultiAssetOrchestrator
 from utils.logger import get_logger
@@ -63,6 +68,28 @@ def _print_metric(label: str, value: Any) -> None:
         print(f"{label:<30} {value!s:>10}")
 
 
+def save_trade_sheet(context: dict, experiment_name: str) -> None:
+    """Save trade log and daily weights to CSV files under outputs/."""
+    out_dir = Path("outputs") / experiment_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Trade log
+    trades = context.get("portfolio_trades", [])
+    if trades:
+        trades_df = pd.DataFrame(trades)
+        trades_path = out_dir / f"trades_{timestamp}.csv"
+        trades_df.to_csv(trades_path, index=False)
+        logger.info("Trade log saved to %s  (%d trades)", trades_path, len(trades_df))
+
+    # Daily weights
+    weights = context.get("portfolio_weights")
+    if weights is not None:
+        weights_path = out_dir / f"weights_{timestamp}.csv"
+        weights.to_csv(weights_path)
+        logger.info("Daily weights saved to %s  (%d days)", weights_path, len(weights))
+
+
 def main(config_path: str = "configs/universe.yaml") -> dict:
     logger.info("Loading config from %s", config_path)
     config = load_config(config_path)
@@ -80,6 +107,7 @@ def main(config_path: str = "configs/universe.yaml") -> dict:
     context = orch.run()
 
     print_metrics(context["multi_metrics"])
+    save_trade_sheet(context, config["experiment"]["name"])
     plot_multi_results(context)
     return context
 
