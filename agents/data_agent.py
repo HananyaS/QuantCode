@@ -37,7 +37,7 @@ class DataAgent(BaseAgent):
     def run(self, context: dict) -> dict:
         """Fetch data, validate it, and store in context[context_key]."""
         logger.info(
-            "DataAgent: fetching %s [%s → %s] → context['%s']",
+            "DataAgent: fetching %s [%s -> %s] -> context['%s']",
             self.ticker,
             self.start_date,
             self.end_date,

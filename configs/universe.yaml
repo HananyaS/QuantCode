@@ -1,0 +1,49 @@
+experiment:
+  name: "multi_asset_sp500_v1"
+  seed: 42
+
+universe:
+  # Use "sp500" to auto-fetch all current S&P 500 constituents from Wikipedia.
+  # SURVIVORSHIP BIAS: current members only — excludes delisted/acquired names.
+  tickers: "sp500"
+  benchmark: "SPY"
+  start_date: "2015-01-01"
+  end_date: "2024-12-31"
+  min_history_days: 1260   # ~5 years; drops recent IPOs/spin-offs to prevent inner-join truncation
+
+# Data source: Alpaca replaces yfinance to avoid rate-limit errors on bulk downloads.
+data_source:
+  type: "alpaca"
+  api_key: ${ALPACA_API_KEY}
+  secret_key: ${ALPACA_SECRET_KEY}
+  feed: null   # null = account default (IEX for free/paper accounts)
+
+features:
+  returns: [1, 5, 10]
+  volatility_window: 20
+  rsi_period: 14
+  sma_windows: [10, 20]
+  cross_sectional: true
+
+labeling:
+  forward_period: 5
+
+model:
+  type: "lightgbm"
+  n_estimators: 300
+  max_depth: 4
+  learning_rate: 0.05
+  random_state: 42
+  test_size: 0.2
+
+portfolio:
+  max_positions: 20          # hard cap on simultaneous open positions
+  entry_rank: 20             # must be in top-N to open a new position
+  exit_rank: 35              # held position exits if it drops below top-N
+  min_score: 0.0             # minimum predicted return to enter (flat on bearish days)
+  trailing_stop_atr_mult: 1.5  # stop distance = 1.5 × ATR below HWM
+  atr_period: 14             # ATR lookback (trading days)
+
+backtest:
+  initial_capital: 100000
+  transaction_cost: 0.001

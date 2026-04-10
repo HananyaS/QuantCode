@@ -1,0 +1,21 @@
+# Portfolio Construction Rules
+
+## Baseline:
+- Select top-K assets
+- Equal weight allocation
+
+## Constraints:
+- long-only (for now)
+- rebalance daily
+
+## Transaction cost:
+- default = 0.1%
+
+## Risk controls:
+- max position size = 1/K
+- no leverage
+
+## Evaluation:
+- Sharpe ratio
+- max drawdown
+- turnover

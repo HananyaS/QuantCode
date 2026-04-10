@@ -13,6 +13,7 @@ import yaml
 
 from agents.orchestrator import Orchestrator
 from utils.logger import get_logger
+from utils.visualizer import plot_results
 
 logger = get_logger(__name__)
 
@@ -64,11 +65,12 @@ def main(config_path: str = "configs/experiment.yaml") -> dict:
     context = orch.run()
 
     print_metrics(context["metrics"])
+    plot_results(context)
     return context
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Quant AI Lab pipeline runner")
+    parser = argparse.ArgumentParser(description="QuantCode pipeline runner")
     parser.add_argument(
         "--config",
         default="configs/experiment.yaml",

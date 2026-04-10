@@ -37,7 +37,7 @@ class Orchestrator:
         context = self._make_context()
         pipeline = agents if agents is not None else self._build_pipeline()
         for agent in pipeline:
-            logger.info("Orchestrator → running %s", agent.__class__.__name__)
+            logger.info("Orchestrator -> running %s", agent.__class__.__name__)
             context = agent.run(context)
         logger.info("Orchestrator: pipeline complete")
         return context

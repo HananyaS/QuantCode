@@ -1,0 +1,16 @@
+# Universe Selection
+
+## Preferred:
+- S&P 500
+- Nasdaq-100
+
+## Requirements:
+- liquidity
+- consistent data availability
+
+## Risks:
+- survivorship bias
+- missing delisted stocks
+
+## Rule:
+- document assumptions clearly

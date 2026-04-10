@@ -1,0 +1,19 @@
+# Cross-Sectional Feature Engineering
+
+## Per-asset features:
+- returns (1d, 5d, 10d)
+- rolling volatility
+- RSI
+- moving averages
+
+## Cross-sectional transforms (per day):
+- rank(feature)
+- z-score(feature)
+
+## Rules:
+- compute per-day independently
+- avoid global normalization
+
+## Avoid:
+- using full dataset mean/std
+- mixing future information

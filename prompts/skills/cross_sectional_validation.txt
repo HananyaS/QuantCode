@@ -1,0 +1,20 @@
+# Cross-Sectional Validation Rules
+
+- Never mix future data into current features
+- Ensure label = future return ONLY
+- Align all assets by timestamp
+
+## Per-day normalization:
+- Must be computed using ONLY that day's data
+
+## Train/Test split:
+- Strictly time-based
+- No shuffling
+
+## Leakage Checks:
+- Verify no feature uses t+1 or later
+- Ensure rolling windows do not peek forward
+
+## Sanity Checks:
+- Random model baseline
+- Compare to equal-weight benchmark

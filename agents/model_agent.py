@@ -66,7 +66,7 @@ class ModelAgent(BaseAgent):
         )
 
         logger.info(
-            "ModelAgent: train_acc=%.3f  test_acc=%.3f  train=%s→%s  test=%s→%s",
+            "ModelAgent: train_acc=%.3f  test_acc=%.3f  train=%s->%s  test=%s->%s",
             accuracy_score(y_train, train_pred),
             accuracy_score(y_test, test_pred),
             X_train.index[0].date(),
