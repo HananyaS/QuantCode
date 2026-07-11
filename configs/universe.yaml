@@ -26,7 +26,7 @@ features:
   cross_sectional: true
 
 labeling:
-  forward_period: 5
+  forward_period: 3
 
 model:
   type: "lightgbm"
