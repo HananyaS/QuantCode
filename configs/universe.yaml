@@ -20,7 +20,7 @@ data_source:
 
 features:
   returns: [1, 5, 10]
-  volatility_window: 20
+  volatility_window: 10
   rsi_period: 14
   sma_windows: [20]
   cross_sectional: true
