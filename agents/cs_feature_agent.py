@@ -116,6 +116,14 @@ class CrossSectionalFeatureAgent(BaseAgent):
         # RSI
         feats["rsi"] = self._rsi(close, self.rsi_period)
 
+        # Size proxy (Fama-French SMB small-cap premium): log dollar
+        # volume, since shares-outstanding data isn't available for a true
+        # market-cap. Distinct mechanism from momentum/liquidity-cost/skew.
+        dollar_volume = close * df["Volume"]
+        feats["log_dollar_vol_20d"] = np.log(
+            dollar_volume.rolling(window=20, min_periods=20).mean()
+        )
+
         # SMA ratios
         for w in self.sma_windows:
             sma = close.rolling(window=w, min_periods=w).mean()
