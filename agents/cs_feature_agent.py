@@ -128,7 +128,13 @@ class CrossSectionalFeatureAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     def _add_cross_sectional(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Append rank and z-score columns, computed per date across assets."""
+        """Replace raw columns with rank and z-score, computed per date across assets.
+
+        Raw, unnormalized columns are dropped rather than kept alongside —
+        they're on different scales per feature/ticker and redundant with
+        their own rank/zscore transforms for a cross-sectional ranking
+        model; keeping them was adding noise without new information.
+        """
         base_cols = list(df.columns)
 
         rank_parts: List[pd.Series] = []
@@ -143,7 +149,7 @@ class CrossSectionalFeatureAgent(BaseAgent):
                 by_date.transform(self._zscore).rename(f"zscore_{col}")
             )
 
-        return pd.concat([df] + rank_parts + zscore_parts, axis=1)
+        return pd.concat(rank_parts + zscore_parts, axis=1)
 
     # ------------------------------------------------------------------
     # Static helpers
