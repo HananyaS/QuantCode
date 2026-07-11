@@ -75,13 +75,31 @@ class MultiAssetOrchestrator:
         }
 
     def _build_pipeline(self) -> List[BaseAgent]:
+        bt = self.config["backtest"]
+        return self._build_research_pipeline() + [
+            MultiAssetBacktestAgent(
+                initial_capital=bt["initial_capital"],
+                transaction_cost=bt["transaction_cost"],
+                slippage_coef=bt.get("slippage_coef", 0.0),
+                dollar_volume_window=bt.get("dollar_volume_window", 20),
+            ),
+            MultiAssetEvaluationAgent(),
+        ]
+
+    def _build_research_pipeline(self) -> List[BaseAgent]:
+        """UniverseAgent -> ... -> PortfolioAgent.
+
+        Shared by MultiAssetOrchestrator (backtest) and LiveOrchestrator
+        (paper execution) — everything up to and including the portfolio
+        decision is identical between research and live; only what happens
+        with the resulting weights differs.
+        """
         cfg = self.config
         u = cfg["universe"]
         f = cfg["features"]
         lb = cfg["labeling"]
         m = cfg["model"]
         p = cfg["portfolio"]
-        bt = cfg["backtest"]
 
         ds = cfg.get("data_source", {})
         data_source = ds.get("type", "alpaca")
@@ -115,6 +133,7 @@ class MultiAssetOrchestrator:
                 random_state=m["random_state"],
                 test_size=m["test_size"],
                 model_type=m["type"],
+                purge_days=lb["forward_period"],
             ),
             PortfolioAgent(
                 max_positions=p["max_positions"],
@@ -125,10 +144,11 @@ class MultiAssetOrchestrator:
                 atr_period=p.get("atr_period", 14),
                 score_weighting=p.get("score_weighting", False),
                 weighting_temperature=p.get("weighting_temperature", 1.0),
+                max_drawdown_limit=p.get("max_drawdown_limit"),
+                de_risk_on_breach=p.get("de_risk_on_breach", False),
+                vol_target_sizing=p.get("vol_target_sizing", False),
+                vol_window=p.get("vol_window", 20),
+                max_correlation=p.get("max_correlation"),
+                corr_window=p.get("corr_window", 60),
             ),
-            MultiAssetBacktestAgent(
-                initial_capital=bt["initial_capital"],
-                transaction_cost=bt["transaction_cost"],
-            ),
-            MultiAssetEvaluationAgent(),
         ]

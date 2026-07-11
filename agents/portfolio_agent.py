@@ -35,11 +35,34 @@ When *score_weighting=True*, position sizes are proportional to
   softmax(z_score / temperature)
 Higher temperature → more uniform; lower temperature → concentrates weight
 on highest-scoring positions.
+
+Weighting precedence
+---------------------
+If *vol_target_sizing=True* it takes precedence over *score_weighting*:
+weights are inverse-volatility (1/realised-vol, normalised to sum to 1).
+Otherwise *score_weighting* selects softmax-vs-equal as above.
+
+Max-drawdown circuit breaker
+------------------------------
+When *max_drawdown_limit* is set, the agent tracks its own realised equity
+(from the weight path it has produced so far, close-to-close, no costs) each
+day *before* deciding that day's actions. If drawdown from the running peak
+exceeds the limit, new entries are halted for the day. When
+*de_risk_on_breach=True*, all open positions are additionally force-exited
+the moment the breach is detected (a hard circuit breaker), logged as a
+`circuit_breaker_exit` trade.
+
+Correlation exposure cap
+--------------------------
+When *max_correlation* is set, a candidate is skipped if its trailing
+`corr_window`-day return correlation with any currently-held position
+exceeds the threshold — this avoids stacking multiple highly-correlated
+"top ranked" names that are really the same bet.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -85,11 +108,23 @@ class PortfolioAgent(BaseAgent):
         atr_period: int = 14,
         score_weighting: bool = False,
         weighting_temperature: float = 1.0,
+        max_drawdown_limit: Optional[float] = None,
+        de_risk_on_breach: bool = False,
+        vol_target_sizing: bool = False,
+        vol_window: int = 20,
+        max_correlation: Optional[float] = None,
+        corr_window: int = 60,
     ) -> None:
         assert max_positions >= 1
         assert entry_rank >= 1
         assert exit_rank >= entry_rank
         assert weighting_temperature > 0, "weighting_temperature must be > 0"
+        assert max_drawdown_limit is None or 0 < max_drawdown_limit < 1, (
+            "max_drawdown_limit must be in (0, 1)"
+        )
+        assert max_correlation is None or 0 < max_correlation <= 1, (
+            "max_correlation must be in (0, 1]"
+        )
         self.max_positions = max_positions
         self.entry_rank = entry_rank
         self.exit_rank = exit_rank
@@ -98,6 +133,12 @@ class PortfolioAgent(BaseAgent):
         self.atr_period = atr_period
         self.score_weighting = score_weighting
         self.weighting_temperature = weighting_temperature
+        self.max_drawdown_limit = max_drawdown_limit
+        self.de_risk_on_breach = de_risk_on_breach
+        self.vol_target_sizing = vol_target_sizing
+        self.vol_window = vol_window
+        self.max_correlation = max_correlation
+        self.corr_window = corr_window
 
     # ------------------------------------------------------------------
     # BaseAgent interface
@@ -114,6 +155,11 @@ class PortfolioAgent(BaseAgent):
         close_df = pd.DataFrame({t: df["Close"] for t, df in universe_data.items()})
         low_df   = pd.DataFrame({t: df["Low"]   for t, df in universe_data.items()})
         atr_df   = self._compute_atr(universe_data)
+        returns_df = close_df.pct_change()
+        vol_df = (
+            returns_df.rolling(window=self.vol_window, min_periods=self.vol_window).std()
+            if self.vol_target_sizing else None
+        )
 
         # Widen scores: date × ticker
         scores_wide = scores_raw.unstack(level="ticker")
@@ -125,6 +171,15 @@ class PortfolioAgent(BaseAgent):
         weights_rows: List[Dict[str, float]] = []
         trade_log: List[dict] = []
 
+        # Circuit-breaker state: equity tracked from the realised weight path
+        # itself (close-to-close, no transaction costs — a risk-control
+        # proxy, not the authoritative P&L, which MultiAssetBacktestAgent owns).
+        equity = 1.0
+        peak_equity = 1.0
+        breach_days = 0
+        prev_date: pd.Timestamp | None = None
+        prev_weights_row: Dict[str, float] = {}
+
         for t in test_dates:
             today_scores_raw = scores_wide.loc[t].dropna()
             today_scores_z   = self._zscore(today_scores_raw)
@@ -132,39 +187,79 @@ class PortfolioAgent(BaseAgent):
             today_close = close_df.loc[t] if t in close_df.index else pd.Series(dtype=float)
             today_low   = low_df.loc[t]   if t in low_df.index   else pd.Series(dtype=float)
             today_atr   = atr_df.loc[t]   if t in atr_df.index   else pd.Series(dtype=float)
+            today_vol   = (
+                vol_df.loc[t] if vol_df is not None and t in vol_df.index else pd.Series(dtype=float)
+            )
+
+            # ── Step 0: circuit breaker — realise yesterday's weight return ──
+            breaker_active = False
+            if self.max_drawdown_limit is not None and prev_date is not None:
+                port_ret = 0.0
+                for ticker, w in prev_weights_row.items():
+                    if w <= 0:
+                        continue
+                    p0 = close_df.loc[prev_date].get(ticker, np.nan)
+                    p1 = today_close.get(ticker, np.nan)
+                    if pd.isna(p0) or pd.isna(p1) or p0 <= 0:
+                        continue
+                    port_ret += w * (p1 / p0 - 1.0)
+                equity *= (1.0 + port_ret)
+                peak_equity = max(peak_equity, equity)
+                drawdown = equity / peak_equity - 1.0
+                breaker_active = drawdown <= -self.max_drawdown_limit
+                if breaker_active:
+                    breach_days += 1
 
             # ── Step 1: trailing stop exits ──────────────────────────────
+            # Check stops BEFORE updating HWM — stop uses yesterday's HWM
+            # to avoid intra-bar look-ahead (today's close is not yet known
+            # when the intraday low hits the stop).
+            stopped_out: set = set()
             for ticker in list(open_pos):
-                c = today_close.get(ticker, np.nan)
-                if pd.isna(c):
-                    continue
                 pos = open_pos[ticker]
-                atr_val = today_atr.get(ticker, np.nan)
-
-                # Update HWM
-                pos.hwm = max(pos.hwm, c)
-
-                # Ratchet stop up — ATR expressed as % of current price
-                if not np.isnan(atr_val) and atr_val > 0 and c > 0:
-                    atr_pct = atr_val / c
-                    candidate_stop = pos.hwm * (1.0 - self.atr_mult * atr_pct)
-                    pos.stop_level = max(pos.stop_level, candidate_stop)
-
-                # Check trigger using intraday Low (more realistic than Close only)
                 check_price = today_low.get(ticker, np.nan)
                 if pd.isna(check_price):
-                    check_price = c  # fall back to close if Low not available
+                    check_price = today_close.get(ticker, np.nan)
+                if pd.isna(check_price):
+                    continue
 
                 if check_price <= pos.stop_level:
-                    # Fill at stop_level (stop-limit assumption)
                     exit_price = pos.stop_level
                     trade_log.append(self._log_exit(
                         t, ticker, exit_price, pos, "trailing_stop",
                         today_scores_z.get(ticker, np.nan),
                     ))
+                    stopped_out.add(ticker)
+
+            for ticker in stopped_out:
+                del open_pos[ticker]
+
+            # Now update HWM and ratchet stops for surviving positions
+            for ticker in list(open_pos):
+                c = today_close.get(ticker, np.nan)
+                if pd.isna(c):
+                    continue
+                pos = open_pos[ticker]
+                pos.hwm = max(pos.hwm, c)
+                atr_val = today_atr.get(ticker, np.nan)
+                if not np.isnan(atr_val) and atr_val > 0 and c > 0:
+                    atr_pct = atr_val / c
+                    candidate_stop = pos.hwm * (1.0 - self.atr_mult * atr_pct)
+                    pos.stop_level = max(pos.stop_level, candidate_stop)
+
+            # ── Step 1.5: circuit-breaker de-risk (force-exit everything) ──
+            if breaker_active and self.de_risk_on_breach:
+                for ticker in list(open_pos):
+                    c = today_close.get(ticker, np.nan)
+                    trade_log.append(self._log_exit(
+                        t, ticker, c, open_pos[ticker], "circuit_breaker_exit",
+                        today_scores_z.get(ticker, np.nan),
+                    ))
                     del open_pos[ticker]
+                    stopped_out.add(ticker)
 
             # ── Step 2: rank-based exits ─────────────────────────────────
+            exited_today = set(stopped_out)  # block same-day re-entry
             ranked = today_scores_z.rank(ascending=False)
             for ticker in list(open_pos):
                 rank = ranked.get(ticker, float("inf"))
@@ -175,18 +270,28 @@ class PortfolioAgent(BaseAgent):
                         today_scores_z.get(ticker, np.nan),
                     ))
                     del open_pos[ticker]
+                    exited_today.add(ticker)
 
             # ── Step 3: new entries ──────────────────────────────────────
+            # Circuit breaker: no new risk added while drawdown is breached.
             candidates = (
                 today_scores_z
                 .nlargest(self.entry_rank)
                 .loc[lambda s: s >= self.min_score]
+                if not breaker_active else today_scores_z.iloc[0:0]
+            )
+            corr_mat = (
+                self._trailing_corr(returns_df, t)
+                if self.max_correlation is not None
+                else None
             )
             available = self.max_positions - len(open_pos)
             for ticker in candidates.index:
                 if available <= 0:
                     break
-                if ticker in open_pos:
+                if ticker in open_pos or ticker in exited_today:
+                    continue
+                if corr_mat is not None and self._too_correlated(ticker, open_pos, corr_mat):
                     continue
                 c       = today_close.get(ticker, np.nan)
                 atr_val = today_atr.get(ticker, np.nan)
@@ -218,8 +323,10 @@ class PortfolioAgent(BaseAgent):
 
             # ── Step 4: weights ──────────────────────────────────────────
             weights_rows.append(
-                self._compute_weights(open_pos, all_tickers, today_scores_z)
+                self._compute_weights(open_pos, all_tickers, today_scores_z, today_vol)
             )
+            prev_date = t
+            prev_weights_row = weights_rows[-1]
 
         weights = pd.DataFrame(weights_rows, index=test_dates).fillna(0.0)
 
@@ -227,13 +334,16 @@ class PortfolioAgent(BaseAgent):
         n_entries = sum(1 for t in trade_log if t["action"] == "entry")
         n_trail   = sum(1 for t in trade_log if t["action"] == "trailing_stop")
         n_rank    = sum(1 for t in trade_log if t["action"] == "rank_exit")
+        n_breach  = sum(1 for t in trade_log if t["action"] == "circuit_breaker_exit")
         avg_held  = (weights > 0).sum(axis=1).mean()
         zero_days = (weights.sum(axis=1) == 0).sum()
 
         logger.info(
             "PortfolioAgent: entries=%d  trail_stops=%d  rank_exits=%d  "
-            "avg_held=%.1f  zero_position_days=%d  score_weighted=%s",
-            n_entries, n_trail, n_rank, avg_held, zero_days, self.score_weighting,
+            "circuit_breaker_exits=%d  breach_days=%d  "
+            "avg_held=%.1f  zero_position_days=%d  score_weighted=%s  vol_target=%s",
+            n_entries, n_trail, n_rank, n_breach, breach_days,
+            avg_held, zero_days, self.score_weighting, self.vol_target_sizing,
         )
 
         context["portfolio_weights"] = weights
@@ -249,18 +359,33 @@ class PortfolioAgent(BaseAgent):
         open_pos: Dict[str, Position],
         all_tickers: list,
         today_scores_z: pd.Series,
+        today_vol: pd.Series,
     ) -> Dict[str, float]:
         row = {tk: 0.0 for tk in all_tickers}
         n = len(open_pos)
         if n == 0:
             return row
 
-        if not self.score_weighting:
+        tickers = list(open_pos.keys())
+
+        if self.vol_target_sizing:
+            vols = np.array([today_vol.get(tk, np.nan) for tk in tickers])
+            # Fall back to equal weight for any ticker with unavailable/zero vol.
+            valid = np.isfinite(vols) & (vols > 0)
+            if not valid.any():
+                w = 1.0 / n
+                for tk in tickers:
+                    row[tk] = w
+                return row
+            inv_vol = np.where(valid, 1.0 / np.where(valid, vols, 1.0), 0.0)
+            w_arr = inv_vol / inv_vol.sum()
+            for tk, wi in zip(tickers, w_arr):
+                row[tk] = float(wi)
+        elif not self.score_weighting:
             w = 1.0 / n
             for tk in open_pos:
                 row[tk] = w
         else:
-            tickers = list(open_pos.keys())
             scores  = np.array([today_scores_z.get(tk, 0.0) for tk in tickers])
             logits  = scores / self.weighting_temperature
             logits -= logits.max()           # numerical stability
@@ -270,6 +395,32 @@ class PortfolioAgent(BaseAgent):
                 row[tk] = float(wi)
 
         return row
+
+    # ------------------------------------------------------------------
+    # Correlation exposure cap
+    # ------------------------------------------------------------------
+
+    def _trailing_corr(self, returns_df: pd.DataFrame, t: pd.Timestamp) -> pd.DataFrame:
+        """Pairwise return correlation over the trailing `corr_window` days up to and
+        including `t`."""
+        window = returns_df.loc[:t].tail(self.corr_window)
+        return window.corr()
+
+    def _too_correlated(
+        self,
+        candidate: str,
+        open_pos: Dict[str, Position],
+        corr_mat: pd.DataFrame,
+    ) -> bool:
+        if candidate not in corr_mat.columns:
+            return False
+        for held in open_pos:
+            if held not in corr_mat.columns:
+                continue
+            corr = corr_mat.loc[candidate, held]
+            if pd.notna(corr) and abs(corr) > self.max_correlation:
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # ATR computation

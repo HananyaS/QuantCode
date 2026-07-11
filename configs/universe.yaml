@@ -45,7 +45,17 @@ portfolio:
   atr_period: 14             # ATR lookback (trading days)
   score_weighting: false     # if true, size positions by model score (softmax)
   weighting_temperature: 1.0 # softmax temperature: higher=more uniform, lower=more concentrated
+  # -- Risk management (Phase 2, ROADMAP.md) — all opt-in, off by default --
+  max_drawdown_limit: null   # e.g. 0.15 = halt new entries once realised drawdown hits -15%
+  de_risk_on_breach: false   # if true, also force-exit all open positions on breach
+  vol_target_sizing: false   # if true, size positions inverse-volatility instead of equal/score
+  vol_window: 20             # realised-vol lookback (trading days) for vol_target_sizing
+  max_correlation: null      # e.g. 0.85 = block a new entry too correlated with a held position
+  corr_window: 60            # trailing-correlation lookback (trading days)
 
 backtest:
   initial_capital: 100000
   transaction_cost: 0.001
+  # -- Slippage / market impact (Phase 2, ROADMAP.md) — opt-in, off by default --
+  slippage_coef: 0.0         # e.g. 0.01 = add sqrt(participation)-scaled impact cost
+  dollar_volume_window: 20   # trailing avg-dollar-volume lookback for participation rate
