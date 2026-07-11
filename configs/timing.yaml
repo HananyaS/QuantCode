@@ -16,7 +16,7 @@ signal:
   ticker: "QQQ"
   sma_window: 200          # ~10 months, Faber's published rule
   mom_window: null         # e.g. 126 (~6mo) to enable absolute-momentum component
-  vol_window: 60           # realized-vol lookback for the vol-regime component
+  vol_window: 20           # realized-vol lookback for the vol-regime component
   vol_threshold: 0.30      # 30% annualized realized vol
   vix_threshold: null      # e.g. 30.0
   combine: "all_agree"     # "sma_only" | "all_agree" | "majority"
