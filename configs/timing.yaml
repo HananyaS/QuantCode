@@ -16,7 +16,7 @@ signal:
   ticker: "QQQ"
   sma_window: 190          # ~9mo trend window
   mom_window: null         # e.g. 126 (~6mo) to enable absolute-momentum component
-  vol_window: 20           # realized-vol lookback for the vol-regime component
+  vol_window: 10           # realized-vol lookback for the vol-regime component
   vol_threshold: 0.30      # 30% annualized realized vol
   vix_threshold: 20.0
   combine: "majority"      # "sma_only" | "all_agree" | "majority"
