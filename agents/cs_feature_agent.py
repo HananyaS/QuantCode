@@ -116,6 +116,11 @@ class CrossSectionalFeatureAgent(BaseAgent):
         # RSI
         feats["rsi"] = self._rsi(close, self.rsi_period)
 
+        # 52-week high proximity (George & Hwang 2004): nearness to the
+        # trailing 252-day high has documented predictive power distinct
+        # from simple past returns.
+        feats["pct_of_52w_high"] = close / close.rolling(252, min_periods=252).max()
+
         # SMA ratios
         for w in self.sma_windows:
             sma = close.rolling(window=w, min_periods=w).mean()
