@@ -116,6 +116,12 @@ class CrossSectionalFeatureAgent(BaseAgent):
         # RSI
         feats["rsi"] = self._rsi(close, self.rsi_period)
 
+        # Recent-high proximity (George & Hwang 2004 studied the 52-week
+        # variant; shorter horizons share the same price-anchoring
+        # mechanism). 60 trading days (~3 months) here — deliberately
+        # shorter than 252 to keep warm-up requirements modest.
+        feats["pct_of_60d_high"] = close / close.rolling(60, min_periods=60).max()
+
         # SMA ratios
         for w in self.sma_windows:
             sma = close.rolling(window=w, min_periods=w).mean()
