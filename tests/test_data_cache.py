@@ -51,6 +51,28 @@ def test_second_call_uses_cache_no_fetch(tmp_path):
     assert len(calls) == 1, "second call should be served entirely from cache"
 
 
+def test_first_fetch_with_duplicate_dates_is_deduplicated_before_caching(tmp_path):
+    """A raw fetch can return duplicate index entries (seen in practice from
+    yfinance) even on the very first fetch for a ticker, with no existing
+    cache to merge against. That path must still dedupe before writing —
+    otherwise the cache is corrupted and the next read chokes on a
+    non-unique index."""
+    dates = pd.bdate_range("2024-01-01", periods=5)
+    dup_dates = list(dates) + [dates[2]]  # one duplicated date
+    df = _make_ohlcv(dup_dates)
+
+    def fetch_fn(tickers, start, end):
+        return {"QQQ": df}
+
+    result = load_or_fetch(["QQQ"], "2024-01-01", "2024-01-05", fetch_fn, cache_dir=tmp_path)
+    assert result["QQQ"].index.is_unique
+    assert len(result["QQQ"]) == 5
+
+    # The cache file itself must also be clean — re-reading it must not raise.
+    reread = load_or_fetch(["QQQ"], "2024-01-01", "2024-01-05", fetch_fn, cache_dir=tmp_path)
+    assert reread["QQQ"].index.is_unique
+
+
 def test_merges_new_data_with_existing_cache(tmp_path):
     dates1 = pd.bdate_range("2024-01-01", periods=5)
     dates2 = pd.bdate_range("2024-01-08", periods=5)

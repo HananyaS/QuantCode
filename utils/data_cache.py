@@ -91,10 +91,13 @@ def load_or_fetch(
                 existing = existing.copy()
                 existing["source"] = None
             merged = pd.concat([existing, new_df])
-            merged = merged[~merged.index.duplicated(keep="last")]
-            merged = merged.sort_index()
         else:
-            merged = new_df.sort_index()
+            merged = new_df
+        # A raw fetch can itself return duplicate index entries (seen in
+        # practice from yfinance) even with no existing cache to merge
+        # against — dedupe unconditionally, not just on the merge path.
+        merged = merged[~merged.index.duplicated(keep="last")]
+        merged = merged.sort_index()
 
         _write_cache(ticker, merged, cache_dir)
         result[ticker] = merged.loc[start_dt:end_dt]

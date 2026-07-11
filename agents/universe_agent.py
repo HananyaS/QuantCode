@@ -176,29 +176,46 @@ class UniverseAgent(BaseAgent):
             feed=self.alpaca_feed,
         )
 
+    _YFINANCE_BATCH_SIZE = 50
+
     def _download_yfinance(
         self, tickers: List[str], start: str, end: str
     ) -> Dict[str, pd.DataFrame]:
-        from concurrent.futures import ThreadPoolExecutor
+        """Fetch via yfinance's own multi-ticker batch API.
+
+        A prior implementation spawned a thread per ticker, each independently
+        calling `yf.download(single_ticker)`. yfinance's internal session/cache
+        state is NOT safely shared across manually-spawned threads this way —
+        in production this returned IDENTICAL (cross-contaminated) data for
+        every requested ticker. `yf.download(tickers=[...])` is yfinance's own
+        tested multi-ticker code path and is safe to call directly.
+        """
         import yfinance as yf
 
-        def _fetch(t: str) -> tuple:
-            df = yf.download(t, start=start, end=end,
-                             progress=False, auto_adjust=True)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            return t, df
-
         results: Dict[str, pd.DataFrame] = {}
-        with ThreadPoolExecutor(max_workers=10) as pool:
-            futures = {pool.submit(_fetch, t): t for t in tickers}
-            for future in futures:
-                t = futures[future]
+        for i in range(0, len(tickers), self._YFINANCE_BATCH_SIZE):
+            batch = tickers[i : i + self._YFINANCE_BATCH_SIZE]
+            try:
+                raw = yf.download(
+                    tickers=batch, start=start, end=end,
+                    progress=False, auto_adjust=True,
+                    group_by="ticker", threads=True,
+                )
+            except Exception as exc:
+                logger.warning("UniverseAgent(yfinance): batch failed — %s", exc)
+                continue
+
+            if raw is None or raw.empty:
+                continue
+
+            for t in batch:
                 try:
-                    _, df = future.result()
-                    results[t] = df
-                except Exception as exc:
-                    logger.warning("UniverseAgent(yfinance): %s failed — %s", t, exc)
+                    df = raw[t] if isinstance(raw.columns, pd.MultiIndex) else raw
+                    df = df.dropna(how="all")
+                    if not df.empty:
+                        results[t] = df
+                except KeyError:
+                    logger.warning("UniverseAgent(yfinance): %s missing from batch response", t)
         return results
 
     # ------------------------------------------------------------------
