@@ -1,0 +1,33 @@
+experiment:
+  name: "qqq_timing_v1"
+  seed: 42
+
+universe:
+  tickers: ["QQQ", "^VIX"]
+  benchmark: "QQQ"
+  start_date: "1999-04-01"   # buffered past QQQ's actual first cached bar (1999-03-10)
+  end_date: "2024-12-27"   # buffered before the cache's actual last cached bar (2024-12-30)
+  min_history_days: 500
+
+data_source:
+  type: "yfinance"
+
+signal:
+  ticker: "QQQ"
+  sma_window: 200          # ~10 months, Faber's published rule
+  mom_window: null         # e.g. 126 (~6mo) to enable absolute-momentum component
+  vol_window: null         # e.g. 20 — must be paired with vol_threshold
+  vol_threshold: null      # e.g. 0.30 (30% annualized realized vol)
+  vix_threshold: null      # e.g. 30.0
+  combine: "sma_only"      # "sma_only" | "all_agree" | "majority"
+
+backtest:
+  transaction_cost_bps: 2.0   # QQQ's own spread/impact is tiny (~0.86bp avg spread per POC research)
+
+evaluation:
+  periods_per_year: 252
+
+walk_forward:
+  n_splits: 6
+  purge_days: 0
+  overfit_penalty: 0.5    # weight on cross-fold Sharpe std in the autoresearch metric
