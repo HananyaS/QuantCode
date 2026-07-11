@@ -64,6 +64,21 @@ def test_train_end_before_test_start(cs_features_and_labels):
     assert pd.Timestamp(m["train_end"]) < pd.Timestamp(m["test_start"])
 
 
+def test_purge_gap_between_train_and_test(cs_features_and_labels):
+    """Train end must be at least purge_days before test start."""
+    features, labels = cs_features_and_labels
+    purge = 5
+    agent = RankingModelAgent(n_estimators=10, random_state=42, purge_days=purge)
+    ctx = agent.run({"cs_features": features, "cs_labels": labels})
+    m = ctx["cs_model"]
+    train_end = pd.Timestamp(m["train_end"])
+    test_start = pd.Timestamp(m["test_start"])
+    gap_days = len(pd.bdate_range(train_end, test_start)) - 1  # exclusive of endpoints
+    assert gap_days >= purge, (
+        f"Purge gap is only {gap_days} business days, need >= {purge}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Determinism
 # ---------------------------------------------------------------------------

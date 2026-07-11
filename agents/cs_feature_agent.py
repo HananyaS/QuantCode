@@ -151,10 +151,17 @@ class CrossSectionalFeatureAgent(BaseAgent):
 
     @staticmethod
     def _rsi(close: pd.Series, period: int) -> pd.Series:
+        """Wilder's RSI using exponential moving average (com=period-1).
+
+        Edge cases handled via IEEE 754 arithmetic:
+          loss=0, gain>0 -> rs=inf  -> RSI=100  (all gains)
+          gain=0, loss>0 -> rs=0    -> RSI=0    (all losses)
+          gain=0, loss=0 -> rs=NaN  -> RSI=NaN  (warm-up, dropped later)
+        """
         delta = close.diff()
-        gain = delta.clip(lower=0).rolling(window=period, min_periods=period).mean()
-        loss = (-delta.clip(upper=0)).rolling(window=period, min_periods=period).mean()
-        rs = gain / loss.where(loss != 0, np.nan)
+        gain = delta.clip(lower=0).ewm(com=period - 1, min_periods=period).mean()
+        loss = (-delta.clip(upper=0)).ewm(com=period - 1, min_periods=period).mean()
+        rs = gain / loss  # IEEE 754: gain/0 = inf when gain > 0
         return 100 - 100 / (1 + rs)
 
     @staticmethod

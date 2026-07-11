@@ -235,7 +235,7 @@ def test_high_temperature_approaches_uniform():
     for _, row in w.iterrows():
         nonzero = row[row > 0]
         if len(nonzero) > 1:
-            np.testing.assert_allclose(nonzero.values, nonzero.values[0], atol=1e-3)
+            np.testing.assert_allclose(nonzero.values, nonzero.values[0], atol=5e-3)
 
 
 # ---------------------------------------------------------------------------

@@ -139,35 +139,51 @@ class UniverseAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     def _download_all(self, tickers: List[str]) -> Dict[str, pd.DataFrame]:
-        if self.data_source == "alpaca":
-            return self._download_alpaca(tickers)
-        return self._download_yfinance(tickers)
+        from utils.data_cache import load_or_fetch
+        return load_or_fetch(
+            tickers=tickers,
+            start=self.start_date,
+            end=self.end_date,
+            fetch_fn=self._raw_fetch,
+        )
 
     def _download_single(self, ticker: str) -> pd.DataFrame:
         results = self._download_all([ticker])
         assert ticker in results, f"Benchmark {ticker} not returned by data source"
         return results[ticker]
 
-    def _download_alpaca(self, tickers: List[str]) -> Dict[str, pd.DataFrame]:
+    def _raw_fetch(
+        self, tickers: List[str], start: str, end: str
+    ) -> Dict[str, pd.DataFrame]:
+        """Direct download (no cache) — used as callback by data_cache."""
+        if self.data_source == "alpaca":
+            return self._download_alpaca(tickers, start, end)
+        return self._download_yfinance(tickers, start, end)
+
+    def _download_alpaca(
+        self, tickers: List[str], start: str, end: str
+    ) -> Dict[str, pd.DataFrame]:
         assert self.alpaca_key and self.alpaca_secret, (
             "alpaca_key and alpaca_secret are required when data_source='alpaca'"
         )
         from utils.alpaca_loader import fetch_universe_bars
         return fetch_universe_bars(
             tickers=tickers,
-            start=self.start_date,
-            end=self.end_date,
+            start=start,
+            end=end,
             api_key=self.alpaca_key,
             secret_key=self.alpaca_secret,
             feed=self.alpaca_feed,
         )
 
-    def _download_yfinance(self, tickers: List[str]) -> Dict[str, pd.DataFrame]:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+    def _download_yfinance(
+        self, tickers: List[str], start: str, end: str
+    ) -> Dict[str, pd.DataFrame]:
+        from concurrent.futures import ThreadPoolExecutor
         import yfinance as yf
 
         def _fetch(t: str) -> tuple:
-            df = yf.download(t, start=self.start_date, end=self.end_date,
+            df = yf.download(t, start=start, end=end,
                              progress=False, auto_adjust=True)
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)

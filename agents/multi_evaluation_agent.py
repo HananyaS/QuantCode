@@ -104,10 +104,15 @@ class MultiAssetEvaluationAgent(BaseAgent):
         return float((1 + total_return) ** (1 / n_years) - 1)
 
     def _benchmark_metrics(
-        self, benchmark_data: pd.DataFrame, test_index: pd.Index
+        self, benchmark_data: pd.DataFrame, return_index: pd.Index
     ) -> Dict:
-        bm_close = benchmark_data["Close"].reindex(test_index).dropna()
-        bm_returns = bm_close.pct_change().dropna()
+        # Compute forward returns from the FULL close series (same convention
+        # as backtest: pct_change().shift(-1) on full data, then slice to
+        # the portfolio's return dates).  This avoids losing a day to
+        # pct_change warm-up when only the test window's closes are used.
+        bm_close = benchmark_data["Close"]
+        bm_fwd_ret = bm_close.pct_change().shift(-1)
+        bm_returns = bm_fwd_ret.reindex(return_index).dropna()
         bm_equity = (1 + bm_returns).cumprod() * 100_000.0
         return {
             "sharpe": self._sharpe(bm_returns),

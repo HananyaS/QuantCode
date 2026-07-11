@@ -1,4 +1,4 @@
-# Project Memory: Quant AI Lab
+# Project Memory: QuantCode
 
 ## Goal
 Build a modular multi-agent system for stock prediction and backtesting.

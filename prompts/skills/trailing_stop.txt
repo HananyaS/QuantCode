@@ -42,18 +42,20 @@ On Entry (day T)
 
 Daily Update (each subsequent day t > T)
 -----------------------------------------
-  1. Update HWM:
+  1. Check trigger using intraday Low FIRST (before HWM update):
+       if Low[t, ticker] <= stop_level  ->  EXIT position at stop_level
+       (This avoids intra-bar look-ahead: stop is checked against
+        yesterday's HWM, not today's close which is unknown intraday.)
+
+  2. For surviving positions, update HWM:
        hwm = max(hwm, Close[t, ticker])
 
-  2. Compute candidate stop (percentage-based):
+  3. Compute candidate stop (percentage-based):
        atr_pct = ATR[t, ticker] / Close[t, ticker]
        candidate_stop = hwm * (1 - trailing_stop_atr_mult * atr_pct)
 
-  3. Ratchet stop (never decreases):
+  4. Ratchet stop (never decreases):
        stop_level = max(stop_level, candidate_stop)
-
-  4. Check trigger using intraday Low (not just close):
-       if Low[t, ticker] <= stop_level  ->  EXIT position at stop_level
 
      Using the day's Low rather than Close better mimics real-world
      stop-limit execution. The exit price is stop_level (assuming the

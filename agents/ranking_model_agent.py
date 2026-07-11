@@ -57,6 +57,7 @@ class RankingModelAgent(BaseAgent):
         random_state: int = 42,
         test_size: float = 0.2,
         model_type: str = "lightgbm",
+        purge_days: int = 5,
     ) -> None:
         assert 0 < test_size < 1, "test_size must be in (0, 1)"
         self.n_estimators = n_estimators
@@ -65,6 +66,7 @@ class RankingModelAgent(BaseAgent):
         self.random_state = random_state
         self.test_size = test_size
         self.model_type = model_type
+        self.purge_days = purge_days
 
     # ------------------------------------------------------------------
     # BaseAgent interface
@@ -151,8 +153,16 @@ class RankingModelAgent(BaseAgent):
         assert split_idx > 0 and split_idx < len(dates), (
             f"test_size={self.test_size} produces an empty train or test set"
         )
-        train_dates = set(dates[:split_idx])
+        # Purge: drop the last `purge_days` from training so that their
+        # forward-return labels don't overlap with test-period prices.
+        purge_end = max(split_idx - self.purge_days, 1)
+        train_dates = set(dates[:purge_end])
         test_dates = set(dates[split_idx:])
+
+        logger.info(
+            "RankingModelAgent: purging %d days between train and test",
+            split_idx - purge_end,
+        )
 
         mask_train = X.index.get_level_values("date").isin(train_dates)
         mask_test = X.index.get_level_values("date").isin(test_dates)
@@ -191,7 +201,7 @@ class RankingModelAgent(BaseAgent):
             except KeyError:
                 continue
             aligned = pd.concat([s, a], axis=1).dropna()
-            if len(aligned) >= 2:
+            if len(aligned) >= 10:
                 corr, _ = spearmanr(aligned.iloc[:, 0], aligned.iloc[:, 1])
                 if not np.isnan(corr):
                     ics.append(corr)

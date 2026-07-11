@@ -107,7 +107,7 @@ def test_cs_normalization_uses_no_future_data(universe_data):
     )
     assert len(common_dates) > 0
 
-    for date in common_dates[:5]:  # check a sample
+    for date in common_dates[-10:]:  # check dates near cutoff boundary
         full_row = ctx_full["cs_features"].xs(date, level="date").sort_index()
         half_row = ctx_half["cs_features"].xs(date, level="date").sort_index()
         pd.testing.assert_frame_equal(full_row, half_row, check_exact=False, atol=1e-10)
