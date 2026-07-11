@@ -113,6 +113,11 @@ class CrossSectionalFeatureAgent(BaseAgent):
             .std()
         )
 
+        # 12-1 month momentum (Jegadeesh & Titman 1993): cumulative return
+        # from 252 to 21 trading days ago, skipping the most recent month
+        # since short-term reversal is a separate, oppositely-signed effect.
+        feats["mom_12_1"] = close.shift(21) / close.shift(252) - 1
+
         # RSI
         feats["rsi"] = self._rsi(close, self.rsi_period)
 
