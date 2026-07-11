@@ -18,8 +18,8 @@ signal:
   mom_window: null         # e.g. 126 (~6mo) to enable absolute-momentum component
   vol_window: 20           # realized-vol lookback for the vol-regime component
   vol_threshold: 0.30      # 30% annualized realized vol
-  vix_threshold: null      # e.g. 30.0
-  combine: "all_agree"     # "sma_only" | "all_agree" | "majority"
+  vix_threshold: 30.0
+  combine: "majority"      # "sma_only" | "all_agree" | "majority"
 
 backtest:
   transaction_cost_bps: 2.0   # QQQ's own spread/impact is tiny (~0.86bp avg spread per POC research)
