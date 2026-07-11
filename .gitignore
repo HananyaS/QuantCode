@@ -24,9 +24,11 @@ env/
 .ipynb_checkpoints/
 
 # Data / model artifacts
+data/cache/
+data/*.db
+outputs/
+logs/
 *.pkl
-*.parquet
-*.csv
 *.h5
 
 # OS
