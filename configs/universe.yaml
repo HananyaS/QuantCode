@@ -19,7 +19,7 @@ data_source:
   feed: null   # null = account default (IEX for free/paper accounts)
 
 features:
-  returns: [5, 10]
+  returns: [1, 5, 10]
   volatility_window: 20
   rsi_period: 14
   sma_windows: [20]
