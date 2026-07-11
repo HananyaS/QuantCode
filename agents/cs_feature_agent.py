@@ -116,6 +116,13 @@ class CrossSectionalFeatureAgent(BaseAgent):
         # RSI
         feats["rsi"] = self._rsi(close, self.rsi_period)
 
+        # Return skewness (Bali-Cakici-Whitelaw 2011 "MAX effect"):
+        # investors overpay for positive-skew "lottery" stocks, which then
+        # underperform — a distinct mechanism from momentum or liquidity.
+        feats[f"skew_{self.vol_window}d"] = (
+            close.pct_change().rolling(window=self.vol_window, min_periods=self.vol_window).skew()
+        )
+
         # SMA ratios
         for w in self.sma_windows:
             sma = close.rolling(window=w, min_periods=w).mean()
