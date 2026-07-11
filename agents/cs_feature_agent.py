@@ -116,14 +116,6 @@ class CrossSectionalFeatureAgent(BaseAgent):
         # RSI
         feats["rsi"] = self._rsi(close, self.rsi_period)
 
-        # Amihud (2002) illiquidity: mean(|return| / dollar volume) —
-        # liquidity effects are typically strongest at short horizons,
-        # re-testing now that forward_period is 3 days (was discarded at 5).
-        dollar_volume = close * df["Volume"]
-        feats["amihud_illiq_20d"] = (
-            close.pct_change().abs() / dollar_volume
-        ).rolling(window=20, min_periods=20).mean()
-
         # SMA ratios
         for w in self.sma_windows:
             sma = close.rolling(window=w, min_periods=w).mean()
