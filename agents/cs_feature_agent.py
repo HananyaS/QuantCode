@@ -102,14 +102,6 @@ class CrossSectionalFeatureAgent(BaseAgent):
         close = df["Close"]
         feats = pd.DataFrame(index=df.index)
 
-        # Amihud (2002) illiquidity: mean(|return| / dollar volume). A
-        # liquidity risk premium distinct from momentum — illiquid names
-        # have historically earned higher expected returns.
-        dollar_volume = close * df["Volume"]
-        feats["amihud_illiq_20d"] = (
-            close.pct_change().abs() / dollar_volume
-        ).rolling(window=20, min_periods=20).mean()
-
         # Momentum returns
         for w in self.returns_windows:
             feats[f"ret_{w}d"] = close.pct_change(w)
