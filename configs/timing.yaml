@@ -15,11 +15,11 @@ data_source:
 signal:
   ticker: "QQQ"
   sma_window: 200          # ~10 months, Faber's published rule
-  mom_window: 126          # ~6mo absolute momentum (Antonacci-style)
+  mom_window: null         # e.g. 126 (~6mo) to enable absolute-momentum component
   vol_window: null         # e.g. 20 — must be paired with vol_threshold
   vol_threshold: null      # e.g. 0.30 (30% annualized realized vol)
   vix_threshold: null      # e.g. 30.0
-  combine: "all_agree"     # "sma_only" | "all_agree" | "majority"
+  combine: "sma_only"      # "sma_only" | "all_agree" | "majority"
 
 backtest:
   transaction_cost_bps: 2.0   # QQQ's own spread/impact is tiny (~0.86bp avg spread per POC research)
