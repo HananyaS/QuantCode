@@ -26,7 +26,7 @@ conditional_vol:
 regime:
   mu_decay: 0.94            # EWMA decay for conditional_mu
   adx_period: 14            # Wilder ADX lookback
-  adx_threshold: 2.0        # ADX >= this -> "trending", else "choppy"
+  adx_threshold: 25.0       # ADX >= this -> "trending", else "choppy"
 
 # -- Kelly sizing (utils/kelly_sizing.py, agents/timing/kelly_position_agent.py) --
 kelly_sizing:
@@ -35,7 +35,7 @@ kelly_sizing:
   worst_case_daily_move: 0.20   # assumed worst-case single-day underlying move for the ruin-floor cap
   ruin_buffer: 0.20          # required safety margin (fraction) from the ruin threshold -1/L
   vol_spike_threshold: 0.40  # annualized conditional vol above this -> force flat (cash)
-  drawdown_limit: 0.10       # realized drawdown on the held instrument above this -> force flat (cash)
+  drawdown_limit: 0.15       # realized drawdown on the held instrument above this -> force flat (cash)
   entry_margin: 0.3          # minimum leverage-unit increase over current exposure to justify rotating up
   min_observations: 60       # minimum bars before trusting mu_hat/sigma_hat/regime (explicit warmup gate)
 
