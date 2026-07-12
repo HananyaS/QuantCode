@@ -1,0 +1,66 @@
+experiment:
+  name: "qqq_kelly_leverage_v1"
+  seed: 42
+
+# Signal instrument used to estimate conditional mu/sigma^2/regime. QLD and
+# TQQQ are constructed synthetically from this ticker's real returns (see
+# utils/synthetic_leveraged_series.py) rather than pulled as separate cached
+# series, so the full 1999+ QQQ history is usable for stress-testing (real
+# TQQQ/QLD history is inception-limited: 2010/2006 respectively).
+universe:
+  underlying_ticker: "QQQ"
+  start_date: "1999-04-01"   # buffered past QQQ's actual first cached bar (1999-03-10)
+  end_date: "2024-12-27"     # buffered before the cache's actual last cached bar (2024-12-30)
+
+data_source:
+  type: "yfinance"
+
+# -- Conditional variance estimator (utils/conditional_vol.py) --
+conditional_vol:
+  method: "ewma"          # "ewma" | "gjr_garch"
+  ewma_decay: 0.94         # RiskMetrics-standard decay
+  garch_refit_every: 20    # trading days between GARCH parameter re-estimation
+  garch_min_train_obs: 250 # minimum history before the first GARCH fit
+
+# -- Conditional drift / regime estimator (utils/regime_classifier.py) --
+regime:
+  mu_decay: 0.94            # EWMA decay for conditional_mu
+  adx_period: 14            # Wilder ADX lookback
+  adx_threshold: 25.0       # ADX >= this -> "trending", else "choppy"
+
+# -- Kelly sizing (utils/kelly_sizing.py, agents/timing/kelly_position_agent.py) --
+kelly_sizing:
+  fractional_kelly: 0.5      # half-Kelly: sacrifices ~25% of expected growth for much lower variance of outcomes
+  max_leverage: 3.0          # must not exceed the largest tier's own leverage (TQQQ = 3x)
+  worst_case_daily_move: 0.20   # assumed worst-case single-day underlying move for the ruin-floor cap
+  ruin_buffer: 0.20          # required safety margin (fraction) from the ruin threshold -1/L
+  vol_spike_threshold: 0.40  # annualized conditional vol above this -> force flat (cash)
+  drawdown_limit: 0.15       # realized drawdown on the held instrument above this -> force flat (cash)
+  entry_margin: 0.3          # minimum leverage-unit increase over current exposure to justify rotating up
+  min_observations: 60       # minimum bars before trusting mu_hat/sigma_hat/regime (explicit warmup gate)
+
+# -- Synthetic leveraged series (utils/synthetic_leveraged_series.py) --
+# Total annual cost-of-carry, NOT the published prospectus expense ratio —
+# calibrated against real cached TQQQ/QLD price history
+# (calibrate_total_annual_drag) because real funds bear financing/borrowing
+# costs on top of their stated expense ratio. See
+# docs/research-log/kelly-leverage-sizing.md for the calibration and its
+# important rate-regime-dependence caveat (this is a full-history average,
+# not a stable constant — true drag has run ~1.9%/yr in near-zero-rate
+# eras vs ~11%/yr in the 2022-2026 high-rate era).
+synthetic_series:
+  tiers:
+    - {leverage: 1.0, ticker: "QQQ", annual_drag: 0.0020}
+    - {leverage: 2.0, ticker: "QLD", annual_drag: 0.0326}
+    - {leverage: 3.0, ticker: "TQQQ", annual_drag: 0.0542}
+
+backtest:
+  transaction_cost_bps: 2.0
+
+evaluation:
+  periods_per_year: 252
+
+walk_forward:
+  n_splits: 6
+  purge_days: 0
+  overfit_penalty: 0.5
