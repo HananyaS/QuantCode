@@ -36,7 +36,7 @@ kelly_sizing:
   ruin_buffer: 0.20          # required safety margin (fraction) from the ruin threshold -1/L
   vol_spike_threshold: 0.40  # annualized conditional vol above this -> force flat (cash)
   drawdown_limit: 0.15       # realized drawdown on the held instrument above this -> force flat (cash)
-  entry_margin: 0.5          # minimum leverage-unit increase over current exposure to justify rotating up
+  entry_margin: 0.3          # minimum leverage-unit increase over current exposure to justify rotating up
   min_observations: 60       # minimum bars before trusting mu_hat/sigma_hat/regime (explicit warmup gate)
 
 # -- Synthetic leveraged series (utils/synthetic_leveraged_series.py) --
