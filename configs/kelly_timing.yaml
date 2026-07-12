@@ -35,7 +35,7 @@ kelly_sizing:
   worst_case_daily_move: 0.20   # assumed worst-case single-day underlying move for the ruin-floor cap
   ruin_buffer: 0.20          # required safety margin (fraction) from the ruin threshold -1/L
   vol_spike_threshold: 0.40  # annualized conditional vol above this -> force flat (cash)
-  drawdown_limit: 0.15       # realized drawdown on the held instrument above this -> force flat (cash)
+  drawdown_limit: 0.20       # realized drawdown on the held instrument above this -> force flat (cash)
   entry_margin: 0.3          # minimum leverage-unit increase over current exposure to justify rotating up
   min_observations: 60       # minimum bars before trusting mu_hat/sigma_hat/regime (explicit warmup gate)
 
