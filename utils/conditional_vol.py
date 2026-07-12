@@ -63,12 +63,19 @@ def gjr_garch_variance(
     """
     from arch import arch_model
 
-    n = len(returns)
     result = pd.Series(np.nan, index=returns.index, dtype=float)
+
+    # Series.pct_change() (the realistic caller pattern — see
+    # agents/timing/kelly_position_agent.py) always has a leading NaN, and
+    # arch_model() rejects ANY NaN in its input outright. Drop them before
+    # fitting; `clean.index` stays a valid (date-aligned) subset of
+    # `returns.index` so results can be written back positionally within it.
+    clean = returns.dropna().astype(float)
+    n = len(clean)
     if n < min_train_obs + 1:
         return result
 
-    r = returns.astype(float) * _SCALE
+    r = clean * _SCALE
 
     params: Optional[pd.Series] = None
     sigma_sq_state: Optional[float] = None
@@ -96,7 +103,7 @@ def gjr_garch_variance(
 
         indicator = 1.0 if last_return < 0 else 0.0
         forecast = omega + alpha * last_return**2 + gamma * indicator * last_return**2 + beta * sigma_sq_state
-        result.iloc[t] = forecast / (_SCALE**2)
+        result.loc[r.index[t]] = forecast / (_SCALE**2)
 
         sigma_sq_state = forecast
         last_return = float(r.iloc[t])

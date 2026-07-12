@@ -96,3 +96,22 @@ def test_gjr_garch_insufficient_data_returns_all_nan_not_raise():
     rets = _returns(n=20, seed=4)
     var = gjr_garch_variance(rets, refit_every=50, min_train_obs=100)
     assert var.isna().all()
+
+
+def test_gjr_garch_variance_handles_leading_nan_from_pct_change():
+    # returns from Series.pct_change() always has a leading NaN (and this
+    # is exactly what agents/timing/kelly_position_agent.py feeds in) --
+    # the arch library's arch_model() rejects any NaN outright, so this
+    # must be handled internally rather than crash on every single fit
+    # attempt (which would silently leave the entire output all-NaN).
+    n = 400
+    dates = pd.bdate_range("2015-01-01", periods=n)
+    prices = pd.Series(100 * np.cumprod(1 + np.random.RandomState(6).normal(0, 0.01, n)), index=dates)
+    rets = prices.pct_change()  # leading NaN at index 0
+    assert pd.isna(rets.iloc[0])
+
+    var = gjr_garch_variance(rets, refit_every=40, min_train_obs=100)
+    assert var.notna().sum() > 0
+    valid = var.dropna()
+    assert np.isfinite(valid).all()
+    assert (valid >= 0).all()
