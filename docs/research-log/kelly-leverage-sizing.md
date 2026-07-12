@@ -270,6 +270,63 @@ for a future autoresearch-style search, not the Kelly fraction itself.
    simulated) returns, which is standard practice but is itself an
    approximation of a "true" daily-refit walk-forward GARCH.
 
+## Autoresearch: hysteresis-parameter search (post-build)
+
+Ran `/autoresearch:autoresearch` to tune `adx_threshold`, `vol_spike_threshold`,
+`drawdown_limit`, `entry_margin`, `fractional_kelly`, and the EWMA decays —
+deliberately excluding `worst_case_daily_move`/`ruin_buffer` (safety
+constants for the ruin-floor cap; fitting them to backtest score would
+incentivize loosening the safety margin, exactly the wrong incentive).
+
+**A second same-day lookahead bug was found and fixed mid-search.** At
+iteration 10 of the first attempt, tightening `drawdown_limit` to 0.07
+produced an implausible ~99% CAGR with Sharpe 2.2-3.8 uniformly across
+*every* walk-forward fold — consistent enough across regimes to look
+almost-too-good rather than an obvious single-fold artifact, which is what
+prompted investigating the mechanism instead of accepting the number. Root
+cause: `KellyPositionAgent`'s drawdown check used the *current* date's own
+closing price to decide that date's position; since `KellyBacktestAgent`
+applies a position to its own date's return with no shift (by design —
+`mu_hat`/`sigma_sq_hat`/`regime` are already forecasts-for-t), the agent
+could effectively see a bad day's return before deciding to dodge it. The
+existing no-lookahead test didn't catch this — it only checks that *future*
+data doesn't leak into *past* decisions, not that a date's *own* price
+doesn't leak into that date's *own* decision. Fixed by lagging the
+drawdown/watermark price lookups by one bar; a regression test (two price
+paths identical through index k-1, diverging sharply *at* index k) confirms
+the decision at k no longer depends on k's own outcome.
+
+**This invalidated iterations 1-9 of the first search attempt** (all
+"keeps" scored against the buggy path). Re-scoring the "winning" config
+under corrected code: 0.332 vs the corrected baseline's 0.408 — *worse*,
+not better. The config was reset to original defaults and the search
+restarted cleanly from a corrected baseline (0.408292).
+
+**Restarted search result (20/20 iterations, corrected code)**:
+baseline 0.408292 → final 0.523754 (+28.3%). Winning config:
+`fractional_kelly=0.75`, `ewma_decay=0.90`, `mu_decay=0.92`,
+`adx_threshold=20`, `drawdown_limit=0.20`, `vol_spike_threshold=0.35`.
+`entry_margin` was non-binding across the whole tested range (0.15-0.5) —
+left at its default. Same lesson as the earlier QQQ-signal search:
+axis-aligned tuning plateaued more than once, but re-checking an
+already-settled parameter after a *later* parameter shifted (iterations
+16, 18, 20) kept finding real interaction-effect gains — the search only
+converged once every parameter had been re-checked in the final context.
+
+**Leakage-free holdout check** (`scripts/kelly_hysteresis_holdout_check.py`,
+mirroring the established pattern): dev-only reselection using *only*
+pre-2020 data landed on the **exact same config** as the full-history
+search — full agreement, the strongest signal against overfitting this
+style of check can give. On the untouched 2020-2024 holdout, the tuned
+config beats baseline defaults on Sharpe (0.90 vs 0.80), Sortino (1.25 vs
+1.09), CAGR (29.5% vs 20.9%), *and* max drawdown (-34.2% vs -39.1%)
+simultaneously — a genuine, leakage-free improvement across every metric,
+not a tradeoff. The genuine blind 2025-2026 forward test shows tuned and
+baseline close (Sharpe 1.02 vs 0.99, CAGR 37.5% vs 34.2%), both trailing
+buy-and-hold's CAGR substantially in this strong bull run while offering
+much smaller drawdowns — the same pattern seen in every timing/sizing
+module built this session.
+
 ## How to reproduce
 
 ```bash
