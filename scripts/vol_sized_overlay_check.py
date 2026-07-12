@@ -3,12 +3,11 @@ layer (LeveragedPositionAgent/LeveragedBacktestAgent) against the naive
 binary QQQ-signal-drives-TQQQ-or-cash overlay
 (scripts/leveraged_overlay_check.py) and plain TQQQ buy-and-hold.
 
-target_vol=0.30 is not arbitrary: it's the SAME annualized realized-vol
-level already used as the vol-regime component's on/off threshold in the
-winning QQQ signal (configs/timing.yaml). That makes the sizing coherent
-with the gate: "full TQQQ" only kicks in well below the level at which the
-regime signal itself would consider going flat, and by the time realized
-vol approaches 30% exposure has already scaled down toward QQQ-only.
+Reads the regime signal (`signal`) and sizing (`leverage_sizing`) configs
+live from configs/timing.yaml rather than hardcoding them, so this always
+reflects whatever autoresearch has most recently tuned
+(scripts/measure_leveraged_strategy.py is the Verify metric for the sizing
+search) instead of going stale.
 """
 from __future__ import annotations
 
@@ -19,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
+import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -32,11 +32,6 @@ from utils.data_cache import load_or_fetch
 
 _CACHE_DIR = Path("data/cache")
 _HOLDOUT_END = "2024-12-27"
-_SIGNAL_CONFIG = dict(
-    sma_window=190, mom_window=None, vol_window=20,
-    vol_threshold=0.30, vix_threshold=20.0, combine="majority",
-)
-_SIZING_CONFIG = dict(vol_window=20, target_vol=0.30, max_leverage=3.0)
 
 
 def _no_network_fetch(missing, start, end):
@@ -68,18 +63,30 @@ def _print_row(label: str, m: dict) -> None:
 
 
 def main() -> None:
+    with open("configs/timing.yaml") as fh:
+        cfg = yaml.safe_load(fh)
+    s, ls, lb = cfg["signal"], cfg["leverage_sizing"], cfg["leverage_backtest"]
+
     universe_data = _load_universe()
 
     signal_ctx = {"universe_data": universe_data}
-    signal_ctx = TimingSignalAgent(ticker="QQQ", **_SIGNAL_CONFIG).run(signal_ctx)
+    signal_ctx = TimingSignalAgent(
+        ticker=s["ticker"], sma_window=s["sma_window"], mom_window=s.get("mom_window"),
+        vol_window=s.get("vol_window"), vol_threshold=s.get("vol_threshold"),
+        vix_threshold=s.get("vix_threshold"), combine=s["combine"],
+    ).run(signal_ctx)
     signal = signal_ctx["timing_signal"]
 
     # Vol-sized layer
     pos_ctx = {"universe_data": universe_data, "timing_signal": signal}
-    pos_ctx = LeveragedPositionAgent(signal_ticker="QQQ", **_SIZING_CONFIG).run(pos_ctx)
+    pos_ctx = LeveragedPositionAgent(
+        signal_ticker=ls["signal_ticker"], vol_window=ls["vol_window"],
+        target_vol=ls["target_vol"], max_leverage=ls["max_leverage"],
+    ).run(pos_ctx)
     vol_sized_ctx = {"universe_data": universe_data, "leverage_position": pos_ctx["leverage_position"]}
     vol_sized_ctx = LeveragedBacktestAgent(
-        tickers=("QQQ", "QLD", "TQQQ"), transaction_cost_bps=2.0, benchmark_ticker="TQQQ",
+        tickers=tuple(lb["tickers"]), transaction_cost_bps=lb["transaction_cost_bps"],
+        benchmark_ticker=lb["benchmark_ticker"],
     ).run(vol_sized_ctx)
     vol_sized_ctx["timing_signal"] = signal  # for time_in_market reporting
 
