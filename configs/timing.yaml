@@ -41,7 +41,7 @@ leverage_sizing:
   signal_ticker: "QQQ"
   vol_window: 12           # realized-vol lookback used for sizing (may differ from signal's own vol_window)
   target_vol: 0.65         # matches signal.vol_threshold for a coherent calibration; tunable independently
-  max_leverage: 3.0        # must not exceed the largest tier's own leverage (TQQQ = 3x)
+  max_leverage: 2.75       # must not exceed the largest tier's own leverage (TQQQ = 3x)
 
 leverage_backtest:
   tickers: ["QQQ", "QLD", "TQQQ"]
