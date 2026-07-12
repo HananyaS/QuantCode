@@ -18,7 +18,7 @@ data_source:
 # -- Conditional variance estimator (utils/conditional_vol.py) --
 conditional_vol:
   method: "ewma"          # "ewma" | "gjr_garch"
-  ewma_decay: 0.90         # RiskMetrics-standard decay
+  ewma_decay: 0.85         # RiskMetrics-standard decay
   garch_refit_every: 20    # trading days between GARCH parameter re-estimation
   garch_min_train_obs: 250 # minimum history before the first GARCH fit
 
