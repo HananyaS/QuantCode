@@ -24,7 +24,7 @@ conditional_vol:
 
 # -- Conditional drift / regime estimator (utils/regime_classifier.py) --
 regime:
-  mu_decay: 0.85            # EWMA decay for conditional_mu
+  mu_decay: 0.90            # EWMA decay for conditional_mu
   adx_period: 14            # Wilder ADX lookback
   adx_threshold: 25.0       # ADX >= this -> "trending", else "choppy"
 
