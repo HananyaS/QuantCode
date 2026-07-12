@@ -145,7 +145,13 @@ class KellyPositionAgent(BaseAgent):
         held_fraction = 0.0
         watermark: Optional[float] = None
 
-        held_price_cache = {t: context_df["Close"] for t, context_df in universe_data.items()}
+        raw_price_cache = {t: context_df["Close"] for t, context_df in universe_data.items()}
+        # Every decision for date t must depend only on data through t-1 —
+        # including the drawdown check, which is price-based and therefore
+        # just as lookahead-prone as mu_hat/sigma_sq_hat/regime if it used
+        # date t's own close. Lag every ticker's price series by one bar so
+        # "today's" lookup always resolves to yesterday's close.
+        held_price_cache = {t: series.shift(1) for t, series in raw_price_cache.items()}
 
         for i, date in enumerate(dates):
             mu_t, sigma_sq_t, regime_t = mu_hat.get(date), sigma_sq_hat.get(date), regime.get(date)
@@ -171,9 +177,9 @@ class KellyPositionAgent(BaseAgent):
 
                 dd = 0.0
                 if held_fraction > 0 and watermark:
-                    held_price_now = held_price_cache[held_ticker].get(date)
-                    if held_price_now is not None and not pd.isna(held_price_now):
-                        dd = held_price_now / watermark - 1.0
+                    held_price_asof_prior_close = held_price_cache[held_ticker].get(date)
+                    if held_price_asof_prior_close is not None and not pd.isna(held_price_asof_prior_close):
+                        dd = held_price_asof_prior_close / watermark - 1.0
                 drawdown_breach = dd < -self.drawdown_limit
 
                 if vol_spiking or drawdown_breach:
@@ -194,14 +200,16 @@ class KellyPositionAgent(BaseAgent):
             entered_new_position = (new_ticker != held_ticker) or (
                 held_fraction <= 0.0 < new_fraction
             )
+            # Watermark tracking uses the same as-of-prior-close price as
+            # the drawdown check above, for the same no-lookahead reason.
             if new_fraction <= 0.0:
                 watermark = None
             elif entered_new_position:
                 watermark = held_price_cache[new_ticker].get(date)
             else:
-                price_now = held_price_cache[new_ticker].get(date)
-                if price_now is not None and not pd.isna(price_now) and watermark is not None:
-                    watermark = max(watermark, price_now)
+                price_asof_prior_close = held_price_cache[new_ticker].get(date)
+                if price_asof_prior_close is not None and not pd.isna(price_asof_prior_close) and watermark is not None:
+                    watermark = max(watermark, price_asof_prior_close)
 
             held_ticker, held_fraction = new_ticker, new_fraction
             tickers.append(new_ticker)

@@ -155,6 +155,37 @@ def test_drawdown_breach_forces_flat():
     assert position["fraction"].iloc[-1] == pytest.approx(0.0)
 
 
+def test_drawdown_check_does_not_use_same_day_own_price():
+    # The decision for date t must depend ONLY on data through t-1 -- the
+    # drawdown check must NOT use date t's own closing price (which already
+    # reflects date t's own return) to decide date t's position. Two price
+    # paths identical through index k-1 but diverging sharply AT index k
+    # (one crashes, one doesn't) must produce an IDENTICAL decision at
+    # index k; they may differ from index k+1 onward, once k's price is
+    # historical.
+    n = 300
+    crash_idx = 250
+    high_a, low_a, close_a = _trending_ohlc(n=n, daily_drift=0.003, vol=0.003, seed=99)
+
+    close_b = close_a.copy()
+    close_b.iloc[crash_idx] = close_a.iloc[crash_idx - 1] * 0.80  # -20% single-day crash at index k
+    high_b, low_b = close_b * 1.004, close_b * 0.996
+
+    ctx_a = {"universe_data": _universe(high_a, low_a, close_a)}
+    ctx_b = {"universe_data": _universe(high_b, low_b, close_b)}
+
+    agent_kwargs = dict(adx_threshold=10.0, drawdown_limit=0.10, vol_spike_threshold=0.40)
+    pos_a = _agent(**agent_kwargs).run(ctx_a)["leverage_position"]
+    pos_b = _agent(**agent_kwargs).run(ctx_b)["leverage_position"]
+
+    # Prefix through index k-1 is identical by construction, so decisions
+    # through k-1 trivially match. The critical check is index k itself:
+    row_a = pos_a.iloc[crash_idx]
+    row_b = pos_b.iloc[crash_idx]
+    assert row_a["ticker"] == row_b["ticker"]
+    assert row_a["fraction"] == pytest.approx(row_b["fraction"])
+
+
 def test_no_lookahead_prefix_unchanged_by_future_data():
     high, low, close = _trending_ohlc(n=400, seed=50)
     ctx_full = {"universe_data": _universe(high, low, close)}
