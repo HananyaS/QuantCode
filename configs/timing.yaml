@@ -31,3 +31,26 @@ walk_forward:
   n_splits: 6
   purge_days: 0
   overfit_penalty: 0.5    # weight on cross-fold Sharpe std in the autoresearch metric
+
+# -- Leveraged position sizing (agents/timing/leveraged_position_agent.py) --
+# Maps the `signal` section's regime signal + realized vol to a continuous
+# target leverage, mapped onto QQQ(1x)/QLD(2x)/TQQQ(3x) + cash. Evaluated
+# separately from `signal` since it only matters once the signal is long;
+# `signal` itself is NOT re-tuned here.
+leverage_sizing:
+  signal_ticker: "QQQ"
+  vol_window: 20           # realized-vol lookback used for sizing (may differ from signal's own vol_window)
+  target_vol: 0.30         # matches signal.vol_threshold for a coherent calibration; tunable independently
+  max_leverage: 3.0        # must not exceed the largest tier's own leverage (TQQQ = 3x)
+
+leverage_backtest:
+  tickers: ["QQQ", "QLD", "TQQQ"]
+  transaction_cost_bps: 2.0
+  benchmark_ticker: "TQQQ"
+  eval_start: "2010-02-11"   # earliest date all 3 sizing instruments have data (TQQQ inception)
+  eval_end: "2024-12-27"
+
+leverage_walk_forward:
+  n_splits: 5              # fewer than walk_forward.n_splits: shorter usable history (2010-2024 vs 1999-2024)
+  purge_days: 0
+  overfit_penalty: 0.5
