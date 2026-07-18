@@ -55,25 +55,33 @@ _BASE = dict(
     entry_margin=0.3, min_observations=60,
 )
 
-# The actual "kept" progression from the real (corrected) search, in the
-# order discovered -- not cherry-picked after the fact.
+# The actual "kept" progression from the RE-RUN search (after fixing the
+# symmetric-hysteresis bug, commit 65a971c), in the order discovered -- not
+# cherry-picked after the fact. Supersedes the pre-fix progression this
+# script originally checked (fractional_kelly/vol_decay tuning from that
+# run no longer applies; mu_decay turned out to be the dominant lever this
+# time).
 _CANDIDATES = {
     "baseline": dict(fractional_kelly=0.5, vol_decay=0.94, mu_decay=0.94,
                       adx_threshold=25.0, drawdown_limit=0.15, vol_spike_threshold=0.40),
-    "v1_frac075": dict(fractional_kelly=0.75, vol_decay=0.94, mu_decay=0.94,
-                        adx_threshold=25.0, drawdown_limit=0.15, vol_spike_threshold=0.40),
-    "v2_vwdecay090": dict(fractional_kelly=0.75, vol_decay=0.90, mu_decay=0.94,
-                           adx_threshold=25.0, drawdown_limit=0.15, vol_spike_threshold=0.40),
-    "v3_mudecay092": dict(fractional_kelly=0.75, vol_decay=0.90, mu_decay=0.92,
-                           adx_threshold=25.0, drawdown_limit=0.15, vol_spike_threshold=0.40),
-    "v4_adx20": dict(fractional_kelly=0.75, vol_decay=0.90, mu_decay=0.92,
+    "v1_adx20": dict(fractional_kelly=0.5, vol_decay=0.94, mu_decay=0.94,
                       adx_threshold=20.0, drawdown_limit=0.15, vol_spike_threshold=0.40),
-    "v5_dd020": dict(fractional_kelly=0.75, vol_decay=0.90, mu_decay=0.92,
-                      adx_threshold=20.0, drawdown_limit=0.20, vol_spike_threshold=0.40),
-    "v6_final": dict(fractional_kelly=0.75, vol_decay=0.90, mu_decay=0.92,
-                      adx_threshold=20.0, drawdown_limit=0.20, vol_spike_threshold=0.35),
+    "v2_adx15": dict(fractional_kelly=0.5, vol_decay=0.94, mu_decay=0.94,
+                      adx_threshold=15.0, drawdown_limit=0.15, vol_spike_threshold=0.40),
+    "v3_vspike030": dict(fractional_kelly=0.5, vol_decay=0.94, mu_decay=0.94,
+                          adx_threshold=15.0, drawdown_limit=0.15, vol_spike_threshold=0.30),
+    "v4_vspike025": dict(fractional_kelly=0.5, vol_decay=0.94, mu_decay=0.94,
+                          adx_threshold=15.0, drawdown_limit=0.15, vol_spike_threshold=0.25),
+    "v5_mudecay097": dict(fractional_kelly=0.5, vol_decay=0.94, mu_decay=0.97,
+                           adx_threshold=15.0, drawdown_limit=0.15, vol_spike_threshold=0.25),
+    "v6_mudecay099": dict(fractional_kelly=0.5, vol_decay=0.94, mu_decay=0.99,
+                           adx_threshold=15.0, drawdown_limit=0.15, vol_spike_threshold=0.25),
+    "v7_mudecay0995": dict(fractional_kelly=0.5, vol_decay=0.94, mu_decay=0.995,
+                            adx_threshold=15.0, drawdown_limit=0.15, vol_spike_threshold=0.25),
+    "v8_final": dict(fractional_kelly=0.5, vol_decay=0.94, mu_decay=0.995,
+                      adx_threshold=15.0, drawdown_limit=0.15, vol_spike_threshold=0.35),
 }
-_FULL_HISTORY_WINNER = "v6_final"
+_FULL_HISTORY_WINNER = "v8_final"
 
 
 def _no_network_fetch(missing, start, end):
