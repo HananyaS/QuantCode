@@ -185,15 +185,24 @@ class KellyPositionAgent(BaseAgent):
                 if vol_spiking or drawdown_breach:
                     target_leverage = 0.0
                     de_risk_reason = "vol_spike" if vol_spiking else "drawdown_breach"
-                elif regime_t == "choppy":
-                    target_leverage = min(current_exposure, 1.0)
-                    de_risk_reason = "choppy"
                 else:
-                    if l_capped > current_exposure + self.entry_margin:
+                    # Symmetric hysteresis: rotate only when the raw
+                    # (fractional-Kelly, ruin-capped) target has moved
+                    # meaningfully away from what's currently held — in
+                    # EITHER direction. An increase-only rule would let the
+                    # strategy stay leveraged even after its own Kelly
+                    # signal turns negative (fractional_kelly clips a
+                    # negative l_star to 0), simply because no explicit
+                    # de-risk trigger happened to fire.
+                    if abs(l_capped - current_exposure) > self.entry_margin:
                         target_leverage = l_capped
                     else:
                         target_leverage = current_exposure
-                    de_risk_reason = None
+                    if regime_t == "choppy":
+                        # Chop caps NEW leverage but must not override a
+                        # decrease already decided above.
+                        target_leverage = min(target_leverage, 1.0)
+                    de_risk_reason = "choppy" if regime_t == "choppy" else None
 
             new_ticker, new_fraction = map_to_instrument_blend(target_leverage, tiers=self.tiers)
 

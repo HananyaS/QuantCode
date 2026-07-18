@@ -186,6 +186,50 @@ def test_drawdown_check_does_not_use_same_day_own_price():
     assert row_a["fraction"] == pytest.approx(row_b["fraction"])
 
 
+def test_signal_turning_negative_reduces_exposure_even_without_explicit_trigger():
+    # A real gap found while dry-running this module live: once leveraged,
+    # the position could ONLY shrink via vol-spike, drawdown-breach, or the
+    # chop-cap-at-1x rule. If the Kelly-optimal target itself turns
+    # negative (mu_hat < 0 -> l_star < 0 -> fractional_kelly clips to 0)
+    # while regime stays "trending" and neither vol-spike nor drawdown-
+    # breach has fired yet, the strategy must still de-risk toward that
+    # degraded target -- holding a leveraged position purely because no
+    # explicit trigger happened to fire is not growth-optimal, it's a gap
+    # in the hysteresis logic.
+    n = 300
+    # Build a price path that trends up long enough to enter a leveraged
+    # position, then reverses into a persistent downtrend (still smooth/
+    # low-vol enough to stay "trending" per ADX and NOT trip the vol-spike
+    # or drawdown-limit thresholds) so mu_hat goes negative while nothing
+    # else forces a de-risk.
+    up_days = 220
+    down_days = n - up_days
+    rng = np.random.RandomState(77)
+    up_rets = 0.003 + rng.normal(0, 0.002, up_days)
+    down_rets = -0.003 + rng.normal(0, 0.002, down_days)
+    rets = np.concatenate([up_rets, down_rets])
+    close = pd.Series(100.0 * np.cumprod(1 + rets), index=pd.bdate_range("2015-01-01", periods=n))
+    high, low = close * 1.003, close * 0.997
+
+    ctx = {"universe_data": _universe(high, low, close)}
+    agent = _agent(adx_threshold=15.0, vol_spike_threshold=0.60, drawdown_limit=0.60, entry_margin=0.3)
+    ctx = agent.run(ctx)
+    position = ctx["leverage_position"]
+    log = ctx["kelly_decision_log"]
+    tier_leverage = {"QQQ": 1.0, "QLD": 2.0, "TQQQ": 3.0}
+    effective_leverage = position.apply(lambda r: tier_leverage[r["ticker"]] * r["fraction"], axis=1)
+
+    # Confirm the fixture actually built a leveraged position during the
+    # uptrend and a negative mu_hat during the downtrend (both needed for
+    # this to be a meaningful test, not a vacuous pass).
+    assert effective_leverage.iloc[:up_days].max() > 1.0, "fixture should build leverage during the uptrend"
+    assert log["mu_hat"].iloc[-1] < 0, "fixture should produce negative mu_hat by the end of the downtrend"
+
+    # The position late in the downtrend must have come down toward zero,
+    # not remained stuck at its uptrend-era leveraged level.
+    assert effective_leverage.iloc[-1] < 1.0
+
+
 def test_no_lookahead_prefix_unchanged_by_future_data():
     high, low, close = _trending_ohlc(n=400, seed=50)
     ctx_full = {"universe_data": _universe(high, low, close)}
