@@ -2,9 +2,14 @@ name: Live Paper Trading (Kelly & Linear)
 
 # Runs both strategies once per weekday on GitHub's hosted runners, so
 # trading doesn't depend on a laptop being open. Decisions use the most
-# recently completed daily bar (fetched fresh via yfinance every run);
-# orders are submitted during regular market hours so they fill immediately
-# rather than queuing after-hours.
+# recently completed daily bar (QQQ/QLD/TQQQ fetched fresh from Alpaca's
+# data API every run, ^VIX from yfinance -- see live_run.py); orders are
+# submitted during regular market hours so they fill immediately rather
+# than queuing after-hours.
+#
+# The schedule trigger below runs the REAL pipeline (submits real, though
+# paper, orders) -- only a manual workflow_dispatch run respects the
+# dry_run input. There is no dry-run gate on the schedule itself.
 #
 # State (data/live_state_kelly.db, data/live_state_linear.db) is normally
 # gitignored -- runners are ephemeral, so this workflow force-commits those
@@ -13,10 +18,14 @@ name: Live Paper Trading (Kelly & Linear)
 # everything else (market data, decisions) is recomputed fresh each time.
 on:
   schedule:
-    # 14:45 UTC = 9:45am ET (EDT) / 10:45am ET (EST) -- after the 9:30am
-    # market open in both DST states, so orders fill at a live regular-hours
-    # price rather than being rejected/queued as after-hours.
-    - cron: "45 14 * * 1-5"
+    # 15:00 UTC = 10:00am ET (EST, winter) / 11:00am ET (EDT, summer) --
+    # GitHub Actions cron is UTC-only and doesn't shift with US DST, so a
+    # fixed time drifts by an hour across the year. Chosen so the WORST
+    # case (EST) still gives a 30min buffer after the 9:30am open -- the
+    # first 15-30min of a session tends to have the widest spreads/most
+    # noise, so this avoids trading right at the open rather than just
+    # barely after it.
+    - cron: "0 15 * * 1-5"
   workflow_dispatch:
     inputs:
       dry_run:
