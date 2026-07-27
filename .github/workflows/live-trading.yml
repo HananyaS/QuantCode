@@ -76,12 +76,26 @@ jobs:
 
       - name: Persist live state
         if: always()
+        # The push can race anything that advanced origin/main since this
+        # job's checkout (a code push during the run, a concurrent manual
+        # run's state commit) -- a plain `git push` would fail and today's
+        # order ledger would die with the ephemeral runner. Rebase onto the
+        # updated remote and retry a few times; the state commit only
+        # touches data/live_state_*.db, which nothing else writes, so the
+        # rebase itself cannot conflict.
         run: |
           git config user.name "live-trading-bot"
           git config user.email "actions@users.noreply.github.com"
           git add -f data/live_state_kelly.db data/live_state_linear.db 2>/dev/null || true
           if ! git diff --cached --quiet; then
             git commit -m "chore: persist live trading state [skip ci]"
+            for attempt in 1 2 3; do
+              if git push; then
+                exit 0
+              fi
+              echo "push rejected (attempt $attempt) -- rebasing onto updated origin/main"
+              git pull --rebase origin main
+            done
             git push
           else
             echo "No state changes to persist (dry run, or no orders this run)."
