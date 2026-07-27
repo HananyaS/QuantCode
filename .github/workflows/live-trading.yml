@@ -62,6 +62,12 @@ jobs:
         run: python scripts/live_run.py --strategy kelly $DRY_RUN_FLAG
 
       - name: Linear strategy
+        # The two strategies are fully independent (separate accounts,
+        # separate state) -- a Kelly failure must not block Linear's daily
+        # run. !cancelled() still runs this after a Kelly step failure but
+        # respects an actual workflow cancellation. The job still reports
+        # failure overall if either step failed.
+        if: ${{ !cancelled() }}
         env:
           ALPACA_API_KEY_LINEAR: ${{ secrets.ALPACA_API_KEY_LINEAR }}
           ALPACA_SECRET_KEY_LINEAR: ${{ secrets.ALPACA_SECRET_KEY_LINEAR }}
