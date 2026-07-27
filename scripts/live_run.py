@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -50,19 +51,40 @@ logger = get_logger(__name__)
 
 _TRACKED_TICKERS = ("QQQ", "QLD", "TQQQ")
 _LOOKBACK_DAYS = 1500  # ~4 years -- comfortably warms up SMA-190/ADX-14/EWMA
+_FETCH_MAX_ATTEMPTS = 3
+_FETCH_RETRY_SECONDS = 15.0
 
 
 def _fetch_live_universe(extra_tickers: tuple) -> dict:
+    """yfinance occasionally returns a gappy/partial response (observed in
+    production: a transient batch of NaN Close values that fails
+    UniverseAgent's validation) -- a real, seen-in-CI failure mode, not a
+    hypothetical. Retry a few times with a short backoff before giving up;
+    an unattended daily run shouldn't skip a trading day over one blip.
+    """
     tickers = list(dict.fromkeys(list(_TRACKED_TICKERS) + list(extra_tickers)))
     end = date.today()
     start = end - timedelta(days=_LOOKBACK_DAYS)
-    agent = UniverseAgent(
-        tickers=tickers, start_date=str(start), end_date=str(end),
-        benchmark="QQQ", min_assets=len(tickers), min_history_days=500,
-        data_source="yfinance",
-    )
-    ctx = agent.run({})
-    return ctx["universe_data"]
+
+    last_exc: Exception | None = None
+    for attempt in range(1, _FETCH_MAX_ATTEMPTS + 1):
+        try:
+            agent = UniverseAgent(
+                tickers=tickers, start_date=str(start), end_date=str(end),
+                benchmark="QQQ", min_assets=len(tickers), min_history_days=500,
+                data_source="yfinance",
+            )
+            ctx = agent.run({})
+            return ctx["universe_data"]
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _FETCH_MAX_ATTEMPTS:
+                logger.warning(
+                    "Live universe fetch failed (attempt %d/%d): %s -- retrying in %.0fs",
+                    attempt, _FETCH_MAX_ATTEMPTS, exc, _FETCH_RETRY_SECONDS,
+                )
+                time.sleep(_FETCH_RETRY_SECONDS)
+    raise last_exc
 
 
 def _decide_kelly(universe_data: dict) -> tuple:
