@@ -1,0 +1,73 @@
+name: Live Paper Trading (Kelly & Linear)
+
+# Runs both strategies once per weekday on GitHub's hosted runners, so
+# trading doesn't depend on a laptop being open. Decisions use the most
+# recently completed daily bar (fetched fresh via yfinance every run);
+# orders are submitted during regular market hours so they fill immediately
+# rather than queuing after-hours.
+#
+# State (data/live_state_kelly.db, data/live_state_linear.db) is normally
+# gitignored -- runners are ephemeral, so this workflow force-commits those
+# two files back to the repo after each run to persist the PDT round-trip
+# guard and order ledger across runs. This is the only state that survives;
+# everything else (market data, decisions) is recomputed fresh each time.
+on:
+  schedule:
+    # 14:45 UTC = 9:45am ET (EDT) / 10:45am ET (EST) -- after the 9:30am
+    # market open in both DST states, so orders fill at a live regular-hours
+    # price rather than being rejected/queued as after-hours.
+    - cron: "45 14 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview only -- no orders submitted, no state written"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: live-trading
+  cancel-in-progress: false
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Kelly strategy
+        env:
+          ALPACA_API_KEY_KELLY: ${{ secrets.ALPACA_API_KEY_KELLY }}
+          ALPACA_SECRET_KEY_KELLY: ${{ secrets.ALPACA_SECRET_KEY_KELLY }}
+          DRY_RUN_FLAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+        run: python scripts/live_run.py --strategy kelly $DRY_RUN_FLAG
+
+      - name: Linear strategy
+        env:
+          ALPACA_API_KEY_LINEAR: ${{ secrets.ALPACA_API_KEY_LINEAR }}
+          ALPACA_SECRET_KEY_LINEAR: ${{ secrets.ALPACA_SECRET_KEY_LINEAR }}
+          DRY_RUN_FLAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+        run: python scripts/live_run.py --strategy linear $DRY_RUN_FLAG
+
+      - name: Persist live state
+        if: always()
+        run: |
+          git config user.name "live-trading-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -f data/live_state_kelly.db data/live_state_linear.db 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: persist live trading state [skip ci]"
+            git push
+          else
+            echo "No state changes to persist (dry run, or no orders this run)."
+          fi
