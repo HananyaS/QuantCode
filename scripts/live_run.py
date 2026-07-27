@@ -55,36 +55,61 @@ _FETCH_MAX_ATTEMPTS = 3
 _FETCH_RETRY_SECONDS = 15.0
 
 
-def _fetch_live_universe(extra_tickers: tuple) -> dict:
-    """yfinance occasionally returns a gappy/partial response (observed in
-    production: a transient batch of NaN Close values that fails
-    UniverseAgent's validation) -- a real, seen-in-CI failure mode, not a
-    hypothetical. Retry a few times with a short backoff before giving up;
-    an unattended daily run shouldn't skip a trading day over one blip.
+def _run_with_retry(build_agent) -> dict:
+    """Retry a UniverseAgent().run({}) call a few times with a short
+    backoff. `build_agent` is a zero-arg callable returning a fresh
+    UniverseAgent -- a fresh instance each attempt, no shared state to
+    worry about between retries.
     """
-    tickers = list(dict.fromkeys(list(_TRACKED_TICKERS) + list(extra_tickers)))
-    end = date.today()
-    start = end - timedelta(days=_LOOKBACK_DAYS)
-
     last_exc: Exception | None = None
     for attempt in range(1, _FETCH_MAX_ATTEMPTS + 1):
         try:
-            agent = UniverseAgent(
-                tickers=tickers, start_date=str(start), end_date=str(end),
-                benchmark="QQQ", min_assets=len(tickers), min_history_days=500,
-                data_source="yfinance",
-            )
-            ctx = agent.run({})
-            return ctx["universe_data"]
+            return build_agent().run({})["universe_data"]
         except Exception as exc:
             last_exc = exc
             if attempt < _FETCH_MAX_ATTEMPTS:
                 logger.warning(
-                    "Live universe fetch failed (attempt %d/%d): %s -- retrying in %.0fs",
+                    "Universe fetch failed (attempt %d/%d): %s -- retrying in %.0fs",
                     attempt, _FETCH_MAX_ATTEMPTS, exc, _FETCH_RETRY_SECONDS,
                 )
                 time.sleep(_FETCH_RETRY_SECONDS)
     raise last_exc
+
+
+def _fetch_live_universe(alpaca_key: str, alpaca_secret: str, extra_tickers: tuple) -> dict:
+    """QQQ/QLD/TQQQ via Alpaca's own data API (feed='iex', the free-tier
+    feed -- the default SIP feed 403s without a paid subscription).
+    Observed in production: yfinance returned a batch of NaN Close values
+    for all three tickers on 2 of 3 real GitHub Actions runs -- reproducible,
+    not a one-off blip, consistent with the rate-limiting yfinance is known
+    for from datacenter IP ranges (see agents/universe_agent.py's own
+    docstring). Alpaca is authenticated and account-scoped, not subject to
+    that failure mode, and we already hold live trading credentials here.
+
+    '^VIX' isn't a tradeable equity/ETF, so Alpaca's stock data API doesn't
+    carry it -- it's the one ticker still fetched via yfinance (with the
+    same retry-on-transient-failure treatment), only needed by the Linear
+    strategy's vix_regime signal component.
+    """
+    end = date.today()
+    start = end - timedelta(days=_LOOKBACK_DAYS)
+    start_s, end_s = str(start), str(end)
+
+    universe_data = _run_with_retry(lambda: UniverseAgent(
+        tickers=list(_TRACKED_TICKERS), start_date=start_s, end_date=end_s,
+        benchmark="QQQ", min_assets=len(_TRACKED_TICKERS), min_history_days=500,
+        data_source="alpaca", alpaca_key=alpaca_key, alpaca_secret=alpaca_secret, alpaca_feed="iex",
+    ))
+
+    if "^VIX" in extra_tickers:
+        vix_data = _run_with_retry(lambda: UniverseAgent(
+            tickers=["^VIX"], start_date=start_s, end_date=end_s,
+            benchmark="^VIX", min_assets=1, min_history_days=500,
+            data_source="yfinance",
+        ))
+        universe_data["^VIX"] = vix_data["^VIX"]
+
+    return universe_data
 
 
 def _decide_kelly(universe_data: dict) -> tuple:
@@ -200,7 +225,7 @@ def main() -> None:
 
     extra = ("^VIX",) if args.strategy == "linear" else ()
     print(f"Fetching live market data ({', '.join(_TRACKED_TICKERS + extra)}) ...")
-    universe_data = _fetch_live_universe(extra)
+    universe_data = _fetch_live_universe(api_key, secret_key, extra)
     for t, df in universe_data.items():
         print(f"  {t}: {df.index.min().date()} -> {df.index.max().date()}  ({len(df)} bars)")
 
