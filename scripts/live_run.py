@@ -135,11 +135,46 @@ def _print_dry_run_preview(client, weights: dict, universe_data: dict, equity_hi
         print(f"  {ticker:<8}{w:>10.3f}{target_dollars:>14,.2f}{current_dollars:>14,.2f}{delta:>14,.2f}  {action}")
 
 
+def _is_market_day(client, day: date) -> bool:
+    """True iff NYSE is open for regular trading on `day` (Alpaca's own
+    calendar -- correctly excludes weekends AND holidays like Thanksgiving,
+    Christmas, Good Friday, etc., which a plain weekday check would miss).
+    """
+    from alpaca.trading.requests import GetCalendarRequest
+    return len(client.get_calendar(GetCalendarRequest(start=day, end=day))) > 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--strategy", choices=["kelly", "linear"], required=True)
     parser.add_argument("--dry-run", action="store_true", help="Preview only, submit nothing.")
     args = parser.parse_args()
+
+    if args.strategy == "kelly":
+        key_env, secret_env = "ALPACA_API_KEY_KELLY", "ALPACA_SECRET_KEY_KELLY"
+        db_path = "data/live_state_kelly.db"
+    else:
+        key_env, secret_env = "ALPACA_API_KEY_LINEAR", "ALPACA_SECRET_KEY_LINEAR"
+        db_path = "data/live_state_linear.db"
+
+    api_key = os.environ.get(key_env)
+    secret_key = os.environ.get(secret_env)
+    assert api_key and secret_key, f"{key_env}/{secret_env} not set in .env"
+
+    from alpaca.trading.client import TradingClient
+    client = TradingClient(api_key=api_key, secret_key=secret_key, paper=True)
+
+    # Real runs only: a scheduled trigger (e.g. GitHub Actions cron) fires on
+    # every weekday regardless of market holidays. Without this check, a
+    # holiday run would recompute the same decision as the last real trading
+    # day (no new bar exists) and could attempt to resubmit toward that same
+    # target. Gate on the broker's own calendar, before any data fetch or
+    # order logic runs at all -- not on --dry-run, so manual preview/testing
+    # still works on weekends/holidays.
+    if not args.dry_run and not _is_market_day(client, date.today()):
+        print(f"{date.today()} is not an NYSE trading day -- skipping ({args.strategy}). "
+              "No data fetched, no orders submitted.")
+        return
 
     extra = ("^VIX",) if args.strategy == "linear" else ()
     print(f"Fetching live market data ({', '.join(_TRACKED_TICKERS + extra)}) ...")
@@ -149,25 +184,14 @@ def main() -> None:
 
     if args.strategy == "kelly":
         decision_date, ticker, fraction, detail = _decide_kelly(universe_data)
-        key_env, secret_env = "ALPACA_API_KEY_KELLY", "ALPACA_SECRET_KEY_KELLY"
-        db_path = "data/live_state_kelly.db"
     else:
         decision_date, ticker, fraction, detail = _decide_linear(universe_data)
-        key_env, secret_env = "ALPACA_API_KEY_LINEAR", "ALPACA_SECRET_KEY_LINEAR"
-        db_path = "data/live_state_linear.db"
 
     print(f"\nDecision for {decision_date.date()} ({args.strategy}):")
     print(f"  -> {ticker}  fraction={fraction:.3f}  ({detail})")
 
     weights = position_row_to_weights(ticker, fraction, tracked_tickers=_TRACKED_TICKERS)
     weights_df = pd.DataFrame([weights], index=[decision_date])
-
-    api_key = os.environ.get(key_env)
-    secret_key = os.environ.get(secret_env)
-    assert api_key and secret_key, f"{key_env}/{secret_env} not set in .env"
-
-    from alpaca.trading.client import TradingClient
-    client = TradingClient(api_key=api_key, secret_key=secret_key, paper=True)
 
     if args.dry_run:
         _print_dry_run_preview(client, weights, universe_data, equity_hint=f"{args.strategy} paper account")
