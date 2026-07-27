@@ -65,6 +65,24 @@ rotations could submit the buy first, relying on Reg-T margin buying power
 to cover both legs simultaneously — exactly-zero slack when fully invested
 at 1x and rotating everything. Sells are now submitted first.
 
+### 5. Fetch window was timezone-dependent; partial intraday bars could
+### enter the signal math (conceptual — found by the final CI verification)
+
+`_fetch_live_universe` used `end = date.today()` — whose meaning depends on
+the machine's timezone. Observed live, same logical request, same evening:
+the UTC CI runner's fetch stopped at Friday's bar (Monday's completed close
+silently excluded — a real staleness had that run submitted orders), while
+the UTC+9 laptop included Monday. Worse, mid-session runs got the current
+day's **in-progress partial bar** back from both Alpaca IEX and yfinance,
+feeding an 11am price into math validated exclusively on completed closes.
+
+Fix: fetch with a 2-day-padded end (timezone-proof), then
+`utils/live_decision.py::drop_incomplete_last_bar` removes any final row
+whose session hasn't officially closed, judged against the **broker's own
+clock and calendar** (`_session_closed_checker`) rather than local time.
+Net behavior, everywhere, regardless of machine timezone: the signal sees
+exactly the completed sessions and nothing else.
+
 ## Known limitations, deliberately deferred (not silently ignored)
 
 - **Execution-time drift vs. the backtest convention.** Backtests assume

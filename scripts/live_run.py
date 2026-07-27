@@ -43,7 +43,11 @@ from agents.timing.kelly_position_agent import KellyPositionAgent
 from agents.timing.leveraged_position_agent import LeveragedPositionAgent
 from agents.timing.timing_signal_agent import TimingSignalAgent
 from agents.universe_agent import UniverseAgent
-from utils.live_decision import append_next_session_bar, position_row_to_weights
+from utils.live_decision import (
+    append_next_session_bar,
+    drop_incomplete_last_bar,
+    position_row_to_weights,
+)
 from utils.logger import get_logger
 from utils.state_store import StateStore
 
@@ -90,8 +94,16 @@ def _fetch_live_universe(alpaca_key: str, alpaca_secret: str, extra_tickers: tup
     carry it -- it's the one ticker still fetched via yfinance (with the
     same retry-on-transient-failure treatment), only needed by the Linear
     strategy's vix_regime signal component.
+
+    The end date is deliberately padded 2 days into the future: whether
+    "today" falls inside an end=date.today() request depends on the
+    MACHINE's timezone (observed live: a UTC CI runner excluded a bar the
+    UTC+9 laptop included, for the same logical request). Fetch wide, then
+    let the caller trim any not-yet-closed session's partial bar against
+    the broker's own clock (drop_incomplete_last_bar) -- explicit and
+    timezone-independent, instead of implicit and machine-dependent.
     """
-    end = date.today()
+    end = date.today() + timedelta(days=2)
     start = end - timedelta(days=_LOOKBACK_DAYS)
     start_s, end_s = str(start), str(end)
 
@@ -217,6 +229,35 @@ def _is_market_day(client, day: date) -> bool:
     return len(client.get_calendar(GetCalendarRequest(start=day, end=day))) > 0
 
 
+def _session_closed_checker(client):
+    """Build is_session_closed(bar_date) for drop_incomplete_last_bar from
+    the broker's own clock and calendar: a daily bar is complete iff its
+    session's official close is in the past. Calendar lookups are memoized
+    -- every tracked frame shares at most a couple of distinct last-bar
+    dates per run.
+    """
+    from alpaca.trading.requests import GetCalendarRequest
+    now = pd.Timestamp(client.get_clock().timestamp)  # tz-aware
+    cache: dict = {}
+
+    def is_session_closed(bar_date) -> bool:
+        day = pd.Timestamp(bar_date).date()
+        if day not in cache:
+            cal = client.get_calendar(GetCalendarRequest(start=day, end=day))
+            if not cal:
+                # Not a trading session at all (shouldn't happen for a real
+                # bar) -- nothing can still be in progress, treat as closed.
+                cache[day] = True
+            else:
+                close_dt = pd.Timestamp(cal[0].close)
+                if close_dt.tzinfo is None:
+                    close_dt = close_dt.tz_localize("America/New_York")
+                cache[day] = now >= close_dt
+        return cache[day]
+
+    return is_session_closed
+
+
 def _next_trading_session(client, after: date) -> pd.Timestamp:
     """First NYSE trading session STRICTLY after `after` (Alpaca calendar).
 
@@ -270,6 +311,11 @@ def main() -> None:
     extra = ("^VIX",) if args.strategy == "linear" else ()
     print(f"Fetching live market data ({', '.join(_TRACKED_TICKERS + extra)}) ...")
     universe_data = _fetch_live_universe(api_key, secret_key, extra)
+    # Trim any in-progress partial bar (fetch is deliberately end-padded;
+    # completeness is decided against the broker clock, not the machine's
+    # timezone) so the signal math only ever sees completed sessions --
+    # matching what every backtest was validated on.
+    universe_data = drop_incomplete_last_bar(universe_data, _session_closed_checker(client))
     for t, df in universe_data.items():
         print(f"  {t}: {df.index.min().date()} -> {df.index.max().date()}  ({len(df)} bars)")
 

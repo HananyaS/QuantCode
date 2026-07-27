@@ -8,7 +8,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from utils.live_decision import append_next_session_bar, position_row_to_weights
+from utils.live_decision import (
+    append_next_session_bar,
+    drop_incomplete_last_bar,
+    position_row_to_weights,
+)
 
 
 def test_selected_ticker_gets_its_fraction():
@@ -143,3 +147,32 @@ def test_extended_kelly_mu_uses_all_data_through_last_bar():
         universe["QQQ"]["Close"].pct_change().ewm(alpha=1 - 0.94, adjust=False).mean().iloc[-1]
     )
     assert log["mu_hat"].iloc[-1] == pytest.approx(expected_mu, rel=1e-12)
+
+
+# ----------------------------------------------------------------------
+# drop_incomplete_last_bar
+# ----------------------------------------------------------------------
+
+def test_drop_incomplete_last_bar_trims_open_session():
+    """A daily bar for a session that hasn't closed yet is an in-progress
+    partial bar (observed live: Alpaca IEX and yfinance both return one
+    mid-session) -- treating its 11am price as a completed close feeds the
+    signal math data the validated backtest never saw. It must be dropped.
+    """
+    universe = _mini_universe(n=10)
+    last_date = universe["QQQ"].index[-1]
+
+    trimmed = drop_incomplete_last_bar(universe, is_session_closed=lambda d: d != last_date)
+
+    for t, df in trimmed.items():
+        assert df.index[-1] == universe[t].index[-2]
+        assert len(df) == len(universe[t]) - 1
+    # input untouched
+    assert all(len(df) == 10 for df in universe.values())
+
+
+def test_drop_incomplete_last_bar_keeps_closed_session():
+    universe = _mini_universe(n=10)
+    trimmed = drop_incomplete_last_bar(universe, is_session_closed=lambda d: True)
+    for t, df in trimmed.items():
+        pd.testing.assert_frame_equal(df, universe[t])

@@ -30,6 +30,34 @@ def position_row_to_weights(
     return {t: (float(fraction) if t == ticker else 0.0) for t in tracked_tickers}
 
 
+def drop_incomplete_last_bar(
+    universe_data: Dict[str, pd.DataFrame],
+    is_session_closed,
+) -> Dict[str, pd.DataFrame]:
+    """Return a copy of `universe_data` with each frame's final row removed
+    when that row's session has not yet closed. Input frames are never
+    mutated; only the final row is ever a candidate (earlier bars are
+    completed by construction).
+
+    Why: both Alpaca (IEX) and yfinance return an IN-PROGRESS daily bar for
+    the current session mid-day, and whether "today" even lands inside the
+    requested end date depends on the machine's timezone (observed live:
+    a UTC CI runner and a UTC+9 laptop fetched different last bars for the
+    same logical request). Treating a partial bar's mid-session price as a
+    completed close feeds the signal math data the validated backtests
+    never saw. Callers pass `is_session_closed(bar_date) -> bool` built
+    from the broker's own clock/calendar, keeping this function pure and
+    testable.
+    """
+    trimmed: Dict[str, pd.DataFrame] = {}
+    for ticker, df in universe_data.items():
+        if len(df) > 0 and not is_session_closed(df.index[-1]):
+            trimmed[ticker] = df.iloc[:-1].copy()
+        else:
+            trimmed[ticker] = df
+    return trimmed
+
+
 def append_next_session_bar(
     universe_data: Dict[str, pd.DataFrame],
     next_session,
