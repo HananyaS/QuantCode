@@ -43,7 +43,7 @@ from agents.timing.kelly_position_agent import KellyPositionAgent
 from agents.timing.leveraged_position_agent import LeveragedPositionAgent
 from agents.timing.timing_signal_agent import TimingSignalAgent
 from agents.universe_agent import UniverseAgent
-from utils.live_decision import position_row_to_weights
+from utils.live_decision import append_next_session_bar, position_row_to_weights
 from utils.logger import get_logger
 from utils.state_store import StateStore
 
@@ -112,11 +112,29 @@ def _fetch_live_universe(alpaca_key: str, alpaca_secret: str, extra_tickers: tup
     return universe_data
 
 
-def _decide_kelly(universe_data: dict) -> tuple:
+def _decide_kelly(universe_data: dict, next_session: pd.Timestamp) -> tuple:
+    """Decision FOR `next_session` (the session actually being traded),
+    computed from all data through the latest completed close.
+
+    KellyPositionAgent's estimators are forecast-for-t (value at date t uses
+    data through t-1, pre-shifted at source), so the row at the last
+    completed bar was decided from data through the bar BEFORE it —
+    executing that row the next morning would be one full trading day
+    stale. Extending the index with a placeholder bar at `next_session`
+    yields the genuine decision for the session being traded. See
+    utils/live_decision.py::append_next_session_bar for the mechanics.
+    """
     with open("configs/kelly_timing.yaml") as fh:
         cfg = yaml.safe_load(fh)
     cv, rg, ks = cfg["conditional_vol"], cfg["regime"], cfg["kelly_sizing"]
-    ctx = {"universe_data": universe_data}
+    assert cv["method"] == "ewma", (
+        "live Kelly decisions require vol_method='ewma': gjr_garch_variance "
+        "drops NaN rows before fitting, so the appended next-session bar "
+        "would get a NaN forecast and silently produce a flat decision. "
+        "Wire GARCH into the live path deliberately before enabling it here."
+    )
+    extended = append_next_session_bar(universe_data, next_session, tickers=_TRACKED_TICKERS)
+    ctx = {"universe_data": extended}
     ctx = KellyPositionAgent(
         signal_ticker=cfg["universe"]["underlying_ticker"],
         vol_method=cv["method"], vol_decay=cv["ewma_decay"],
@@ -139,6 +157,14 @@ def _decide_kelly(universe_data: dict) -> tuple:
 
 
 def _decide_linear(universe_data: dict) -> tuple:
+    """Decision from the last completed bar, NO index extension — the
+    deliberate asymmetry with _decide_kelly. TimingSignalAgent and
+    LeveragedPositionAgent use unshifted same-day rolling windows (the
+    execution lag lives downstream in TimingBacktestAgent's shift(1)), so
+    the last-bar row already IS the position to hold during the next
+    session. Appending a NaN bar here would make every rolling window NaN
+    at that row -> signal 0 -> a silent false de-risk.
+    """
     with open("configs/timing.yaml") as fh:
         cfg = yaml.safe_load(fh)
     s, ls = cfg["signal"], cfg["leverage_sizing"]
@@ -191,6 +217,24 @@ def _is_market_day(client, day: date) -> bool:
     return len(client.get_calendar(GetCalendarRequest(start=day, end=day))) > 0
 
 
+def _next_trading_session(client, after: date) -> pd.Timestamp:
+    """First NYSE trading session STRICTLY after `after` (Alpaca calendar).
+
+    This is the session the current run's orders will actually fill in:
+    during regular hours it's today (today > last completed bar); submitted
+    after close, a DAY market order queues for the next open. Used both as
+    the Kelly decision's target session and as the run_date recorded in the
+    StateStore ledger, so the PDT same-day-round-trip guard keys on the
+    real fill session rather than a stale bar date.
+    """
+    from alpaca.trading.requests import GetCalendarRequest
+    cal = client.get_calendar(GetCalendarRequest(
+        start=after + timedelta(days=1), end=after + timedelta(days=10),
+    ))
+    assert cal, f"no NYSE session found within 10 days after {after}"
+    return pd.Timestamp(cal[0].date)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--strategy", choices=["kelly", "linear"], required=True)
@@ -229,16 +273,26 @@ def main() -> None:
     for t, df in universe_data.items():
         print(f"  {t}: {df.index.min().date()} -> {df.index.max().date()}  ({len(df)} bars)")
 
+    last_bar = max(universe_data[t].index[-1] for t in _TRACKED_TICKERS)
+    next_session = _next_trading_session(client, last_bar.date())
+
     if args.strategy == "kelly":
-        decision_date, ticker, fraction, detail = _decide_kelly(universe_data)
+        decision_date, ticker, fraction, detail = _decide_kelly(universe_data, next_session)
     else:
         decision_date, ticker, fraction, detail = _decide_linear(universe_data)
 
-    print(f"\nDecision for {decision_date.date()} ({args.strategy}):")
+    print(f"\nPosition for session {next_session.date()} ({args.strategy}), "
+          f"decided from data through {last_bar.date()}:")
     print(f"  -> {ticker}  fraction={fraction:.3f}  ({detail})")
 
     weights = position_row_to_weights(ticker, fraction, tracked_tickers=_TRACKED_TICKERS)
-    weights_df = pd.DataFrame([weights], index=[decision_date])
+    # Index the weights row by the FILL session, not the signal's bar date:
+    # ExecutionAgent takes its ledger run_date from this index, and the PDT
+    # same-day-round-trip guard must key on the session the order actually
+    # fills in. (For Kelly, decision_date == next_session already; for
+    # Linear, decision_date is the last bar whose signal, by that
+    # pipeline's shift-downstream convention, is held during next_session.)
+    weights_df = pd.DataFrame([weights], index=[next_session])
 
     if args.dry_run:
         _print_dry_run_preview(client, weights, universe_data, equity_hint=f"{args.strategy} paper account")
