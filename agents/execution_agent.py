@@ -101,12 +101,20 @@ class ExecutionAgent(BaseAgent):
         broker_positions = {p.symbol: float(p.market_value) for p in client.get_all_positions()}
         already_bought_today = self.state_store.tickers_bought_on(run_date)
 
-        orders = []
+        # Sells first: on a rotation (e.g. TQQQ -> QQQ) the sale's proceeds
+        # fund the buy. Submitting the buy first only works while margin
+        # buying power happens to cover holding both legs at once -- fully
+        # invested at 1x and rotating all of it, Reg-T buying power covers
+        # the buy only exactly, with no slack for an intraday dip.
+        deltas = []
         for ticker, target_w in target_weights.items():
             target_dollars = float(target_w) * equity
-            current_dollars = broker_positions.get(ticker, 0.0)
-            delta_dollars = target_dollars - current_dollars
+            delta_dollars = target_dollars - broker_positions.get(ticker, 0.0)
+            deltas.append((ticker, delta_dollars))
+        deltas.sort(key=lambda pair: pair[1] >= 0)  # sells (negative) first
 
+        orders = []
+        for ticker, delta_dollars in deltas:
             if abs(delta_dollars) < self.min_order_notional:
                 continue
 

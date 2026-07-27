@@ -209,3 +209,37 @@ def test_raises_if_universe_data_missing(store):
     agent = ExecutionAgent(api_key="k", secret_key="s", state_store=store)
     with pytest.raises(AssertionError, match="universe_data"):
         agent.run({"portfolio_weights": pd.DataFrame([[0.1]], columns=["AAPL"])})
+
+
+# ---------------------------------------------------------------------------
+# Order sequencing: sells must precede buys
+# ---------------------------------------------------------------------------
+
+def test_sells_submitted_before_buys_on_rotation(store):
+    """Rotating between instruments (e.g. Kelly moving TQQQ -> QQQ) must
+    submit the sell first: the sale's proceeds fund the buy. Buys-first
+    only works while margin buying power happens to cover the overlap --
+    e.g. fully invested at 1x, rotating 100% of equity, Reg-T buying power
+    (2*equity - long value = equity) only *exactly* covers the buy, and any
+    equity dip below the position's value during the day makes the buy
+    reject outright.
+    """
+    client = FakeTradingClient(equity=100_000.0, cash=0.0, positions={"TQQQ": 100_000.0})
+    universe = _universe_data({"QQQ": 500.0, "QLD": 100.0, "TQQQ": 60.0})
+    # Dict/column order deliberately puts the buy ticker FIRST -- the agent
+    # must reorder by side, not rely on input order.
+    weights = _weights(["QQQ", "QLD", "TQQQ"], [1.0, 0.0, 0.0])
+
+    agent = ExecutionAgent(
+        api_key="k", secret_key="s", state_store=store,
+        trading_client_factory=lambda: client,
+    )
+    agent.run({"portfolio_weights": weights, "universe_data": universe})
+
+    sides = [
+        (o.side.value if hasattr(o.side, "value") else str(o.side)).lower()
+        for o in client.submitted_orders
+    ]
+    assert sides == ["sell", "buy"], (
+        f"expected the TQQQ sell to be submitted before the QQQ buy, got {sides}"
+    )
