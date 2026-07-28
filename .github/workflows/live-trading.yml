@@ -65,6 +65,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Kelly strategy
+        id: kelly
         env:
           ALPACA_API_KEY_KELLY: ${{ secrets.ALPACA_API_KEY_KELLY }}
           ALPACA_SECRET_KEY_KELLY: ${{ secrets.ALPACA_SECRET_KEY_KELLY }}
@@ -77,12 +78,21 @@ jobs:
         # run. !cancelled() still runs this after a Kelly step failure but
         # respects an actual workflow cancellation. The job still reports
         # failure overall if either step failed.
+        id: linear
         if: ${{ !cancelled() }}
         env:
           ALPACA_API_KEY_LINEAR: ${{ secrets.ALPACA_API_KEY_LINEAR }}
           ALPACA_SECRET_KEY_LINEAR: ${{ secrets.ALPACA_SECRET_KEY_LINEAR }}
           DRY_RUN_FLAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
         run: python scripts/live_run.py --strategy linear $DRY_RUN_FLAG
+
+      - name: Regenerate dashboard
+        # Rebuild the GitHub Pages report (docs/live-report/index.html)
+        # from the updated ledgers. Skipped on dry runs -- the ledgers
+        # didn't change, and regenerating would commit a timestamp-only
+        # diff every preview.
+        if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        run: python scripts/generate_live_report.py
 
       - name: Persist live state
         if: always()
@@ -97,6 +107,7 @@ jobs:
           git config user.name "live-trading-bot"
           git config user.email "actions@users.noreply.github.com"
           git add -f data/live_state_kelly.db data/live_state_linear.db 2>/dev/null || true
+          git add docs/live-report/index.html 2>/dev/null || true
           if ! git diff --cached --quiet; then
             git commit -m "chore: persist live trading state [skip ci]"
             for attempt in 1 2 3; do
@@ -110,3 +121,40 @@ jobs:
           else
             echo "No state changes to persist (dry run, or no orders this run)."
           fi
+
+      - name: Notify (ntfy.sh)
+        # Push notification with the day's result -- success AND failure
+        # (GitHub only emails on failure by default). The topic name is a
+        # secret: ntfy.sh topics are open to anyone who knows the name, so
+        # an unguessable name IS the access control. Subscribe to it in
+        # the ntfy app / ntfy.sh web page to receive these.
+        if: always()
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          KELLY_OUTCOME: ${{ steps.kelly.outcome }}
+          LINEAR_OUTCOME: ${{ steps.linear.outcome }}
+          RUN_KIND: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'dry run' || 'live run' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then
+            echo "NTFY_TOPIC secret not set -- skipping notification."
+            exit 0
+          fi
+          SUMMARY=$(python scripts/generate_live_report.py --summary 2>/dev/null || echo "(summary unavailable)")
+          if [ "$KELLY_OUTCOME" = "success" ] && [ "$LINEAR_OUTCOME" = "success" ]; then
+            TITLE="QuantCode $RUN_KIND succeeded"
+            TAGS="white_check_mark,chart_with_upwards_trend"
+            PRIORITY="default"
+          else
+            TITLE="QuantCode $RUN_KIND FAILED (kelly=$KELLY_OUTCOME linear=$LINEAR_OUTCOME)"
+            TAGS="rotating_light"
+            PRIORITY="high"
+          fi
+          curl -sf \
+            -H "Title: $TITLE" \
+            -H "Tags: $TAGS" \
+            -H "Priority: $PRIORITY" \
+            -H "Click: $RUN_URL" \
+            -d "$SUMMARY" \
+            "https://ntfy.sh/$NTFY_TOPIC" > /dev/null \
+            && echo "Notification sent." || echo "ntfy.sh unreachable -- notification skipped."
