@@ -50,6 +50,27 @@ def test_all_orders_returns_every_recorded_order(store):
     assert set(df["ticker"]) == {"AAPL", "MSFT"}
 
 
+def test_has_orders_on_true_after_any_submission(store):
+    # The once-per-session execution guard keys on this: a re-run (backup
+    # cron, manual re-trigger) must see that this session already executed
+    # and skip, instead of topping up positions against intraday drift.
+    store.record_order("2024-01-02", "TQQQ", "buy", 10, "order-1", "accepted")
+    assert store.has_orders_on("2024-01-02") is True
+
+
+def test_has_orders_on_false_for_untouched_session(store):
+    store.record_order("2024-01-02", "TQQQ", "buy", 10, "order-1", "accepted")
+    assert store.has_orders_on("2024-01-03") is False
+
+
+def test_has_orders_on_counts_sells_too(store):
+    # A run that only de-risked (sell, no buy) still executed for the
+    # session -- tickers_bought_on() would miss it, so the guard must not
+    # be built on that.
+    store.record_order("2024-01-02", "TQQQ", "sell", 10, "order-1", "accepted")
+    assert store.has_orders_on("2024-01-02") is True
+
+
 # ---------------------------------------------------------------------------
 # Account snapshots
 # ---------------------------------------------------------------------------

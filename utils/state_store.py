@@ -88,6 +88,19 @@ class StateStore:
             )
         return df
 
+    def has_orders_on(self, run_date: str) -> bool:
+        """True iff any order (buy OR sell) was already submitted for this
+        session. The once-per-session execution guard keys on this: a
+        re-run for a session that already executed (backup cron, manual
+        re-trigger, GitHub retry) must no-op rather than re-reconcile
+        against intraday-drifted equity and chase the price with top-ups.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM orders WHERE run_date = ? LIMIT 1", (run_date,)
+            ).fetchone()
+        return row is not None
+
     def tickers_bought_on(self, run_date: str) -> Set[str]:
         df = self.orders_for_date(run_date)
         if len(df) == 0:

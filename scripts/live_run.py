@@ -280,6 +280,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--strategy", choices=["kelly", "linear"], required=True)
     parser.add_argument("--dry-run", action="store_true", help="Preview only, submit nothing.")
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Execute even if orders were already submitted for this session "
+             "(overrides the once-per-session guard).",
+    )
     args = parser.parse_args()
 
     if args.strategy == "kelly":
@@ -345,11 +350,26 @@ def main() -> None:
         print("\n  Dry run only -- no orders submitted, no state written.")
         return
 
+    # Once-per-session guard: one decision, one execution per session. A
+    # second real run for the same session (backup cron, manual re-trigger,
+    # GitHub retry) would recompute the SAME target weights but reconcile
+    # them against intraday-drifted equity, chasing the price with top-up
+    # orders the strategy never called for. If the ledger already shows
+    # submitted orders for this session, this run's work is done. A run
+    # that legitimately submitted nothing (no-change day) records no
+    # orders, so re-running it stays naturally idempotent too.
+    store = StateStore(db_path=db_path)
+    session_key = str(next_session.date())
+    if store.has_orders_on(session_key) and not args.force:
+        print(f"\n  Orders already submitted for session {session_key} "
+              f"({args.strategy}) -- skipping execution (use --force to override).")
+        return
+
     exec_universe = {t: universe_data[t] for t in _TRACKED_TICKERS}
     exec_ctx = {"portfolio_weights": weights_df, "universe_data": exec_universe}
     exec_ctx = ExecutionAgent(
         api_key=api_key, secret_key=secret_key, paper=True,
-        state_store=StateStore(db_path=db_path),
+        state_store=store,
     ).run(exec_ctx)
 
     print(f"\n  Orders: {exec_ctx['execution_orders']}")
