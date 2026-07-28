@@ -33,6 +33,14 @@ _STRATEGY_BLURBS = {
 _STRATEGY_COLORS = {"Kelly": "#6366f1", "Linear": "#14b8a6"}
 _FALLBACK_COLOR = "#f59e0b"
 
+# True starting capital of each paper account (both funded with exactly
+# $25,000 on 2026-07-28). Total return is anchored HERE, not to the
+# earliest surviving snapshot: same-session re-runs upsert the day's
+# snapshot row, and on inception day that overwrote the $25,000 base with
+# the post-gain equity -- turning a +1.9% track record into a reported
+# -0.29%. Update these only if an account is reset or re-funded.
+_INCEPTION_EQUITY = {"Kelly": 25_000.0, "Linear": 25_000.0}
+
 
 # ---------------------------------------------------------------------------
 # Data
@@ -41,9 +49,11 @@ _FALLBACK_COLOR = "#f59e0b"
 def strategy_summary(name: str, store: StateStore) -> dict:
     """Aggregate one strategy's ledger into the numbers the report shows.
 
-    Returns-since-inception uses the FIRST recorded snapshot as the base —
-    both paper accounts started at their first snapshot's equity, so this
-    is the honest live-forward track record (no backtest numbers here).
+    Returns-since-inception is anchored to _INCEPTION_EQUITY (the known
+    starting capital), falling back to the first snapshot only for
+    strategies without an entry there — see the note on _INCEPTION_EQUITY
+    for why the earliest snapshot row cannot be trusted as the base.
+    This is the honest live-forward track record (no backtest numbers).
     """
     snaps = store.snapshots()
     orders = store.all_orders()
@@ -57,7 +67,7 @@ def strategy_summary(name: str, store: StateStore) -> dict:
         }
 
     equity = float(snaps["equity"].iloc[-1])
-    base = float(snaps["equity"].iloc[0])
+    base = _INCEPTION_EQUITY.get(name, float(snaps["equity"].iloc[0]))
     total_return_pct = 100.0 * (equity / base - 1.0) if base > 0 else None
     day_return_pct = None
     if len(snaps) >= 2:

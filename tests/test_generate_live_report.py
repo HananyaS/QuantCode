@@ -32,6 +32,21 @@ def empty_store(tmp_path):
     return StateStore(db_path=str(tmp_path / "empty.db"))
 
 
+def test_total_return_anchored_to_inception_capital(tmp_path):
+    """Both paper accounts started at exactly $25,000. The first ledger
+    snapshot can NOT be trusted as the inception base: observed live, two
+    same-session runs upserted the day's snapshot, overwriting the true
+    $25,000 base with the post-gain equity -- which flipped a +1.9%
+    track record into a reported -0.29%. Total return must be measured
+    against the known inception capital, not the earliest surviving row.
+    """
+    store = StateStore(db_path=str(tmp_path / "k.db"))
+    store.record_account_snapshot("2026-07-28", equity=25539.77, cash=9056.77,
+                                  positions={"TQQQ": 16483.0})
+    s = strategy_summary("Kelly", store)
+    assert s["total_return_pct"] == pytest.approx(100 * (25539.77 / 25000.0 - 1))
+
+
 def test_strategy_summary_returns_since_inception(kelly_store):
     s = strategy_summary("Kelly", kelly_store)
     assert s["equity"] == pytest.approx(25539.77)
