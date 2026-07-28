@@ -150,11 +150,19 @@ jobs:
             TAGS="rotating_light"
             PRIORITY="high"
           fi
-          curl -sf \
-            -H "Title: $TITLE" \
-            -H "Tags: $TAGS" \
-            -H "Priority: $PRIORITY" \
-            -H "Click: $RUN_URL" \
-            -d "$SUMMARY" \
-            "https://ntfy.sh/$NTFY_TOPIC" > /dev/null \
-            && echo "Notification sent." || echo "ntfy.sh unreachable -- notification skipped."
+          for attempt in 1 2 3; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Title: $TITLE" \
+              -H "Tags: $TAGS" \
+              -H "Priority: $PRIORITY" \
+              -H "Click: $RUN_URL" \
+              -d "$SUMMARY" \
+              "https://ntfy.sh/$NTFY_TOPIC" || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Notification sent."
+              exit 0
+            fi
+            echo "ntfy.sh returned HTTP $HTTP_CODE (attempt $attempt) -- retrying in 10s"
+            sleep 10
+          done
+          echo "Notification failed after 3 attempts (last HTTP $HTTP_CODE)."
