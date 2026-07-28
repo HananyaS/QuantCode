@@ -18,14 +18,24 @@ name: Live Paper Trading (Kelly & Linear)
 # everything else (market data, decisions) is recomputed fresh each time.
 on:
   schedule:
-    # 15:00 UTC = 10:00am ET (EST, winter) / 11:00am ET (EDT, summer) --
-    # GitHub Actions cron is UTC-only and doesn't shift with US DST, so a
-    # fixed time drifts by an hour across the year. Chosen so the WORST
-    # case (EST) still gives a 30min buffer after the 9:30am open -- the
-    # first 15-30min of a session tends to have the widest spreads/most
-    # noise, so this avoids trading right at the open rather than just
-    # barely after it.
-    - cron: "0 15 * * 1-5"
+    # Two firings per weekday, primary + backup. GitHub Actions cron is
+    # best-effort, not punctual -- delays of 15min to 2h+ are normal and
+    # documented, worst at minute :00 of the hour (the most congested
+    # slot; observed live: the first-ever 15:00 firing arrived at 16:40).
+    # Mitigations here:
+    #   * off-peak minute (:45) -- materially smaller queue delays;
+    #   * primary at 14:45 UTC = 9:45am EST (winter) / 10:45am EDT
+    #     (summer) -- always after the 9:30am open, past the noisy
+    #     opening range, and early enough that even a badly delayed fire
+    #     still lands mid-morning;
+    #   * backup at 15:45 UTC one hour later. live_run.py's
+    #     once-per-session guard makes it a free retry: it only acts if
+    #     the primary never ran or failed before submitting orders --
+    #     otherwise both strategies no-op ("Orders already submitted").
+    # GitHub cron is UTC-only and doesn't shift with US DST, so the local
+    # firing time drifts by an hour across the year (accounted above).
+    - cron: "45 14 * * 1-5"
+    - cron: "45 15 * * 1-5"
   workflow_dispatch:
     inputs:
       dry_run:
