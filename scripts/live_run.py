@@ -361,8 +361,18 @@ def main() -> None:
     store = StateStore(db_path=db_path)
     session_key = str(next_session.date())
     if store.has_orders_on(session_key) and not args.force:
+        # Still refresh the day's account snapshot: the dashboard and the
+        # notification summary read equity from the ledger, and a skipped
+        # strategy would otherwise show the previous run's stale value all
+        # day. Snapshot upserts by run_date -- no duplicate rows.
+        account = client.get_account()
+        positions = {p.symbol: float(p.market_value) for p in client.get_all_positions()}
+        store.record_account_snapshot(
+            session_key, float(account.equity), float(account.cash), positions,
+        )
         print(f"\n  Orders already submitted for session {session_key} "
-              f"({args.strategy}) -- skipping execution (use --force to override).")
+              f"({args.strategy}) -- skipping execution (use --force to override). "
+              f"Account snapshot refreshed (equity=${float(account.equity):,.2f}).")
         return
 
     exec_universe = {t: universe_data[t] for t in _TRACKED_TICKERS}
