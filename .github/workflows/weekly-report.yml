@@ -1,0 +1,94 @@
+name: Weekly Performance Report
+
+# Saturday-morning digest of the trading week that just ended: weekly
+# return per strategy, daily equity path, every order, current positions.
+# Built from the state ledgers committed by the daily live-trading
+# workflow, emailed via Gmail SMTP (GMAIL_ADDRESS + GMAIL_APP_PASSWORD
+# secrets -- an app password, revocable and mail-only), and archived to
+# docs/live-report/weekly/ so GitHub Pages keeps a browsable history.
+on:
+  schedule:
+    # Saturday 08:00 UTC -- comfortably after Friday's close (20:00/21:00
+    # UTC) and any late daily-run stragglers. Off-hour exactness doesn't
+    # matter here, unlike the trading cron.
+    - cron: "0 8 * * 6"
+  workflow_dispatch:
+    inputs:
+      skip_email:
+        description: "Build + archive only, don't send the email"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build and send weekly report
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          SEND_FLAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.skip_email) && '' || '--send' }}
+        run: python scripts/generate_weekly_report.py $SEND_FLAG
+
+      - name: Persist archived report
+        # Same rebase-retry pattern as the daily workflow: the push can
+        # race a concurrent state commit, and the archive files are only
+        # written here, so the rebase cannot conflict.
+        run: |
+          git config user.name "weekly-report-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add docs/live-report/weekly/
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: archive weekly report [skip ci]"
+            for attempt in 1 2 3; do
+              if git push; then
+                exit 0
+              fi
+              echo "push rejected (attempt $attempt) -- rebasing onto updated origin/main"
+              git pull --rebase origin main
+            done
+            git push
+          else
+            echo "No new report to archive."
+          fi
+
+      - name: Notify (ntfy.sh)
+        if: always()
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then
+            echo "NTFY_TOPIC secret not set -- skipping notification."
+            exit 0
+          fi
+          if [ "$JOB_STATUS" = "success" ]; then
+            TITLE="Weekly report sent"
+            TAGS="email,bar_chart"
+            BODY="This week's performance digest is in your inbox. Archive: https://hananyas.github.io/QuantCode/live-report/weekly/latest.html"
+          else
+            TITLE="Weekly report FAILED"
+            TAGS="rotating_light"
+            BODY="The weekly report workflow failed -- check the Actions logs."
+          fi
+          curl -s -o /dev/null \
+            -H "Title: $TITLE" -H "Tags: $TAGS" \
+            -d "$BODY" "https://ntfy.sh/$NTFY_TOPIC" \
+            && echo "Notification sent." || echo "ntfy unreachable."

@@ -344,6 +344,7 @@ footer a {{ color: var(--accent); text-decoration: none; }}
 
   <footer>
     Generated {generated} ·
+    <a href="weekly/latest.html">Weekly report</a> ·
     <a href="https://github.com/HananyaS/QuantCode">HananyaS/QuantCode</a> ·
     Paper trading only — not investment advice.
   </footer>
