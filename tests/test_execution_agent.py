@@ -19,9 +19,12 @@ class FakeAccount:
 
 
 class FakePosition:
-    def __init__(self, symbol, market_value):
+    def __init__(self, symbol, market_value, qty=None):
         self.symbol = symbol
         self.market_value = market_value
+        if qty is not None:
+            self.qty = qty
+            self.qty_available = qty
 
 
 class FakeOrder:
@@ -43,7 +46,15 @@ class FakeTradingClient:
         return FakeAccount(self._equity, self._cash)
 
     def get_all_positions(self):
-        return [FakePosition(sym, mv) for sym, mv in self._positions.items()]
+        # Position values are either a bare market_value (float) or a
+        # (market_value, qty) tuple mirroring the real API's share count.
+        out = []
+        for sym, v in self._positions.items():
+            if isinstance(v, tuple):
+                out.append(FakePosition(sym, v[0], qty=v[1]))
+            else:
+                out.append(FakePosition(sym, v))
+        return out
 
     def submit_order(self, order_data):
         self.submitted_orders.append(order_data)
@@ -132,6 +143,53 @@ def test_skips_order_below_min_notional(store):
     agent.run({"portfolio_weights": weights, "universe_data": universe})
 
     assert len(client.submitted_orders) == 0
+
+
+# ---------------------------------------------------------------------------
+# Sell sizing must respect the broker's actual share count
+# ---------------------------------------------------------------------------
+
+def test_full_exit_sells_exactly_held_shares_not_dollar_estimate(store):
+    """Observed live (2026-07-30/31, 4 failed runs): Kelly's go-flat sell
+    was sized as market_value / yesterday's close. TQQQ had bounced ~9%
+    intraday, so the dollar math requested 301 shares against 276 held --
+    Alpaca rejected it and the strategy stayed fully invested for two
+    sessions while its model said exit. A zero-weight target must sell the
+    broker's actual share count, not a stale-price dollar estimate.
+    """
+    # 276 shares now worth $100 each; yesterday's close was $91.75
+    # -> floor(27600 / 91.75) = 300 shares: an over-request.
+    client = FakeTradingClient(equity=27_600.0, cash=0.0,
+                               positions={"TQQQ": (27_600.0, 276)})
+    universe = _universe_data({"TQQQ": 91.75})
+    weights = _weights(["TQQQ"], [0.0])
+
+    agent = ExecutionAgent(
+        api_key="k", secret_key="s", state_store=store,
+        trading_client_factory=lambda: client,
+    )
+    ctx = agent.run({"portfolio_weights": weights, "universe_data": universe})
+
+    assert len(client.submitted_orders) == 1
+    assert client.submitted_orders[0].qty == 276
+
+
+def test_partial_sell_capped_at_available_shares(store):
+    # 100 shares now worth $120 each ($12,000); stale close $100. Target
+    # weight leaves an $11,000 sell -> naive qty 110 > 100 held.
+    client = FakeTradingClient(equity=12_000.0, cash=0.0,
+                               positions={"AAPL": (12_000.0, 100)})
+    universe = _universe_data({"AAPL": 100.0})
+    weights = _weights(["AAPL"], [1_000.0 / 12_000.0])
+
+    agent = ExecutionAgent(
+        api_key="k", secret_key="s", state_store=store,
+        trading_client_factory=lambda: client,
+    )
+    agent.run({"portfolio_weights": weights, "universe_data": universe})
+
+    assert len(client.submitted_orders) == 1
+    assert client.submitted_orders[0].qty == 100
 
 
 # ---------------------------------------------------------------------------
