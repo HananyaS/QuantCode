@@ -44,8 +44,19 @@ jobs:
         env:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          SEND_FLAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.skip_email) && '' || '--send' }}
-        run: python scripts/generate_weekly_report.py $SEND_FLAG
+          SKIP_EMAIL: ${{ (github.event_name == 'workflow_dispatch' && inputs.skip_email) && 'true' || 'false' }}
+        run: |
+          SEND_FLAG="--send"
+          if [ "$SKIP_EMAIL" = "true" ]; then
+            SEND_FLAG=""
+          elif [ -z "$GMAIL_ADDRESS" ] || [ -z "$GMAIL_APP_PASSWORD" ]; then
+            # Missing creds shouldn't kill the whole report: still build and
+            # archive it (Pages keeps the browsable copy), just skip the send.
+            echo "::warning::GMAIL_ADDRESS / GMAIL_APP_PASSWORD secret not set -- report built and archived, but the email was NOT sent. Add both repo secrets to resume emails."
+            SEND_FLAG=""
+          fi
+          echo "EMAIL_SENT=${SEND_FLAG:+yes}" >> "$GITHUB_ENV"
+          python scripts/generate_weekly_report.py $SEND_FLAG
 
       - name: Persist archived report
         # Same rebase-retry pattern as the daily workflow: the push can
@@ -79,10 +90,14 @@ jobs:
             echo "NTFY_TOPIC secret not set -- skipping notification."
             exit 0
           fi
-          if [ "$JOB_STATUS" = "success" ]; then
+          if [ "$JOB_STATUS" = "success" ] && [ "$EMAIL_SENT" = "yes" ]; then
             TITLE="Weekly report sent"
             TAGS="email,bar_chart"
             BODY="This week's performance digest is in your inbox. Archive: https://hananyas.github.io/QuantCode/live-report/weekly/latest.html"
+          elif [ "$JOB_STATUS" = "success" ]; then
+            TITLE="Weekly report archived (email skipped)"
+            TAGS="warning,bar_chart"
+            BODY="Report built and archived, but no email was sent (GMAIL secrets missing or skip_email set). Archive: https://hananyas.github.io/QuantCode/live-report/weekly/latest.html"
           else
             TITLE="Weekly report FAILED"
             TAGS="rotating_light"
