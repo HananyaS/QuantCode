@@ -307,3 +307,42 @@ def test_dropping_inert_vetoes_reduces_the_hypothesis_count():
     usable, _ = cx.drop_inert_vetoes(trades, VETOES + ["veto_dead"])
     without = cx.search_veto_sets(trades, usable, max_size=2, min_trades=100, n_boot=100)
     assert without["n_hypotheses"].iloc[0] < with_dead["n_hypotheses"].iloc[0]
+
+
+# ---- One-sided testing ----
+
+
+def test_fdr_uses_the_one_sided_hypothesis():
+    """In an all-negative universe a two-sided test against zero flags
+    everything, reporting a wall of 'discoveries' when nothing is profitable."""
+    rng = np.random.default_rng(50)
+    dates = pd.bdate_range("2022-01-03", periods=200)
+    rows = []
+    for d in dates:
+        for j in range(10):
+            rows.append({
+                "date": d, "symbol": f"S{j}",
+                "net_return": rng.normal(-0.05, 0.03),   # uniformly negative
+                "outcome": "stop", "holding_minutes": 60,
+                "veto_bad": rng.random() < 0.3, "veto_noise": rng.random() < 0.3,
+            })
+    trades = pd.DataFrame(rows)
+
+    table = cx.search_veto_sets(trades, VETOES, max_size=2, min_trades=100, n_boot=400)
+    assert table["q_pass"].sum() == 0, (
+        "nothing profitable exists, so nothing may pass the one-sided FDR"
+    )
+    # ...yet the two-sided test would call them all significant.
+    assert (table["p_value"] < 0.05).all()
+
+
+def test_one_sided_p_is_near_one_for_a_negative_mean():
+    est = pstats_est = cx.evaluate_population(
+        pd.DataFrame({
+            "date": pd.bdate_range("2022-01-03", periods=100).repeat(5),
+            "symbol": list("ABCDE") * 100,
+            "net_return": -0.05,
+            "outcome": "stop",
+        }), n_boot=500,
+    )
+    assert est.p_greater > 0.9

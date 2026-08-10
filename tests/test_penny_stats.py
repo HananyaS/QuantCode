@@ -185,3 +185,43 @@ def test_daily_curve_respects_a_position_cap():
 def test_daily_curve_on_empty_input():
     empty = pd.DataFrame(columns=["date", "symbol", "net_return"])
     assert daily_equity_curve(empty).empty
+
+
+# ---- Vectorised bootstrap must equal the naive one ----
+
+
+def test_vectorised_bootstrap_matches_the_naive_estimator():
+    """The fast path resamples per-day (sum, count) pairs.
+
+    That is algebraically identical to concatenating each drawn day's values,
+    not an approximation -- this pins that equivalence.
+    """
+    rng = np.random.default_rng(99)
+    n_days, per_day = 40, 6
+    values = rng.normal(0.01, 0.05, n_days * per_day)
+    days = np.repeat(np.arange(n_days), per_day)
+
+    fast = cluster_bootstrap_mean(values, days, n_boot=3000, seed=5)
+
+    # Naive reference with the identical draw sequence.
+    unique_days, day_index = np.unique(days, return_inverse=True)
+    by_day = {d: values[days == d] for d in unique_days}
+    ref_rng = np.random.default_rng(5)
+    picked = ref_rng.integers(0, len(unique_days), size=(3000, len(unique_days)))
+    naive = np.array([
+        np.concatenate([by_day[unique_days[i]] for i in row]).mean() for row in picked
+    ])
+
+    assert fast.mean == pytest.approx(values.mean())
+    assert fast.lo == pytest.approx(np.percentile(naive, 2.5), abs=1e-12)
+    assert fast.hi == pytest.approx(np.percentile(naive, 97.5), abs=1e-12)
+
+
+def test_bootstrap_handles_unequal_trades_per_day():
+    """Days carry different trade counts; the estimator must weight by count."""
+    values = np.array([1.0, 1.0, 1.0, 0.0])
+    days = np.array(["a", "a", "a", "b"])
+    est = cluster_bootstrap_mean(values, days, n_boot=500, seed=3)
+    assert est.mean == pytest.approx(0.75)
+    assert est.n == 4
+    assert est.n_days == 2

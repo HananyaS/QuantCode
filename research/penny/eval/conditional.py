@@ -54,6 +54,7 @@ class VetoResult:
     ci_lo: float
     ci_hi: float
     p_value: float
+    p_greater: float
     median_net: float
     hit_rate: float
     p_target: float
@@ -99,7 +100,7 @@ def evaluate_population(
     if df.empty:
         return VetoResult(
             name, vetoes, 0, 0, 0.0, np.nan, np.nan, np.nan, np.nan, np.nan,
-            np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan,
+            np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan,
         )
 
     est = pstats.cluster_bootstrap_mean(
@@ -118,6 +119,7 @@ def evaluate_population(
         ci_lo=est.lo,
         ci_hi=est.hi,
         p_value=est.p_value,
+        p_greater=est.p_value_greater,
         median_net=float(df[return_col].median()),
         hit_rate=float((df[return_col] > 0).mean()),
         p_target=float((outcomes == "target").mean()) if len(outcomes) else np.nan,
@@ -292,7 +294,13 @@ def search_veto_sets(
 
     out = pd.DataFrame([r.to_dict() for r in results])
     out["n_hypotheses"] = len(results)
-    out["q_pass"] = pstats.benjamini_hochberg(out["p_value"].fillna(1.0).to_numpy(), q=q)
+
+    # FDR is applied to the ONE-SIDED hypothesis (mean > 0), which is what the
+    # study asks. Using the two-sided p-value here would flag every subset in a
+    # universe whose returns are almost uniformly negative -- reporting "299 of
+    # 299 pass" when not one of them is profitable.
+    out["q_pass"] = pstats.benjamini_hochberg(out["p_greater"].fillna(1.0).to_numpy(), q=q)
+    out["ci_excludes_zero_above"] = out["ci_lo"] > 0
     return out.sort_values("mean_net", ascending=False).reset_index(drop=True)
 
 
@@ -366,30 +374,34 @@ def compare_to_baseline(
     if df.empty:
         return {"delta": np.nan, "lo": np.nan, "hi": np.nan, "p_value": np.nan}
 
-    survive = apply_vetoes(df, vetoes)
-    days = df[date_col].to_numpy()
-    unique_days = np.unique(days)
+    survive = apply_vetoes(df, vetoes).to_numpy()
+    values = df[return_col].to_numpy(dtype=float)
+    unique_days, day_index = np.unique(df[date_col].to_numpy(), return_inverse=True)
+    n_days = len(unique_days)
 
-    base_by_day, kept_by_day = {}, {}
-    for d in unique_days:
-        on_day = days == d
-        base_by_day[d] = df.loc[on_day, return_col].to_numpy()
-        kept_by_day[d] = df.loc[on_day & survive.to_numpy(), return_col].to_numpy()
+    # Reduce each arm to per-day (sum, count) so the paired bootstrap is two
+    # fancy-indexed sums rather than a Python loop over concatenations.
+    base_sums = np.bincount(day_index, weights=values, minlength=n_days)
+    base_counts = np.bincount(day_index, minlength=n_days).astype(float)
+    kept_sums = np.bincount(day_index, weights=values * survive, minlength=n_days)
+    kept_counts = np.bincount(day_index, weights=survive.astype(float), minlength=n_days)
 
-    def delta(day_sample) -> float:
-        base = np.concatenate([base_by_day[d] for d in day_sample])
-        kept = np.concatenate([kept_by_day[d] for d in day_sample])
-        if base.size == 0 or kept.size == 0:
-            return np.nan
-        return float(kept.mean() - base.mean())
+    def _delta(bs, bc, ks, kc) -> np.ndarray:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            base = np.where(bc > 0, bs / bc, np.nan)
+            kept = np.where(kc > 0, ks / kc, np.nan)
+        return kept - base
 
-    observed = delta(unique_days)
+    observed = float(
+        _delta(base_sums.sum(), base_counts.sum(), kept_sums.sum(), kept_counts.sum())
+    )
 
     rng = np.random.default_rng(seed)
-    draws = np.empty(n_boot, dtype=float)
-    for b in range(n_boot):
-        picked = rng.choice(unique_days, size=len(unique_days), replace=True)
-        draws[b] = delta(picked)
+    picked = rng.integers(0, n_days, size=(n_boot, n_days))
+    draws = _delta(
+        base_sums[picked].sum(axis=1), base_counts[picked].sum(axis=1),
+        kept_sums[picked].sum(axis=1), kept_counts[picked].sum(axis=1),
+    )
 
     lo, hi = np.nanpercentile(draws, [2.5, 97.5])
     centred = draws - np.nanmean(draws)

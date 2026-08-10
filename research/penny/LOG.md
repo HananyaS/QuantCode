@@ -256,5 +256,65 @@ Three nested layers, of which the loop sees only the outer two:
 
 ---
 
-*(Sections 9+ — dataset construction, results, and holdout — appended as the
-run proceeds.)*
+---
+
+## 9. Study period extended to 2016
+
+Initially scoped 2021-2026. An early probe suggested minute bars did not exist
+before ~2021 — but that probe had accidentally sampled **weekends** (2018-06-10
+and 2023-06-10 are a Sunday and a Saturday) and read the empty responses as
+missing history. Re-probed on known Wednesdays: minute bars are available with
+full 391-bar coverage back to **2016**.
+
+Extending mattered for power, not tidiness. At ~8 candidates per session, five
+years yields ~9k trades — thin for an FDR-corrected search over ~1,000 veto
+subsets. Eleven years roughly triples it.
+
+### Fetch integrity
+
+Two fetch processes ended up running in parallel (a `pgrep` guard failed to see
+Windows processes). This was checked rather than assumed, because a 429 would
+not match the "invalid symbol" pattern and would have been bisected down and
+silently recorded as *rejected symbols* — real data loss that leaves no error.
+
+Result: **0 rejected in every year**, 250-251 sessions per year, symbol counts
+consistent. No rate-limit damage.
+
+| Panel | |
+|---|---|
+| rows | 11,202,209 |
+| symbols | 6,778 |
+| period | 2016-01-04 .. 2026-08-07 |
+| unadjusted close missing | 0.00% |
+
+### Candidate screen
+
+| Cumulative filter | rows |
+|---|---|
+| has ≥30 prior bars | 11,000,517 |
+| price \$0.50-\$10 (previous **unadjusted** close) | 3,407,083 |
+| trailing 20d dollar volume ≥ \$100k | 2,655,397 |
+| opening gap ≥ +10% | **20,558** |
+
+**20,558 symbol-days over 2,555 sessions (8.0/day), 2,960 unique symbols.**
+
+The per-year distribution is itself a finding:
+
+| | 2016 | 2017 | 2018 | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | 2025 | 2026* |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| candidates | 556 | 796 | 898 | 899 | 3475 | 1703 | 1572 | 1760 | 2715 | 3859 | 2325 |
+| per session | 2.9 | 3.4 | 3.8 | 3.8 | 13.8 | 6.8 | 6.3 | 7.1 | 10.8 | 15.5 | 15.5 |
+
+*2026 is partial (150 sessions).
+
+The 2016-2019 baseline sits near 3.5 gap-ups per session. 2020 spikes to 13.8,
+and 2025-2026 run at 15.5 — roughly four times the pre-2020 rate. That is
+consistent with the ramp-and-dump wave FINRA and the FBI flagged (the FBI
+reported a >300% increase in complaints in 2025 over 2024). It also means the
+population is **not stationary**, which is exactly why fold-level stability is
+reported rather than a single pooled number.
+
+---
+
+*(Sections 10+ — labelling results, tuning, and the sealed holdout — appended as
+the run proceeds.)*

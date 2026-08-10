@@ -42,10 +42,20 @@ class Estimate:
     n: int
     n_days: int
     p_value: float
+    # One-sided p-value for H1: mean > 0. This, not the two-sided value, is the
+    # study's hypothesis -- and the distinction is decisive here. In a universe
+    # whose returns are almost uniformly negative, a two-sided test against zero
+    # flags *every* subset as "significant", which reads as a wall of
+    # discoveries when in fact nothing is profitable.
+    p_value_greater: float = np.nan
 
     @property
     def excludes_zero(self) -> bool:
         return (self.lo > 0) or (self.hi < 0)
+
+    @property
+    def significantly_positive(self) -> bool:
+        return bool(self.lo > 0)
 
 
 def cluster_bootstrap_mean(
@@ -69,25 +79,40 @@ def cluster_bootstrap_mean(
     if len(v) == 0:
         return Estimate(np.nan, np.nan, np.nan, 0, 0, np.nan)
 
-    unique_days = np.unique(g)
+    unique_days, day_index = np.unique(g, return_inverse=True)
     n_days = len(unique_days)
-    by_day = {d: v[g == d] for d in unique_days}
+
+    # Resampling days is equivalent to resampling their (sum, count) pairs, so
+    # the whole bootstrap reduces to two fancy-indexed sums. The naive form --
+    # concatenating each drawn day's array inside a Python loop -- is exact but
+    # costs O(n_boot * n_days) list operations, which across a few hundred veto
+    # subsets runs to hundreds of millions of them. This is the same estimator,
+    # not an approximation.
+    day_sums = np.bincount(day_index, weights=v, minlength=n_days)
+    day_counts = np.bincount(day_index, minlength=n_days).astype(float)
 
     rng = np.random.default_rng(seed)
-    means = np.empty(n_boot, dtype=float)
-    for b in range(n_boot):
-        picked = rng.choice(unique_days, size=n_days, replace=True)
-        sample = np.concatenate([by_day[d] for d in picked])
-        means[b] = sample.mean() if sample.size else np.nan
+    picked = rng.integers(0, n_days, size=(n_boot, n_days))
+    sums = day_sums[picked].sum(axis=1)
+    counts = day_counts[picked].sum(axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        means = np.where(counts > 0, sums / counts, np.nan)
 
     observed = float(v.mean())
     lo, hi = np.nanpercentile(means, [100 * alpha / 2, 100 * (1 - alpha / 2)])
 
     # Two-sided bootstrap p-value for H0: mean = 0.
     centred = means - np.nanmean(means)
-    p = float((np.abs(centred) >= abs(observed)).mean())
+    p = float(np.nanmean(np.abs(centred) >= abs(observed)))
 
-    return Estimate(observed, float(lo), float(hi), int(len(v)), int(n_days), p)
+    # One-sided p-value for H1: mean > 0 -- the study's actual hypothesis.
+    # Fraction of the null distribution (centred at zero) at least as large as
+    # what was observed; a negative observed mean yields p near 1.
+    p_greater = float(np.nanmean(centred >= observed))
+
+    return Estimate(
+        observed, float(lo), float(hi), int(len(v)), int(n_days), p, p_greater
+    )
 
 
 def benjamini_hochberg(p_values: Sequence[float], q: float = 0.05) -> np.ndarray:
