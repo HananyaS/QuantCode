@@ -74,6 +74,34 @@ def load_params() -> Dict:
     return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
 
 
+def assert_barriers_match_dataset(params: Dict) -> None:
+    """Refuse to run if the configured barriers differ from the built labels.
+
+    Barrier geometry is baked into ``trades.parquet`` when the dataset is built;
+    this script only rebuilds *vetoes*. Without this check, editing
+    ``profit_target`` and re-running silently returns the previous number and
+    the change reads as "no effect" -- an experiment that never happened,
+    recorded as evidence.
+    """
+    summary_path = bars.DATA_ROOT / "dataset_summary.json"
+    if not summary_path.exists():
+        return
+
+    built = json.loads(summary_path.read_text(encoding="utf-8")).get("barriers", {})
+    configured = params.get("barriers", {})
+    mismatched = {
+        key: (built.get(key), configured.get(key))
+        for key in ("profit_target", "stop_loss")
+        if key in built and abs(float(built[key]) - float(configured.get(key, built[key]))) > 1e-12
+    }
+    if mismatched:
+        raise SystemExit(
+            "barrier parameters differ from the dataset that was built: "
+            f"{mismatched} (built vs configured). Re-run build_dataset.py with "
+            "the new geometry -- labels are not rebuilt here."
+        )
+
+
 def split_holdout(trades: pd.DataFrame, holdout_frac: float):
     """Seal the final slice of sessions away from tuning entirely."""
     days = np.sort(trades["date"].unique())
@@ -159,6 +187,7 @@ def main(argv=None) -> int:
         return 1
 
     params = load_params()
+    assert_barriers_match_dataset(params)
     trades = pd.read_parquet(TRADES_PATH)
     tune, holdout = split_holdout(trades, args.holdout_frac)
 
