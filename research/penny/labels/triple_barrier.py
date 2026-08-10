@@ -45,6 +45,13 @@ Five assumptions, each pessimistic by construction
    ``halt_gap_minutes`` is recorded as ``halt_suspect``. Historical halt data is
    not free, so a gap cannot be distinguished from a halt -- and during a halt a
    position cannot be exited at all, which no barrier model can represent.
+
+One convention worth stating plainly: the barrier scan starts at 09:36, so a
+barrier touched *within the entry bar itself* is not detected. This is a
+modelling choice forced by bar granularity, and it cuts both ways -- a stop hit
+in the first sixty seconds is missed (optimistic), and so is a target
+(pessimistic). It is the one place in this module where the pessimism is not
+strictly one-directional.
 """
 from __future__ import annotations
 
@@ -174,7 +181,15 @@ def label_one(
         )
 
     # --- costs -------------------------------------------------------------
-    half_spread_bps = _estimate_half_spread_bps(path, spec)
+    # Estimate the spread from the OBSERVATION window only. A live trader
+    # entering at 09:35 cannot pay a spread inferred from the afternoon, and
+    # using the full path would charge wider spreads on days that later went
+    # wild -- coupling the cost, and therefore the label, to future volatility
+    # that a vol-correlated veto could indirectly exploit during selection.
+    pre_entry = path[path["minute_et"] <= OBSERVATION_END]
+    half_spread_bps = _estimate_half_spread_bps(
+        pre_entry if not pre_entry.empty else entry_bar, spec
+    )
     impact = _impact_bps(spec)
     entry_cost_bps = half_spread_bps + impact
     entry_filled = entry_price * (1 + entry_cost_bps / 10_000)

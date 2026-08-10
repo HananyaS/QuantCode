@@ -136,8 +136,11 @@ def assert_folds_are_clean(folds: List[Fold], embargo_days: int) -> None:
             f"{fold.test_start} -- training on the future"
         )
 
+        # Must be a real comparison. `gap_days >= min(embargo_days, gap_days)`
+        # holds for every possible value, so the original form could never fail
+        # -- a dead tripwire in the very function whose job is to fail loudly.
         gap_days = len(fold.embargoed_dates)
-        assert gap_days >= min(embargo_days, gap_days), (
+        assert gap_days >= embargo_days, (
             f"fold {fold.index}: embargo is {gap_days} days, expected {embargo_days}"
         )
 

@@ -109,15 +109,25 @@ def _veto_reverse_split_recent(df: pd.DataFrame, p: Dict) -> pd.Series:
     return df.get("reverse_split_180d", pd.Series(False, index=df.index)).astype(bool)
 
 
-def _veto_extreme_adjustment(df: pd.DataFrame, p: Dict) -> pd.Series:
-    """Large adjusted/unadjusted divergence implies heavy split activity.
+def _veto_recent_split_activity(df: pd.DataFrame, p: Dict) -> pd.Series:
+    """Heavy split activity in the TRAILING 180 days marks a recycled shell.
 
-    A cheap structural proxy that needs no filings: a name whose adjusted and
-    raw prices diverge by a large factor has been repeatedly split, which in
-    this universe almost always means reverse splits to maintain listing.
+    Uses ``split_factor_180d``, the product of per-day corporate-action factors
+    over the previous 180 sessions, shifted so today contributes nothing.
+
+    An earlier version of this veto compared the adjusted and unadjusted close
+    directly. That was a look-ahead and a bad one: with ``adjustment="all"`` the
+    adjusted series is anchored to the fetch date, so that ratio encodes actions
+    occurring **after** the bar -- it announced future reverse splits, which in
+    this universe follow price collapse. Walk-forward validation could not catch
+    it, because the leak travelled inside a feature column identical in train
+    and test. Differencing the ratio recovers the per-day event factor, which is
+    genuinely knowable, and the trailing product measures only splits that have
+    already happened.
     """
-    ratio = df["close"] / df["close_unadj"].replace(0, np.nan)
-    return (ratio > p.get("max_adj_ratio", 2.0)) | (ratio < 1 / p.get("max_adj_ratio", 2.0))
+    threshold = p.get("max_adj_ratio", 2.0)
+    factor = df.get("split_factor_180d", pd.Series(1.0, index=df.index))
+    return (factor > threshold) | (factor < 1 / threshold)
 
 
 def _veto_delisted_soon(df: pd.DataFrame, p: Dict) -> pd.Series:
@@ -129,7 +139,9 @@ def _veto_delisted_soon(df: pd.DataFrame, p: Dict) -> pd.Series:
     filings instead. Excluded from the tradable search by default.
     """
     horizon = p.get("delist_horizon", 60)
-    return (df["days_to_last_bar"] <= horizon) & df["days_to_last_bar"].notna()
+    col = "diag_days_to_last_bar" if "diag_days_to_last_bar" in df.columns else "days_to_last_bar"
+    days = df.get(col, pd.Series(np.nan, index=df.index))
+    return (days <= horizon) & days.notna()
 
 
 # --------------------------------------------------------------------------
@@ -201,9 +213,10 @@ REGISTRY: List[VetoDefinition] = [
         "Executability; measured directly in this study", "liquidity", _veto_sparse_prints,
     ),
     VetoDefinition(
-        "veto_extreme_adjustment", "Heavy split activity marks recycled, serially diluted shells.",
+        "veto_recent_split_activity",
+        "Heavy split activity in the trailing 180 days marks recycled, serially diluted shells.",
         "Hillion & Vermaelen (2004), JFE 71(2), death-spiral financing", "structure",
-        _veto_extreme_adjustment,
+        _veto_recent_split_activity,
     ),
     VetoDefinition(
         "veto_high_short_volume", "Very high short volume signals informed downside pressure.",

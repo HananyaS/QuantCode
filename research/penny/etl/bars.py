@@ -26,6 +26,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 from research.penny.etl import alpaca_fetch
@@ -172,15 +173,21 @@ def add_cross_day_features(panel: pd.DataFrame) -> pd.DataFrame:
     # Gap uses the opening print against the previous close -- known at 09:30.
     df["gap"] = df["open"] / df["prev_close"] - 1.0
 
-    df["ret_1d_prev"] = grp["close"].pct_change().shift(1)
+    # Both shifts must live INSIDE the transform. A trailing `.shift(1)` on the
+    # concatenated result shifts across the whole frame, so each symbol's first
+    # row would inherit the previous symbol's last value -- a cross-symbol,
+    # cross-time bleed from years in the future.
+    df["ret_1d_prev"] = grp["close"].transform(lambda s: s.pct_change().shift(1))
     df["ret_5d_prev"] = grp["close"].transform(lambda s: s.pct_change(5).shift(1))
 
     # Trailing dollar volume, shifted so a row never sees its own volume.
+    # Uses transform on a precomputed column rather than groupby.apply, which
+    # returns a frame rather than a series and cannot be assigned back.
+    df["_dollar_volume_today"] = df["close"] * df["volume"]
     for win in (5, 20, 60):
-        df[f"adv_{win}"] = grp.apply(
-            lambda g: (g["close"] * g["volume"]).shift(1).rolling(win, min_periods=max(3, win // 4)).mean(),
-            include_groups=False,
-        ).reset_index(level=0, drop=True)
+        df[f"adv_{win}"] = df.groupby("symbol", sort=False)["_dollar_volume_today"].transform(
+            lambda s, w=win: s.shift(1).rolling(w, min_periods=max(3, w // 4)).mean()
+        )
 
     df["rvol_prev"] = df["prev_dollar_volume"] / df["adv_20"]
 
@@ -198,14 +205,42 @@ def add_cross_day_features(panel: pd.DataFrame) -> pd.DataFrame:
 
     # Corwin-Schultz style spread proxy: the high-low range carries the
     # effective spread when quotes are unavailable, which they are here.
-    with pd.option_context("mode.use_inf_as_na", True):
-        df["hl_range_prev"] = ((df["high"] - df["low"]) / df["close"]).groupby(df["symbol"]).shift(1)
-        df["hl_range_20d"] = grp["hl_range_prev"].transform(
-            lambda s: s.rolling(20, min_periods=10).mean()
-        )
+    # (`mode.use_inf_as_na` is removed in pandas 3.x; replace infinities directly.)
+    hl = ((df["high"] - df["low"]) / df["close"]).replace([np.inf, -np.inf], np.nan)
+    df["hl_range_prev"] = hl.groupby(df["symbol"]).shift(1)
+    df["hl_range_20d"] = grp["hl_range_prev"].transform(
+        lambda s: s.rolling(20, min_periods=10).mean()
+    )
 
-    df["consec_up"] = grp["daily_ret"].transform(
-        lambda s: (s.shift(1) > 0).groupby((s.shift(1) <= 0).cumsum()).cumcount()
+    # Consecutive up days. `cumcount` counts ROWS in each reset-group, not True
+    # values -- and a NaN yesterday is False under both `> 0` and `<= 0`, so it
+    # neither qualifies nor resets yet still increments the count. That inflates
+    # every streak after any data gap. `cumsum` over the boolean counts only
+    # genuine up days, and an unknown yesterday correctly resets to zero.
+    def _streak(s: pd.Series) -> pd.Series:
+        up = s.shift(1) > 0
+        return up.groupby((~up).cumsum()).cumsum()
+
+    df["consec_up"] = grp["daily_ret"].transform(_streak)
+
+    # Causal split activity. With adjustment="all" the adjusted series is
+    # anchored to the FETCH date, so close/close_unadj on day t is the
+    # cumulative factor for corporate actions occurring AFTER t. Using that
+    # ratio directly is a look-ahead: it announces future reverse splits, which
+    # in this universe follow price collapse. Differencing it recovers the
+    # per-day event factor, which IS knowable (ex-dates are announced ahead),
+    # and the trailing product then measures splits that have ALREADY happened.
+    ratio = (df["close"] / df["close_unadj"].replace(0, np.nan)).replace(
+        [np.inf, -np.inf], np.nan
+    )
+    df["_adj_ratio"] = ratio
+    prev_ratio = ratio.groupby(df["symbol"]).shift(1)
+    event_factor = (prev_ratio / ratio).fillna(1.0)
+    # The shift reintroduces a NaN at each symbol's first row; np.prod over a
+    # window containing it returns NaN, which a trailing fillna(1.0) would then
+    # disguise as "no split activity" for every early row.
+    df["split_factor_180d"] = event_factor.groupby(df["symbol"]).transform(
+        lambda s: s.shift(1).fillna(1.0).rolling(180, min_periods=1).apply(np.prod, raw=True)
     )
 
     return df

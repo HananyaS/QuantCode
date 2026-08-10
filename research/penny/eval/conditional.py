@@ -131,6 +131,26 @@ def evaluate_population(
     )
 
 
+def _reject_lookahead_vetoes(veto_cols: Sequence[str]) -> None:
+    """Refuse to search over vetoes that use future information.
+
+    Convention alone is not a safeguard: the diagnostic vetoes are written into
+    ``trades.parquet`` and any caller could pass them in by accident, producing
+    a spectacular and entirely fake out-of-sample result. This makes the
+    boundary structural.
+    """
+    from research.penny.features.veto import LOOKAHEAD_DIAGNOSTICS
+
+    banned = {d.name for d in LOOKAHEAD_DIAGNOSTICS}
+    offenders = sorted(banned & set(veto_cols))
+    if offenders:
+        raise ValueError(
+            f"look-ahead diagnostic vetoes cannot enter a search: {offenders}. "
+            "They use future information and exist only to bound how much edge "
+            "comes from avoiding terminal names."
+        )
+
+
 def apply_vetoes(trades: pd.DataFrame, vetoes: Sequence[str]) -> pd.Series:
     """Boolean mask of trades that SURVIVE every veto.
 
@@ -212,6 +232,8 @@ def search_veto_sets(
     it is not a strategy, and letting such rows into the multiple-testing pool
     would also inflate the correction for everyone else.
     """
+    _reject_lookahead_vetoes(veto_cols)
+
     df = trades.dropna(subset=[return_col])
     baseline_n = len(df)
     candidates = enumerate_veto_sets(veto_cols, max_size)

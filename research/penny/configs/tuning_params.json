@@ -1,0 +1,39 @@
+{
+  "_comment": "Tunable parameters for the veto study. This file is the ONLY thing the autoresearch loop edits. Every value is a threshold with a stated prior, never a free parameter invented to fit.",
+
+  "barriers": {
+    "profit_target": 0.30,
+    "stop_loss": 0.10,
+    "half_spread_floor_bps": 25.0,
+    "stop_slippage_bps": 50.0,
+    "impact_coefficient": 0.10,
+    "participation_cap": 0.01
+  },
+
+  "veto_params": {
+    "max_ret_threshold": 0.50,
+    "consec_up_threshold": 3,
+    "gap_max": 1.00,
+    "prior_spike": 0.50,
+    "min_adv": 1000000,
+    "max_hl_range": 0.20,
+    "min_price": 1.00,
+    "min_open_dollar": 250000,
+    "min_minutes_obs": 5,
+    "max_adj_ratio": 2.0,
+    "min_close_position": 0.35,
+    "min_obs_return": -0.02
+  },
+
+  "search": {
+    "max_veto_set_size": 3,
+    "min_retained": 0.05,
+    "min_trades": 150
+  },
+
+  "folds": {
+    "n_splits": 4,
+    "embargo_days": 10,
+    "min_train_days": 200
+  }
+}

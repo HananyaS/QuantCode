@@ -41,16 +41,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger("dataset")
 
-# Columns carried from the daily panel. Every one is trailing/shifted or uses
-# only the opening print, so all are knowable at 09:30.
-_DAILY_COLS = [
-    "symbol", "date", "open", "close", "volume",
-    "close_unadj", "close_unadj_prev", "prev_close",
+# Causal columns: every one is trailing/shifted, or uses only the 09:30 opening
+# print. These are the ONLY columns a veto may be built from.
+_CAUSAL_COLS = [
+    "symbol", "date", "open", "close_unadj_prev", "prev_close",
     "gap", "ret_1d_prev", "ret_5d_prev",
     "adv_5", "adv_20", "adv_60", "rvol_prev",
     "max_ret_20d", "vol_20d", "hl_range_20d", "consec_up",
-    "days_to_last_bar",
+    "split_factor_180d",
 ]
+
+# Columns that contain information from AT OR AFTER the decision, kept only for
+# post-hoc diagnostics. They are prefixed so nothing can reach for them by
+# accident during feature mining -- an earlier veto did exactly that, using the
+# adjusted/unadjusted ratio, which encodes corporate actions occurring after
+# the bar and therefore leaked future reverse splits into the search.
+_FUTURE_COLS = {
+    "close": "fut_close",
+    "volume": "fut_volume",
+    "close_unadj": "fut_close_unadj",
+    "days_to_last_bar": "diag_days_to_last_bar",
+}
 
 
 def build_trades(candidates: pd.DataFrame, spec: tb.BarrierSpec) -> pd.DataFrame:
@@ -125,8 +136,12 @@ def main(argv=None) -> int:
     logger.info("labelled %s trades", f"{len(trades):,}")
 
     # Join the daily features. (symbol, date) only -- nothing outcome-derived.
-    daily_cols = [c for c in _DAILY_COLS if c in candidates.columns]
-    trades = trades.merge(candidates[daily_cols], on=["symbol", "date"], how="left")
+    # `validate` makes a duplicated bar an error rather than a silent
+    # double-count of trades.
+    daily_cols = [c for c in _CAUSAL_COLS if c in candidates.columns]
+    future_cols = {k: v for k, v in _FUTURE_COLS.items() if k in candidates.columns}
+    joined = candidates[daily_cols + list(future_cols)].rename(columns=future_cols)
+    trades = trades.merge(joined, on=["symbol", "date"], how="left", validate="one_to_one")
 
     before = len(trades)
     trades = trades[trades["outcome"] != "no_fill"]
