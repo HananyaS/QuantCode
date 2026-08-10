@@ -62,8 +62,16 @@ def main(argv=None) -> int:
     trades = pd.read_parquet(trades_path)
     trades = veto_mod.build_all(trades, params["veto_params"], include_diagnostics=True)
 
-    veto_cols = veto_mod.veto_names(include_diagnostics=False)
+    all_vetoes = veto_mod.veto_names(include_diagnostics=False)
     tune, holdout = split_holdout(trades, args.holdout_frac)
+
+    # A veto that never fires still enters every subset of the search, making
+    # the FDR correction harsher for the vetoes that do carry information --
+    # and it appears in the output as a tested hypothesis when it was never
+    # tested at all.
+    veto_cols, inert = cx.drop_inert_vetoes(tune, all_vetoes)
+    if inert:
+        logger.warning("inert vetoes excluded from the search: %s", inert)
 
     logger.info(
         "trades %s | tuning %s (%d sessions) | holdout %s (%d sessions)",
@@ -78,6 +86,8 @@ def main(argv=None) -> int:
         "date_min": str(trades["date"].min().date()),
         "date_max": str(trades["date"].max().date()),
         "holdout_frac": args.holdout_frac,
+        "vetoes_used": veto_cols,
+        "vetoes_inert": inert,
     }
 
     # --- 1. nulls first -----------------------------------------------------

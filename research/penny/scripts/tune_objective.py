@@ -91,7 +91,11 @@ def evaluate(trades: pd.DataFrame, params: Dict) -> Dict:
     # they use future information and must never influence tuning.
     trades = veto_mod.build_all(trades, params.get("veto_params", {}),
                                 include_diagnostics=False)
-    veto_cols = veto_mod.veto_names(include_diagnostics=False)
+    # Inert vetoes would inflate the hypothesis count without adding
+    # information, penalising the FDR correction for everything else.
+    veto_cols, _ = cx.drop_inert_vetoes(trades, veto_mod.veto_names(include_diagnostics=False))
+    if not veto_cols:
+        return {"objective": FAILURE_METRIC, "reason": "no usable vetoes at these thresholds"}
 
     fold_cfg = params["folds"]
     search_cfg = params["search"]

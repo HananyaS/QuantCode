@@ -131,6 +131,41 @@ def evaluate_population(
     )
 
 
+def drop_inert_vetoes(
+    trades: pd.DataFrame, veto_cols: Sequence[str], min_prevalence: float = 0.001
+) -> Tuple[List[str], Dict[str, str]]:
+    """Remove vetoes that cannot discriminate on this data.
+
+    A veto that never fires -- because its input was never populated, or its
+    threshold is outside the observed range -- is not harmless. It is a no-op
+    that still enters every subset of the search, multiplying the hypothesis
+    count and therefore making the FDR correction harsher for the vetoes that
+    *do* carry information. Worse, it looks like a tested-and-rejected
+    hypothesis in the output when it was never tested at all.
+
+    Returns (usable vetoes, reasons for each exclusion).
+    """
+    usable: List[str] = []
+    excluded: Dict[str, str] = {}
+
+    for col in veto_cols:
+        if col not in trades.columns:
+            excluded[col] = "column absent"
+            continue
+        series = trades[col].fillna(False).astype(bool)
+        rate = float(series.mean())
+        if rate < min_prevalence:
+            excluded[col] = f"never fires (prevalence {rate:.4%})"
+        elif rate > 1 - min_prevalence:
+            excluded[col] = f"always fires (prevalence {rate:.4%})"
+        else:
+            usable.append(col)
+
+    if excluded:
+        logger.warning("excluded %d inert vetoes: %s", len(excluded), excluded)
+    return usable, excluded
+
+
 def _reject_lookahead_vetoes(veto_cols: Sequence[str]) -> None:
     """Refuse to search over vetoes that use future information.
 

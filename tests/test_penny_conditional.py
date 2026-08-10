@@ -274,3 +274,36 @@ def test_minute_string_comparison_is_safe_across_the_hour_boundary():
     assert "15:55" > "09:35"
     result = nulls.feature_timing_tripwire(pd.DataFrame({"minute_et": ["10:00"]}))
     assert not result.passed, "a 10:00 bar must be flagged as post-decision"
+
+
+# ---- Inert vetoes ----
+
+
+def test_inert_vetoes_are_excluded_from_the_search():
+    """A veto that never fires still enters every subset, making the FDR
+    correction harsher for the vetoes that do carry information."""
+    trades = _trades(seed=40)
+    trades["veto_dead"] = False
+    trades["veto_always"] = True
+
+    usable, excluded = cx.drop_inert_vetoes(trades, VETOES + ["veto_dead", "veto_always"])
+    assert set(usable) == set(VETOES)
+    assert "never fires" in excluded["veto_dead"]
+    assert "always fires" in excluded["veto_always"]
+
+
+def test_missing_veto_column_is_reported_not_crashed():
+    trades = _trades(seed=41)
+    usable, excluded = cx.drop_inert_vetoes(trades, VETOES + ["veto_absent"])
+    assert "veto_absent" not in usable
+    assert excluded["veto_absent"] == "column absent"
+
+
+def test_dropping_inert_vetoes_reduces_the_hypothesis_count():
+    trades = _trades(seed=42)
+    trades["veto_dead"] = False
+    with_dead = cx.search_veto_sets(trades, VETOES + ["veto_dead"], max_size=2,
+                                    min_trades=100, n_boot=100)
+    usable, _ = cx.drop_inert_vetoes(trades, VETOES + ["veto_dead"])
+    without = cx.search_veto_sets(trades, usable, max_size=2, min_trades=100, n_boot=100)
+    assert without["n_hypotheses"].iloc[0] < with_dead["n_hypotheses"].iloc[0]
