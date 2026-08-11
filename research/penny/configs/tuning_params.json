@@ -9,7 +9,7 @@
     "participation_cap": 0.01
   },
   "veto_params": {
-    "max_ret_threshold": 0.5,
+    "max_ret_threshold": 0.3,
     "consec_up_threshold": 3,
     "gap_max": 1.0,
     "prior_spike": 0.5,
