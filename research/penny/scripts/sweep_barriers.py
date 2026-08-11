@@ -63,9 +63,31 @@ def set_barriers(target: float, stop: float) -> None:
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
 
 
-def run(cmd: List[str]) -> Tuple[int, str]:
-    proc = subprocess.run(cmd, cwd=PROJECT, capture_output=True, text=True, timeout=3600)
-    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+def run_in_process(target: float, stop: float) -> Dict:
+    """Rebuild the dataset and score it without spawning a subprocess.
+
+    The first version shelled out with a one-hour timeout. The machine slept
+    mid-sweep, the wall clock advanced past the timeout while the child was
+    suspended, and the whole run died having completed one geometry -- after
+    which the `finally` block "restored" a config that had already been
+    mutated. In-process avoids the timeout entirely and is faster besides,
+    since pandas is imported once rather than twice per geometry.
+    """
+    from research.penny.scripts import build_dataset, tune_objective
+
+    build_dataset.main(["--profit-target", str(target), "--stop-loss", str(stop)])
+
+    params = tune_objective.load_params()
+    trades = pd.read_parquet(bars.DATA_ROOT / "trades.parquet")
+    tune, _ = tune_objective.split_holdout(trades, 0.20)
+    return tune_objective.evaluate(tune, params)
+
+
+def load_existing(path: Path) -> List[Dict]:
+    """Resume support: a sweep interrupted halfway keeps what it measured."""
+    if not path.exists():
+        return []
+    return pd.read_csv(path).to_dict(orient="records")
 
 
 def main(argv=None) -> int:
@@ -73,11 +95,19 @@ def main(argv=None) -> int:
     parser.add_argument("--out", default=str(bars.DATA_ROOT / "barrier_sweep.csv"))
     args = parser.parse_args(argv)
 
-    original = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))["barriers"]
-    rows: List[Dict] = []
+    out_path = Path(args.out)
+    original = {"profit_target": 0.30, "stop_loss": 0.10}
+    rows: List[Dict] = load_existing(out_path)
+    done = {(round(r["profit_target"], 4), round(r["stop_loss"], 4)) for r in rows}
+    if done:
+        logger.info("resuming: %d geometries already measured", len(done))
 
     try:
         for target, stop in GEOMETRIES:
+            if (round(target, 4), round(stop, 4)) in done:
+                logger.info("skip +%.0f%%/-%.0f%% (cached)", 100 * target, 100 * stop)
+                continue
+
             breakeven = stop / (target + stop)
             logger.info(
                 "=== target +%.0f%% / stop -%.0f%%  (break-even win rate %.1f%%) ===",
@@ -85,41 +115,24 @@ def main(argv=None) -> int:
             )
             set_barriers(target, stop)
 
-            code, out = run([
-                PYTHON, "research/penny/scripts/build_dataset.py",
-                "--profit-target", str(target), "--stop-loss", str(stop),
-            ])
-            if code != 0:
-                logger.warning("  build failed: %s", out[-400:])
+            try:
+                result = run_in_process(target, stop)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("  geometry failed: %s", str(exc)[:300])
                 continue
 
             summary = json.loads(
                 (bars.DATA_ROOT / "dataset_summary.json").read_text(encoding="utf-8")
             )
 
-            code, out = run([PYTHON, "research/penny/scripts/tune_objective.py"])
-            metric = float("nan")
-            for line in out.strip().splitlines():
-                token = line.strip()
-                try:
-                    metric = float(token)
-                except ValueError:
-                    continue
-
-            oos_mean = oos_n = float("nan")
-            for line in out.splitlines():
-                if "oos_mean" in line:
-                    oos_mean = float(line.split()[-1])
-                if "oos_n " in line:
-                    oos_n = float(line.split()[-1])
-
             row = {
                 "profit_target": target,
                 "stop_loss": stop,
                 "breakeven_win_rate": breakeven,
-                "objective": metric,
-                "oos_mean": oos_mean,
-                "oos_n": oos_n,
+                "objective": result.get("objective", float("nan")),
+                "oos_mean": result.get("oos_mean", float("nan")),
+                "oos_n": result.get("oos_n", float("nan")),
+                "oos_retained": result.get("oos_retained", float("nan")),
                 "trade_mean_net": summary["mean_net_return"],
                 "trade_mean_gross": summary["mean_gross_return"],
                 "p_target": summary["outcome_mix"].get("target", 0.0),
@@ -128,9 +141,12 @@ def main(argv=None) -> int:
                 "cost_bps": summary["mean_cost_bps"],
             }
             rows.append(row)
+            # Persist after every geometry so an interruption keeps the work.
+            pd.DataFrame(rows).to_csv(out_path, index=False)
             logger.info(
                 "  objective %.6f | net %.4f | gross %.4f | P(target) %.3f",
-                metric, row["trade_mean_net"], row["trade_mean_gross"], row["p_target"],
+                row["objective"], row["trade_mean_net"],
+                row["trade_mean_gross"], row["p_target"],
             )
     finally:
         # Always restore, so a crash mid-sweep cannot leave the repo configured
