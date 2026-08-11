@@ -14,7 +14,7 @@
     "gap_max": 1.0,
     "prior_spike": 0.5,
     "min_adv": 1000000,
-    "max_hl_range": 0.2,
+    "max_hl_range": 0.12,
     "min_price": 1.0,
     "min_open_dollar": 250000,
     "min_minutes_obs": 5,
