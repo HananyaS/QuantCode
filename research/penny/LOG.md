@@ -692,3 +692,149 @@ Ranked by how much of the remaining gap each could close:
 | `build_pit_features` | O(symbols × filings) scan; would not have finished | running it on 1.4M rows |
 | EDGAR searchsorted | tz-aware `.to_numpy()` gives object dtype, cannot compare | tests after the rewrite |
 | `select_top_fraction` | `groupby.apply` deprecation, silently changes grouping behaviour | pandas warning |
+
+---
+
+# ROUND 3 — measured costs, four new data sources, sequence models
+
+## 23. Gate A: the cost bar, finally measured
+
+Rounds 1-2 charged a flat **437 bps** that nobody had measured. Gate A replaced
+both constants with measurements from NBBO quotes on **9,794** candidate
+symbol-days.
+
+| component | assumed | **measured** |
+|---|---|---|
+| half-spread | 118 bps | **37.7 bps** |
+| impact @1% ADV | 100 bps | **71.8 bps** |
+| **depth shortfall** | **0 bps** | **398.4 bps** |
+| **round trip** | 437 bps | **728.9 bps** |
+
+The assumption was wrong in both directions and they partly cancelled. Spread
+was ~3x too harsh; **depth was ignored entirely**, and it is the largest term.
+The median inside quote is ~$1,900 while 1% of ADV is ~$19,000 — roughly **10x
+the resting size**, so the order walks the book.
+
+I had predicted, from a two-name probe, that costs would come in ~5x *lower*.
+That probe was right about the term I looked at and blind to the term that
+dominates. Worth recording as a reasoning failure, not just a number.
+
+**Cost is a function of order size, which no previous round modelled:**
+
+| order | round-trip |
+|---|---|
+| $2,000 | ~162 bps |
+| $5,000 | ~257 bps |
+| $10,000 | ~387 bps |
+| $25,000 | ~739 bps |
+
+with an **irreducible floor of 77 bps** — crossing the spread twice — paid at
+any size.
+
+Re-measured at 3.8x the sample (2,585 -> 9,794 symbol-days), the numbers moved
+by under 1 bp. The measurement is stable.
+
+## 24. Four new data sources
+
+| source | coverage | notes |
+|---|---|---|
+| **premarket 04:00-09:34** | 99.8% | median **83 bars** vs 5 before; median **$1.94m** pre-open dollar volume |
+| **FINRA short volume** | 84.8% since 2018-08 | lagged one session |
+| **XBRL shares outstanding** | 86.7% | float proxy; 25.6% of candidate-days show >5% QoQ share growth |
+| **EDGAR continuous recency** | 94.5% | binaries replaced with days-since |
+
+Premarket features carry real univariate signal — `pm_range` IC **−0.178** with
+a cleanly monotone decile gradient (−0.25% to −3.85%). As everywhere in this
+project, the signal is in *avoiding the worst*, not finding winners: the best
+decile is only **+0.08%**.
+
+## 25. Adding features made the model worse
+
+The ablation is monotonically **degrading**:
+
+| feature set | n features | top-10% gross |
+|---|---|---|
+| base | 33 | **+0.71%** |
+| +EDGAR | 36 | +0.43% |
+| +premarket | 52 | +0.31% |
+| +short volume | 55 | +0.19% |
+| +float | 60 | +0.13% |
+
+**Gate B fails**: premarket lift is **−0.12%** against a +0.50% threshold.
+
+This directly contradicts round 2, where EDGAR appeared to give a 10x
+improvement. The difference is the fold restructuring. Round 2's fold 0 trained
+on **610 rows**; round 3's minimum training window is 900 sessions, so fold 0
+now trains on **2,682**. With a sane baseline the base model scores +0.71%
+instead of round 2's +0.14% — and the apparent EDGAR benefit largely
+disappears.
+
+**Round 2's headline improvement was substantially an artifact of a degenerate
+fold.** Fixing the fold structure was worth more than any feature added since.
+
+The mechanism for the degradation is ordinary: 33 -> 60 features against
+2,682-10,613 training rows is feature bloat, and each addition buys more
+variance than signal.
+
+## 26. The sequence models — the one thing that helped
+
+Gate B failed, so under the pre-registered protocol the sequence encoders
+should not have been built. They were run anyway as an **explicitly exploratory
+arm**, excluded from the H1 family and from the multiple-testing correction.
+
+| model | top-10% gross | gross 95% CI | lift | p |
+|---|---|---|---|---|
+| base GBDT | +0.71% | [−0.62%, …] | +1.60pp | 0.017 |
+| blend:cnn | +0.56% | [−0.39%, …] | +1.45pp | 0.002 |
+| blend:gru | +0.65% | [−0.46%, …] | +1.53pp | 0.004 |
+| **blend:transformer** | **+1.22%** | **[+0.14%, …]** | **+2.10pp** | **<0.0001** |
+
+The transformer blend is **the first configuration in the entire project whose
+gross confidence interval excludes zero.** The pre-open path evidently carries
+shape information that ~16 hand-made aggregates destroy — which is exactly the
+argument for using a sequence model at all, and exactly why it was *not*
+justified on the tabular features (Grinsztajn et al. 2022).
+
+It remains exploratory. Gate B was pre-registered and it failed; reporting a
+post-hoc arm as confirmatory would be the error the whole apparatus exists to
+prevent.
+
+## 27. Round 3 verdict
+
+**H1 is not met at any order size.**
+
+| | |
+|---|---|
+| best gross (exploratory) | **+1.22%** — CI [+0.14%, …] |
+| best gross (pre-registered) | +0.71% — CI includes zero |
+| net @ $2,000 | **−0.90%** |
+| net @ $5,000 | −3.47% |
+| net @ $10,000 | −6.95% |
+| H1 family | 45 cells, BH-FDR corrected |
+| cumulative trials (rounds 2+3) | 72 |
+
+The measured cost floor is ~162 bps at a $2,000 order. The best gross the
+project has produced is **122 bps**, and that from an exploratory arm. Even at
+the smallest tradable size, and with the best model, **gross does not reach the
+cost floor.**
+
+## 28. Round 3 bug ledger
+
+Nine issues from an independent adversarial audit; three were real, and one of
+my own tripwires caught a genuine data fault.
+
+| Where | Bug | Found by |
+|---|---|---|
+| `blend_scores` | ranked over the pooled panel, so scores depended on later folds — a real look-ahead I introduced | audit |
+| `compare_selection_to_baseline` | mask truncated after `dropna`, pairing mask entries with wrong trades | audit |
+| H1 verdict | unadjusted maximum over ~72 correlated CIs; trial count ignored the order-size dimension | audit |
+| FINRA raw files | **2,262 duplicate (symbol, date) rows** — `shift(1)` would return the same session, not the prior one | my own duplicate guard |
+| FINRA tripwire | asserted "differs from today" and fired on real, correctly-lagged data (ACAMU, 100% short twice running) | running it |
+| `edgar.py` comment | claimed acceptance times are Eastern when they are UTC; following it would have created a 4-5 hour look-ahead | audit |
+| premarket test fixture | generated bars past 09:35 — the boundary guard caught my own test | running it |
+| allowlist | cost/score/fold columns not in the forbidden set | audit |
+
+Audit items verified **correct**: FINRA lag placement, XBRL searchsorted
+arithmetic and tz handling, premarket causality (checked in cache: max minute
+09:34, zero bars ≥09:35), sequence left-padding and truncation, chronological
+validation split, one-to-one merges, and the feature allowlist.

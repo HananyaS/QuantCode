@@ -203,6 +203,11 @@ def main(argv=None) -> int:
     # is not evidence of anything and diluted the pooled result.
     parser.add_argument("--min-train-days", type=int, default=900)
     parser.add_argument("--skip-sequence", action="store_true")
+    parser.add_argument(
+        "--force-sequence", action="store_true",
+        help="Run the sequence encoders even if Gate B fails. Results are "
+             "recorded as EXPLORATORY and excluded from the H1 verdict.",
+    )
     args = parser.parse_args(argv)
 
     df = load_inputs()
@@ -278,7 +283,15 @@ def main(argv=None) -> int:
     logger.info("=" * 68)
 
     # --- sequence models ---------------------------------------------------
-    if gate_b and not args.skip_sequence:
+    run_sequence = (gate_b or args.force_sequence) and not args.skip_sequence
+    if run_sequence and not gate_b:
+        logger.warning(
+            "running sequence encoders despite Gate B failing -- results are "
+            "EXPLORATORY and are excluded from the H1 verdict"
+        )
+    results["sequence_exploratory"] = bool(run_sequence and not gate_b)
+
+    if run_sequence:
         from research.penny.features.premarket import DECISION_MINUTE  # noqa: F401
         from research.penny.model import sequence as S
         from research.penny.scripts.fetch_premarket import session_path
@@ -363,6 +376,16 @@ def main(argv=None) -> int:
                 "net": float(row.get(f"net_{size}", np.nan)),
                 "net_lo": float(row.get(f"net_lo_{size}", np.nan)),
             })
+
+    # Exploratory arms (sequence encoders run despite a failed Gate B) are
+    # excluded from the H1 decision. They were not pre-registered, and letting
+    # them into the family would both inflate the correction and allow a
+    # post-hoc arm to carry the verdict.
+    if results.get("sequence_exploratory") and not grid_df.empty:
+        exploratory = grid_df["feature_set"].str.startswith("blend:")
+        cells = [c for c in cells if not exploratory.iloc[c["row"]]]
+        logger.info("excluded %d exploratory cells from the H1 family",
+                    int(exploratory.sum()) * len(ORDER_SIZES))
 
     cells_df = pd.DataFrame(cells)
     n_tests = len(cells_df) + PRIOR_TRIALS
