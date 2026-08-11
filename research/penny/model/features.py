@@ -65,15 +65,39 @@ RANK_FEATURES: List[str] = [
     "rvol_prev",
     "adv_20",
     "obs_return",
+    # Pre-open activity is strongly relative: being the most-traded name before
+    # the bell is a different fact from trading $2m before the bell.
+    "pm_dollar_volume",
+    "pm_dv_to_adv",
+    "pm_gap",
 ]
 
+# Continuous only. Round 2 measured the binary flags at -0.64% against +1.05%
+# for the same information as days-since, so the booleans are deliberately
+# excluded rather than merely deprioritised.
 EDGAR_FEATURES: List[str] = [
     "edgar_days_since_shelf",
     "edgar_days_since_takedown",
-    "edgar_deficiency_180d",
-    "edgar_dilutive_8k_180d",
+    "edgar_days_since_deficiency",
+    "edgar_days_since_dilutive_8k",
+    "edgar_takedown_count_180d",
     "edgar_filing_count_180d",
-    "edgar_has_coverage",
+]
+
+# FINRA short volume, lagged one session (the file publishes after the close).
+SHORT_FEATURES: List[str] = [
+    "short_volume_ratio",
+    "short_ratio_chg_5d",
+    "short_ratio_chg_20d",
+]
+
+# Float proxy from XBRL, dated by the filing that disclosed it.
+FLOAT_FEATURES: List[str] = [
+    "shares_outstanding",
+    "shares_growth_qoq",
+    "shares_growth_yoy",
+    "float_dollar",
+    "gap_to_float",
 ]
 
 
@@ -133,23 +157,57 @@ def build_matrix(
     trades: pd.DataFrame,
     edgar: Optional[pd.DataFrame] = None,
     include_edgar: bool = True,
+    premarket: Optional[pd.DataFrame] = None,
+    short_volume: Optional[pd.DataFrame] = None,
+    float_data: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
-    """Assemble the full feature matrix."""
+    """Assemble the full feature matrix.
+
+    Every join is validated one-to-one. A silent fan-out would duplicate trades
+    and inflate every subsequent statistic without raising anything.
+    """
     df = trades.copy()
 
-    if include_edgar and edgar is not None and not edgar.empty:
+    sources = [
+        ("edgar", edgar if include_edgar else None, "edgar_has_coverage"),
+        ("premarket", premarket, None),
+        ("short volume", short_volume, "short_has_coverage"),
+        ("float", float_data, "shares_has_coverage"),
+    ]
+
+    for name, source, coverage_col in sources:
+        if source is None or source.empty:
+            if source is not None:
+                logger.warning("%s: empty, skipping", name)
+            continue
         before = len(df)
-        df = df.merge(edgar, on=["symbol", "date"], how="left", validate="one_to_one")
-        assert len(df) == before, "EDGAR merge changed the row count"
-        coverage = df["edgar_has_coverage"].fillna(False).mean()
-        logger.info("edgar coverage: %.1f%% of trades", 100 * coverage)
+        overlap = (set(source.columns) & set(df.columns)) - {"symbol", "date"}
+        df = df.merge(
+            source.drop(columns=list(overlap)), on=["symbol", "date"],
+            how="left", validate="one_to_one",
+        )
+        assert len(df) == before, f"{name} merge changed the row count"
+        if coverage_col and coverage_col in df.columns:
+            logger.info("%s coverage: %.1f%% of trades",
+                        name, 100 * df[coverage_col].fillna(False).mean())
+        else:
+            probe = [c for c in source.columns if c not in ("symbol", "date")]
+            if probe:
+                logger.info("%s coverage: %.1f%% of trades",
+                            name, 100 * df[probe[0]].notna().mean())
 
     df = add_cross_sectional_ranks(df)
     df = add_regime_features(df)
     return df
 
 
-def feature_columns(df: pd.DataFrame, include_edgar: bool = True) -> List[str]:
+def feature_columns(
+    df: pd.DataFrame,
+    include_edgar: bool = True,
+    include_premarket: bool = True,
+    include_short: bool = True,
+    include_float: bool = True,
+) -> List[str]:
     """The columns the model may see.
 
     An explicit allowlist rather than "everything numeric". The trade table
@@ -158,13 +216,22 @@ def feature_columns(df: pd.DataFrame, include_edgar: bool = True) -> List[str]:
     dtype-based selection would sweep those in and produce a spectacular,
     entirely fake result.
     """
+    from research.penny.features.premarket import PREMARKET_FEATURES
+
     cols = [c for c in BASE_FEATURES if c in df.columns]
     cols += [c for c in df.columns if c.startswith("xs_rank_")]
     cols += ["xs_n_candidates"] if "xs_n_candidates" in df.columns else []
     cols += [c for c in df.columns if c.startswith("regime_")]
     if include_edgar:
         cols += [c for c in EDGAR_FEATURES if c in df.columns]
+    if include_premarket:
+        cols += [c for c in PREMARKET_FEATURES if c in df.columns]
+    if include_short:
+        cols += [c for c in SHORT_FEATURES if c in df.columns]
+    if include_float:
+        cols += [c for c in FLOAT_FEATURES if c in df.columns]
 
+    cols = list(dict.fromkeys(cols))
     banned = _forbidden_columns(df)
     leaked = sorted(set(cols) & banned)
     assert not leaked, f"outcome-derived columns reached the feature list: {leaked}"
@@ -179,6 +246,17 @@ def _forbidden_columns(df: pd.DataFrame) -> set:
         "entry_price_filled", "ret_c2c", "mfe_full", "mae_full",
         "minutes_to_mfe", "minutes_to_mae", "mfe_before_mae", "n_scan_minutes",
         "coverage", "halt_suspect", "ambiguous_bar", "meta_label",
+        "net_at_cost", "model_score", "measured_cost", "measured_round_trip_bps",
+        "seq_score", "fold", "cost_2000", "cost_5000", "cost_10000",
+        "half_spread_bps", "ask_notional",
+        # Coverage flags are booleans about data availability, not signals.
+        # Left out deliberately: a model could otherwise learn "symbols the SEC
+        # has no record of behave differently", which is a statement about the
+        # dataset rather than the market.
+        "edgar_has_coverage", "short_has_coverage", "shares_has_coverage",
+        # Raw pre-open levels the scale-free features already encode; keeping
+        # them would let the model key on absolute price.
+        "pm_close", "pm_high", "pm_low", "pm_vwap", "pm_volume",
     }
     prefixed = {c for c in df.columns if c.startswith(("fut_", "diag_"))}
     return explicit | prefixed

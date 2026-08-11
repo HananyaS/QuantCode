@@ -367,11 +367,21 @@ def compare_selection_to_baseline(
     of 0.515 against a "real" 0.842 -- indistinguishable. Only the return
     difference, resampled by day, discriminates.
     """
-    df = trades.dropna(subset=[return_col])
-    if df.empty or selected.sum() == 0:
-        return {"delta": np.nan, "lo": np.nan, "hi": np.nan, "p_value": np.nan, "helps": False}
+    # Subset the mask by the SAME predicate used to build `df`. Truncating it
+    # to len(df) instead would, the moment any row is dropped, pair every
+    # subsequent mask element with the wrong trade -- silently scrambling which
+    # trades count as selected, with no error raised.
+    keep = trades[return_col].notna().to_numpy()
+    df = trades[keep]
+    mask = np.asarray(selected, dtype=bool)
+    if len(mask) == len(trades):
+        mask = mask[keep]
 
-    mask = np.asarray(selected, dtype=bool)[: len(df)]
+    if df.empty or mask.sum() == 0:
+        return {"delta": np.nan, "lo": np.nan, "hi": np.nan, "p_value": np.nan, "helps": False}
+    assert len(mask) == len(df), (
+        f"selection mask has {len(mask)} entries for {len(df)} usable trades"
+    )
     values = df[return_col].to_numpy(dtype=float)
     unique_days, day_index = np.unique(df[date_col].to_numpy(), return_inverse=True)
     n_days = len(unique_days)

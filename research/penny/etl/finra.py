@@ -134,7 +134,25 @@ def build_lagged_features(
 
     sv = short_volume.copy()
     sv["symbol"] = sv["symbol"].str.upper()
+
+    # Consolidate before lagging. Despite the "consolidated NMS" name, the
+    # published file carries more than one row for some symbol-days -- 2,262 of
+    # them across this study window. Left as-is, ``shift(1)`` would return the
+    # SAME session for every duplicated row rather than the prior one, which is
+    # precisely the leak this module exists to prevent. Summing across the
+    # duplicate rows is the correct consolidation: the volumes are additive.
+    duplicated = int(sv.duplicated(["symbol", "date"]).sum())
+    if duplicated:
+        logger.info("finra: consolidating %d duplicate (symbol, date) rows", duplicated)
+        value_cols = [c for c in ("short_volume", "short_exempt_volume", "total_volume")
+                      if c in sv.columns]
+        sv = sv.groupby(["symbol", "date"], as_index=False)[value_cols].sum()
+
     sv = sv.sort_values(["symbol", "date"])
+    assert not sv.duplicated(["symbol", "date"]).any(), (
+        "duplicate (symbol, date) rows survived consolidation; shift(1) would "
+        "not be a one-session lag"
+    )
 
     total = sv["total_volume"].replace(0, np.nan)
     sv["ratio_raw"] = (sv["short_volume"] + sv.get("short_exempt_volume", 0)) / total
@@ -164,26 +182,34 @@ def build_lagged_features(
 def assert_short_volume_is_lagged(
     features: pd.DataFrame, raw: pd.DataFrame, symbol: str, day: pd.Timestamp
 ) -> None:
-    """Fail if a symbol-day's own short volume reached its own features.
+    """Fail unless the feature equals the PREVIOUS session's ratio.
 
-    Structural rather than remembered. FINRA publishes after the close, so
-    same-day short volume is future information -- and because it correlates
-    with same-day returns, the leak would present as an excellent feature.
+    The positive formulation matters. An earlier version asserted the feature
+    merely *differed* from today's ratio, which fires spuriously whenever two
+    consecutive sessions happen to share a ratio -- and they do: a name that is
+    100% short-reported on both days trips it while being perfectly lagged.
+    Asserting equality with the prior session tests the property directly and
+    has no such failure mode.
     """
-    same_day = raw[(raw["symbol"].str.upper() == symbol.upper()) & (raw["date"] == day)]
-    if same_day.empty:
+    sym = symbol.upper()
+    history = raw[raw["symbol"].str.upper() == sym].sort_values("date")
+    prior = history[history["date"] < day]
+    if prior.empty:
         return
 
     row = features[(features["symbol"] == symbol) & (features["date"] == day)]
     if row.empty or row["short_volume_ratio"].isna().all():
         return
 
-    total = same_day["total_volume"].iloc[0]
+    last = prior.iloc[-1]
+    total = last["total_volume"]
     if not total:
         return
-    own = (same_day["short_volume"].iloc[0] + same_day.get("short_exempt_volume", pd.Series([0])).iloc[0]) / total
+
+    expected = (last["short_volume"] + last.get("short_exempt_volume", 0)) / total
     observed = float(row["short_volume_ratio"].iloc[0])
-    assert not np.isclose(observed, own, atol=1e-9), (
-        f"{symbol} on {day:%Y-%m-%d}: feature equals that day's OWN short ratio "
-        f"({observed:.6f}) -- FINRA publishes after the close, so this is a leak"
+    assert np.isclose(observed, expected, atol=1e-9), (
+        f"{symbol} on {day:%Y-%m-%d}: feature is {observed:.6f} but the previous "
+        f"session ({last['date']:%Y-%m-%d}) had {expected:.6f} -- the one-session "
+        "lag is not being applied"
     )

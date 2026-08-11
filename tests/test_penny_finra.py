@@ -103,8 +103,33 @@ def test_lag_tripwire_catches_a_same_day_leak():
     leaked = pd.DataFrame(
         {"symbol": ["PENY"], "date": [pd.Timestamp("2024-03-05")], "short_volume_ratio": [0.90]}
     )
-    with pytest.raises(AssertionError, match="publishes after the close"):
+    with pytest.raises(AssertionError, match="one-session lag is not being applied"):
         assert_short_volume_is_lagged(leaked, raw, "PENY", pd.Timestamp("2024-03-05"))
+
+
+def test_lag_tripwire_does_not_fire_on_two_identical_sessions():
+    """The false positive that forced the tripwire to be reformulated.
+
+    An earlier version asserted the feature merely *differed* from today's
+    ratio. On real data a symbol reported 100% short on two consecutive
+    sessions, so the correctly-lagged value equalled today's and the check
+    fired on perfectly causal data. Asserting equality with the PRIOR session
+    tests the property directly and has no such failure mode.
+    """
+    raw = _raw(["2024-03-04", "2024-03-05"], [1.0, 1.0])
+    cands = pd.DataFrame({"symbol": ["PENY"], "date": [pd.Timestamp("2024-03-05")]})
+    out = build_lagged_features(cands, raw)
+    assert out.iloc[0]["short_volume_ratio"] == pytest.approx(1.0)
+    assert_short_volume_is_lagged(out, raw, "PENY", pd.Timestamp("2024-03-05"))
+
+
+def test_lag_tripwire_uses_the_last_prior_session_across_a_gap():
+    """A missing file must make the feature older, never newer."""
+    raw = _raw(["2024-03-01", "2024-03-05"], [0.30, 0.90])
+    cands = pd.DataFrame({"symbol": ["PENY"], "date": [pd.Timestamp("2024-03-05")]})
+    out = build_lagged_features(cands, raw)
+    assert out.iloc[0]["short_volume_ratio"] == pytest.approx(0.30)
+    assert_short_volume_is_lagged(out, raw, "PENY", pd.Timestamp("2024-03-05"))
 
 
 def test_lag_tripwire_passes_on_correctly_lagged_features():
@@ -191,3 +216,28 @@ def test_row_count_is_preserved():
         {"symbol": ["PENY"] * 3, "date": pd.to_datetime(["2024-03-05"] * 3)}
     )
     assert len(build_lagged_features(cands, raw)) == 3
+
+
+def test_duplicate_symbol_days_are_consolidated_before_lagging():
+    """Found on real data: 2,262 duplicated (symbol, date) rows.
+
+    Left as-is, shift(1) returns the SAME session for a duplicated row rather
+    than the prior one -- the exact leak this module exists to prevent.
+    """
+    raw = pd.DataFrame({
+        "date": pd.to_datetime(["2024-03-04", "2024-03-04", "2024-03-05"]),
+        "symbol": "PENY",
+        "short_volume": [100, 300, 900],
+        "short_exempt_volume": [0, 0, 0],
+        "total_volume": [500, 500, 1000],
+    })
+    cands = pd.DataFrame({"symbol": ["PENY"], "date": [pd.Timestamp("2024-03-05")]})
+    out = build_lagged_features(cands, raw)
+    # The two 03-04 rows consolidate to 400/1000 = 0.40, not 0.20 or 0.60.
+    assert out.iloc[0]["short_volume_ratio"] == pytest.approx(0.40)
+
+
+def test_consolidation_does_not_alter_already_unique_data():
+    raw = _raw(["2024-03-04", "2024-03-05"], [0.25, 0.75])
+    cands = pd.DataFrame({"symbol": ["PENY"], "date": [pd.Timestamp("2024-03-05")]})
+    assert build_lagged_features(cands, raw).iloc[0]["short_volume_ratio"] == pytest.approx(0.25)
