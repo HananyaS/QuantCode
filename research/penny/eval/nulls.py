@@ -236,4 +236,6 @@ def run_all(
     for r in results:
         logger.info("null %s: %s -- %s", r.name, r.status, r.detail)
 
-    return pd.DataFrame([r.__dict__ for r in results])
+    # `status` is a property, so __dict__ omits it; add it explicitly rather
+    # than leaving callers to recompute the pass/fail label themselves.
+    return pd.DataFrame([{**r.__dict__, "status": r.status} for r in results])

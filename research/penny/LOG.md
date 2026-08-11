@@ -316,5 +316,238 @@ reported rather than a single pooled number.
 
 ---
 
-*(Sections 10+ — labelling results, tuning, and the sealed holdout — appended as
-the run proceeds.)*
+---
+
+## 10. Labelled dataset
+
+| | |
+|---|---|
+| candidates labelled | 20,367 |
+| dropped as unfillable (no print at 09:35) | 2,977 (14.6%) |
+| **trades in the study** | **17,390** |
+| tuning period | 10,893 trades / 2,017 sessions |
+| sealed holdout | 6,497 trades / 505 sessions |
+
+**Outcome mix:** stop **52.8%**, time-exit **40.2%**, target **7.0%**.
+
+**Mean net return −5.14%**, gross **−0.92%**, mean cost **437 bps**.
+
+Two things stand out immediately.
+
+First, the 14.6% unfillable rate is not a data problem, it is the finding: in
+one trade out of seven there was **no print at all** in the decision minute.
+Assumption 2 of the labelling design is doing real work.
+
+Second, and more important: **the population has no gross edge either.** Gross
+is −0.92%, so even at zero cost the strategy loses money. Costs then remove a
+further 4.4 points. This is precisely the Avramov/Chordia/Goyal and
+Novy-Marx/Velikov mechanism — the effects live where the frictions are largest.
+
+---
+
+## 11. First full result
+
+All three null tests **PASS** (constant-return spread 3.5e-18; shuffled labels
+0.000; date-shift 0.000).
+
+| Population | E[net] | 95% CI | n |
+|---|---|---|---|
+| baseline (no veto) | **−5.26%** | [−5.55%, −4.97%] | 10,893 |
+| best walk-forward OOS | **−4.58%** | [−5.12%, −4.04%] | 3,128 |
+| **sealed holdout** | **−4.58%** | [−5.11%, −4.04%] | 1,725 |
+
+- veto sets searched: **299**; passing one-sided FDR: **0**
+- Deflated Sharpe: **0.000**
+- selection degradation train→test: **0.0036** (small — selection is stable)
+- vetoes chosen: `veto_high_max` and `veto_thin_adv` in **all four folds**,
+  `veto_open_reversal` in three
+
+**H0 is not rejected.** The vetoes measurably help — 0.68 percentage points,
+consistently, and stably across folds — and the surviving population is still
+firmly unprofitable. This is Lemma 2 exactly: *improvement is not
+profitability*, and the two come apart precisely when the baseline is as
+negative as it is here.
+
+### A reporting bug worth recording
+
+The first run reported "**299 of 299 veto sets pass FDR**". True, and useless:
+the p-value was two-sided against zero, and in a universe where returns are
+almost uniformly negative *every* subset differs significantly from zero. It
+read as a wall of discoveries when nothing was profitable.
+
+FDR is now applied to the **one-sided** hypothesis (mean > 0), which is what
+the study asks. The corrected count is 0 of 299.
+
+### A performance bug worth recording
+
+The first analysis run did not finish. The day-clustered bootstrap concatenated
+each drawn day's array inside a Python loop — exact, but hundreds of millions
+of list operations across the search. Resampling per-day (sum, count) pairs is
+algebraically identical and runs in seconds. The equivalence is pinned by a test
+against the naive estimator using the same draw sequence, because "it's faster
+now" is not evidence that it is still the same estimator.
+
+---
+
+## 12. Tuning
+
+Objective: the lower bound of the 95% CI on out-of-sample mean net return.
+Baseline **−0.051154**.
+
+| # | Change | Metric | Status |
+|---|---|---|---|
+| 0 | baseline | −0.051154 | — |
+| 1 | `min_adv` 1M → 5M | −0.054060 | discard — n fell 3,128 → 2,145 and the interval widened |
+| 2 | `profit_target` 30% → 15% | −0.051154 | **no-op — see below** |
+
+Iteration 2 returned *exactly* the baseline, which was itself a bug rather than
+a null result. The harness rebuilds vetoes from config, but barrier geometry is
+baked into the labels at dataset-build time — so the change was silently
+ignored, and an experiment that never ran was about to be recorded as evidence
+of "no effect".
+
+`tune_objective` now refuses to run when configured barriers disagree with the
+built dataset, and `sweep_barriers.py` performs that sweep properly with a full
+rebuild per geometry.
+
+### 12.1 Barrier sweep
+
+Six geometries, each requiring a full dataset rebuild.
+
+| target / stop | break-even win rate | objective | net | **gross** | P(target) | P(stop) |
+|---|---|---|---|---|---|---|
+| **+10% / −5%** | 33.3% | **−0.04752** | −4.65% | **−0.39%** | 15.5% | 75.9% |
+| +30% / −5% | 14.3% | −0.04797 | −4.71% | −0.46% | 4.0% | 81.0% |
+| +15% / −7% | 31.8% | −0.05048 | −4.93% | −0.69% | 13.2% | 67.2% |
+| +20% / −10% | 33.3% | −0.05099 | −5.09% | −0.86% | 12.0% | 51.6% |
+| +30% / −10% | 25.0% | −0.05115 | −5.14% | −0.92% | 7.0% | 52.8% |
+| +50% / −15% | 23.1% | −0.05280 | −5.09% | −0.87% | 4.0% | 31.5% |
+
+**The decisive column is gross.** It is negative at *every* geometry. This is
+not only a cost story: there is no directional edge to harvest at any
+reward/risk ratio. Tighter stops help (they cap the loss) but cannot create an
+edge that is not there.
+
+### 12.2 The sweep died once, and how
+
+The first attempt shelled out to `build_dataset` with a one-hour subprocess
+timeout. The machine slept mid-sweep; the wall clock advanced past the timeout
+while the child was suspended; the run died having completed one geometry. Worse,
+the `finally` block then "restored" a config that had already been mutated,
+leaving configured barriers (0.15) disagreeing with the built labels (0.30).
+
+The guard added in §12 caught exactly that on the next run — which is the only
+reason it was noticed rather than silently producing results for a geometry
+nobody chose. The sweep now runs in-process, persists after every geometry, and
+resumes from what it already measured.
+
+### 12.3 Full iteration log
+
+| # | Change | Metric | Status |
+|---|---|---|---|
+| 0 | baseline | −0.051154 | — |
+| 1 | `min_adv` 1M → 5M | −0.054060 | discard — n fell 3,128 → 2,145, CI widened |
+| 2 | `profit_target` 30% → 15% | −0.051154 | no-op — harness ignored barriers (bug, fixed) |
+| 3 | barrier geometry → +10%/−5% | **−0.047518** | **keep** |
+| 4 | `max_ret_threshold` 0.50 → 0.30 | **−0.045802** | **keep** |
+| 5 | `min_close_position` 0.35 → 0.50 | −0.046184 | discard — mean improved, n fell, CI widened |
+| 6 | `max_hl_range` 0.20 → 0.12 | **−0.045324** | **keep** |
+| 7 | `min_open_dollar` 250k → 1M | −0.045324 | no-op — that veto is in no selected set |
+| 8 | veto sets of size 4 | −0.046348 | discard — worse, **and selection became unstable across folds** |
+
+Net movement: **−0.051154 → −0.045324**, a 0.58 percentage-point improvement in
+the out-of-sample CI lower bound. Real, and nowhere near enough.
+
+Iteration 8 is worth noting as a diagnostic rather than a failure: allowing
+size-4 sets made the chosen vetoes differ in every fold, which is the textbook
+signature of selection overfitting. The objective correctly penalised it.
+
+---
+
+## 13. Final result
+
+Configuration: barriers +10%/−5%, `max_ret_threshold` 0.30, `max_hl_range` 0.12,
+veto sets up to size 3.
+
+| Population | E[net] per trade | 95% CI | n |
+|---|---|---|---|
+| baseline (no veto) | **−4.71%** | [−4.85%, −4.57%] | 10,893 |
+| best walk-forward OOS | **−4.28%** | [−4.54%, −4.03%] | 2,374 |
+| **sealed holdout** | **−4.48%** | [−4.81%, −4.15%] | 1,213 |
+
+- veto sets searched: **299**; passing one-sided FDR: **0**
+- Deflated Sharpe Ratio: **0.000**
+- all three null tests: **PASS**
+- holdout vetoes: `veto_thin_adv`, `veto_wide_spread`, `veto_open_reversal`
+
+**H0 is not rejected.**
+
+### The pre-registered kill criterion
+
+> "Phase 4: no veto set achieving net E[r] > 0 at 95% after FDR correction, with
+> ≥2% of the population retained → null not rejected. Stop and report the
+> negative result."
+
+Met. This is that report.
+
+### Mechanically, why
+
+1. **No gross edge.** Best-geometry mean gross return is **−0.39%** — negative
+   before any cost, at every geometry. Buying a gapping microcap at 09:35 and
+   exiting the same session is not a positive-expectation bet spoiled by
+   frictions; it is a negative-expectation bet that frictions worsen.
+2. **Costs remove ~4.4 more points.** 437 bps round trip, estimated from the
+   opening window's own range plus square-root impact at 1% participation.
+3. **One trade in seven was never enterable.** 2,977 of 20,367 candidates
+   (14.6%) had no print in the decision minute.
+
+### What the vetoes *did* do
+
+They worked in the sense of Lemma 1 — identifying genuinely worse
+sub-populations, consistently and stably. `veto_thin_adv` was selected in every
+fold; train→test degradation was **0.0036**. They are not overfitted artefacts.
+They are simply an order of magnitude too small, which is Lemma 2.
+
+### Honest limits of this result
+
+- **Long-only, and the evidence points short.** Every effect found runs the same
+  direction: high-MAX, illiquid, wide-spread names underperform. That is a short
+  thesis, gated on borrow data the companion recorder is now accruing.
+- **No filing-based vetoes.** Pending dilution (S-3/424B5), Nasdaq deficiency
+  notices (8-K 3.01) and going-concern language are free from EDGAR and were not
+  in this run. They target the mechanism most directly and are the highest-value
+  next step.
+- **Two vetoes were inert.** The short-volume pair never fired (no FINRA data
+  wired) and were excluded from the search rather than silently inflating the
+  hypothesis count.
+- **Marketable entry only.** All cost is paid crossing the spread at 09:35. A
+  resting-limit entry would change the cost structure entirely, at the price of
+  non-fills — which this dataset can measure.
+- **Survivorship is improved, not solved.** 1,129 delisted names are included,
+  but the registry has no listing dates, so membership is reconstructed from the
+  bar record. Residual bias points toward optimism.
+
+---
+
+## 14. Bugs found and fixed during this run
+
+Recorded because in this domain every one of them would have produced a
+*better* number.
+
+| Where | Bug | Found by |
+|---|---|---|
+| `veto_extreme_adjustment` | used **future** splits (adjusted series is anchored to the fetch date) | adversarial audit |
+| `ret_1d_prev` | `.shift(1)` outside the groupby → cross-symbol bleed from the future | audit |
+| `consec_up` | `cumcount` counted NaN rows, inflating streaks after gaps | audit |
+| entry spread | estimated from the **whole day**, coupling the label to future vol | audit |
+| `assert_folds_are_clean` | embargo assertion was a tautology that could never fail | audit |
+| `_DAILY_COLS` | shipped current-session close/volume under innocent names | audit |
+| shuffled-label null | tested against zero, so a non-zero panel mean failed it for the wrong reason | own test suite |
+| FDR reporting | two-sided test flagged 299/299 in an all-negative universe | reading the output |
+| bootstrap | per-day concatenation in a Python loop; analysis never finished | runtime |
+| `groupby.apply` for ADV | returned a frame that could not be assigned back | new tests |
+| `np.prod` over NaN | shift-induced NaN disguised as "no split activity" by `fillna(1.0)` | new tests |
+| barrier tuning | harness ignored barrier params entirely; a non-experiment was about to be logged as evidence | metric identical to baseline |
+| `nulls.run_all` | `status` is a property, so `__dict__` omitted it | notebook execution |
+
+Test suite: **116 penny tests**, all passing; **437** across the whole repo.
