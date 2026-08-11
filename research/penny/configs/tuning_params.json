@@ -23,7 +23,7 @@
     "min_obs_return": -0.02
   },
   "search": {
-    "max_veto_set_size": 3,
+    "max_veto_set_size": 4,
     "min_retained": 0.05,
     "min_trades": 150
   },
