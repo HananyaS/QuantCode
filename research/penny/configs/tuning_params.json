@@ -19,7 +19,7 @@
     "min_open_dollar": 250000,
     "min_minutes_obs": 5,
     "max_adj_ratio": 2.0,
-    "min_close_position": 0.35,
+    "min_close_position": 0.5,
     "min_obs_return": -0.02
   },
   "search": {
