@@ -211,43 +211,80 @@ def build_pit_features(
             edgar_has_coverage=False,
         )
 
-    f = filings.copy()
+    covered = set(filings["symbol"].unique())
+
+    # Filter to the forms that matter before anything else. The raw index is
+    # dominated by insider Forms 3/4/144, which are ~40% of 1.4M rows and carry
+    # none of the supply signal this study is after.
+    relevant = filings["form"].isin(SHELF_FORMS | TAKEDOWN_FORMS | DELISTING_FORMS) | (
+        filings["form"].str.startswith("8-K", na=False)
+    )
+    f = filings[relevant].copy()
+    logger.info("edgar: %s relevant filings of %s total", f"{len(f):,}", f"{len(filings):,}")
+
     f["is_shelf"] = f["form"].isin(SHELF_FORMS)
     f["is_takedown"] = f["form"].isin(TAKEDOWN_FORMS)
-    f["is_deficiency"] = (f["form"].str.startswith("8-K")) & _has_item(f["items"], [DEFICIENCY_ITEM])
-    f["is_dilutive_8k"] = (f["form"].str.startswith("8-K")) & _has_item(f["items"], DILUTIVE_ITEMS)
+    is_8k = f["form"].str.startswith("8-K", na=False)
+    f["is_deficiency"] = is_8k & _has_item(f["items"], [DEFICIENCY_ITEM])
+    f["is_dilutive_8k"] = is_8k & _has_item(f["items"], DILUTIVE_ITEMS)
 
-    covered = set(f["symbol"].unique())
+    # Per-symbol sorted arrays, so each candidate row costs a binary search
+    # rather than a full scan of the filing table.
+    # Times are held as UTC epoch nanoseconds. A tz-aware Series returns object
+    # dtype from .to_numpy(), which cannot be compared against datetime64 and
+    # would make searchsorted raise; integers sidestep that entirely and are
+    # faster besides.
+    by_symbol: Dict[str, Dict[str, np.ndarray]] = {}
+    for symbol, group in f.sort_values("accepted_et").groupby("symbol", sort=False):
+        by_symbol[symbol] = {
+            "t": group["accepted_et"].dt.tz_convert("UTC").astype("int64").to_numpy(),
+            "shelf": group["is_shelf"].to_numpy(),
+            "takedown": group["is_takedown"].to_numpy(),
+            "deficiency": group["is_deficiency"].to_numpy(),
+            "dilutive": group["is_dilutive_8k"].to_numpy(),
+        }
+
+    lookback = pd.Timedelta(days=config.lookback_days)
     out_rows: List[Dict] = []
 
     for symbol, group in candidates.groupby("symbol", sort=False):
-        sub = f[f["symbol"] == symbol]
-        accepted = sub["accepted_et"].to_numpy()
+        arrays = by_symbol.get(symbol)
+        has_coverage = symbol in covered
 
-        for _, row in group.iterrows():
-            decision = pd.Timestamp(f"{row['date']:%Y-%m-%d} {decision_time}", tz="America/New_York")
-            visible = sub[accepted < decision] if len(sub) else sub
-            window_start = decision - pd.Timedelta(days=config.lookback_days)
-            recent = visible[visible["accepted_et"] >= window_start]
+        for date in group["date"]:
+            decision = pd.Timestamp(f"{date:%Y-%m-%d} {decision_time}", tz="America/New_York")
+            row = {
+                "symbol": symbol, "date": date,
+                "edgar_days_since_shelf": np.nan,
+                "edgar_days_since_takedown": np.nan,
+                "edgar_deficiency_180d": False,
+                "edgar_dilutive_8k_180d": False,
+                "edgar_filing_count_180d": 0,
+                "edgar_has_coverage": has_coverage,
+            }
+            if arrays is not None and len(arrays["t"]):
+                # Strictly before the decision instant: this is the whole
+                # point-in-time guarantee, in one line.
+                decision_ns = decision.tz_convert("UTC").value
+                cut = int(np.searchsorted(arrays["t"], decision_ns, side="left"))
+                if cut > 0:
+                    start = int(np.searchsorted(
+                        arrays["t"], (decision - lookback).tz_convert("UTC").value, side="left"
+                    ))
+                    window = slice(start, cut)
 
-            def _days_since(mask: pd.Series) -> float:
-                hits = visible[mask.reindex(visible.index, fill_value=False)]
-                if hits.empty:
-                    return np.nan
-                return float((decision - hits["accepted_et"].max()).days)
+                    for key, out_key in (("shelf", "edgar_days_since_shelf"),
+                                         ("takedown", "edgar_days_since_takedown")):
+                        hits = np.flatnonzero(arrays[key][:cut])
+                        if hits.size:
+                            elapsed_ns = decision_ns - int(arrays["t"][hits[-1]])
+                            row[out_key] = float(elapsed_ns / 86_400_000_000_000)
 
-            out_rows.append(
-                {
-                    "symbol": symbol,
-                    "date": row["date"],
-                    "edgar_days_since_shelf": _days_since(sub["is_shelf"]),
-                    "edgar_days_since_takedown": _days_since(sub["is_takedown"]),
-                    "edgar_deficiency_180d": bool(recent["is_deficiency"].any()) if len(recent) else False,
-                    "edgar_dilutive_8k_180d": bool(recent["is_dilutive_8k"].any()) if len(recent) else False,
-                    "edgar_filing_count_180d": int(len(recent)),
-                    "edgar_has_coverage": symbol in covered,
-                }
-            )
+                    row["edgar_deficiency_180d"] = bool(arrays["deficiency"][window].any())
+                    row["edgar_dilutive_8k_180d"] = bool(arrays["dilutive"][window].any())
+                    row["edgar_filing_count_180d"] = int(cut - start)
+
+            out_rows.append(row)
 
     return pd.DataFrame(out_rows)
 

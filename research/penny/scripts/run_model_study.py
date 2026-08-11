@@ -244,6 +244,56 @@ def main(argv=None) -> int:
         results["best_curve"] = curve
         results["best_dsr"] = pstats.deflated_sharpe_ratio(curve["ret"], n_trials=n_trials)
 
+    # --- regime breakdown --------------------------------------------------
+    # The population is not stationary: candidate rate runs ~3.5/session before
+    # 2020 and ~15.5 in 2025-26. Pooling those into one number can hide an edge
+    # that exists in one regime, or manufacture one that exists in none.
+    scored_437 = scored_by_cost.get("0.0437")
+    if scored_437 is not None and not scored_437.empty:
+        regime_rows = []
+        rc = scored_437["regime_n_cand_60d"]
+        if rc.notna().sum() > 100:
+            terciles = pd.qcut(rc.rank(method="first"), 3, labels=["quiet", "normal", "busy"])
+            scored_437 = scored_437.assign(regime=terciles)
+            for name, group in scored_437.groupby("regime", observed=True):
+                sel = T.select_top_fraction(group, 0.10)
+                if len(sel) < 50:
+                    continue
+                all_g = pstats.cluster_bootstrap_mean(
+                    group["ret_c2c"], group["date"], n_boot=1_500
+                )
+                sel_g = pstats.cluster_bootstrap_mean(
+                    sel["ret_c2c"], sel["date"], n_boot=1_500
+                )
+                regime_rows.append(
+                    {
+                        "regime": str(name),
+                        "n_all": all_g.n,
+                        "gross_all": all_g.mean,
+                        "n_top10": sel_g.n,
+                        "gross_top10": sel_g.mean,
+                        "top10_ci_lo": sel_g.lo,
+                        "top10_ci_hi": sel_g.hi,
+                        "lift": sel_g.mean - all_g.mean,
+                    }
+                )
+        by_year = (
+            scored_437.assign(year=scored_437["date"].dt.year)
+            .groupby("year")
+            .agg(n=("ret_c2c", "size"), gross=("ret_c2c", "mean"))
+            .reset_index()
+        )
+        results["regime"] = pd.DataFrame(regime_rows)
+        results["by_year"] = by_year
+        if regime_rows:
+            logger.info("regime breakdown (top 10% selection):")
+            for r in regime_rows:
+                logger.info(
+                    "  %-7s all %+.4f (n=%5d) | top10 %+.4f [%+.4f, %+.4f] | lift %+.4f",
+                    r["regime"], r["gross_all"], r["n_all"], r["gross_top10"],
+                    r["top10_ci_lo"], r["top10_ci_hi"], r["lift"],
+                )
+
     # --- the pre-registered verdict ---------------------------------------
     meets = grid_df["meets_h1"].any() if not grid_df.empty else False
     at_437 = (

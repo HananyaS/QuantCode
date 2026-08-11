@@ -551,3 +551,144 @@ Recorded because in this domain every one of them would have produced a
 | `nulls.run_all` | `status` is a property, so `__dict__` omitted it | notebook execution |
 
 Test suite: **116 penny tests**, all passing; **437** across the whole repo.
+
+---
+
+# ROUND 2 — model-based selection
+
+Round 1 asked whether a *veto filter* could work. Round 2 asks whether a
+*learned ranker* over the full continuous feature set, plus filing data that
+observes the supply mechanism directly, can close the gap.
+
+## 15. Round 1's excursion statistics were an artifact
+
+`max_favourable` was measured only until a barrier fired. That is the right
+quantity for describing a trade and the wrong one for describing an
+opportunity, and round 1 conflated them.
+
+| | truncated (round 1) | **barrier-free (true)** |
+|---|---|---|
+| P(MFE ≥ 10%) | 0.156 | **0.394** |
+| P(MFE ≥ 20%) | 0.004 | **0.187** |
+| P(MFE ≥ 50%) | 0.000 | **0.054** |
+| P(MFE ≥ 100%) | 0.000 | **0.0145** |
+
+The truncated numbers said "price never goes anywhere". The truth is that it
+goes a long way — **1.45% of candidates double intraday** — and the exit rule
+threw it away. The user's original observation was correct all along.
+
+## 16. Exit policy is not the lever either
+
+Nine policies on 2,803 real paths — hold-to-close, targets to +50%, no stop,
+trailing 10/15/20%, wide stops:
+
+**Every one produced gross between −0.09% and −0.33%.**
+
+The large MFE is what a driftless walk with 21.6% daily volatility produces,
+not exploitable drift. A trailing stop gives back precisely what a fixed target
+would have captured. Selection, exit policy and barrier geometry have now all
+been tested; none of them is the binding constraint.
+
+## 17. A null test invalidated the headline diagnostic before it was reported
+
+The model's score-decile monotonicity read **ρ = +0.842**, which looks like
+strong evidence that the score orders outcomes.
+
+Under shuffled labels the same statistic averaged **|ρ| = 0.515** and reached
+**+0.709**. With ten bins, Spearman ρ has a standard deviation near 0.33, so a
+"real" 0.842 is not distinguishable from noise.
+
+This was nearly reported as the round-2 headline. Evidence now comes from
+`compare_selection_to_baseline` — a paired, day-clustered bootstrap of the
+return difference — which is the only statistic here that discriminates.
+
+## 18. What the model actually achieved
+
+Meta-labelling LightGBM, walk-forward, model fitted strictly inside each fold.
+
+| features | best gross | lift vs baseline | p |
+|---|---|---|---|
+| price/volume only | +0.14% | +1.17pp | 0.025 |
+| **+ EDGAR filings** | **+1.51%** | **+2.54pp** | 0.032 |
+
+The filing features are the largest single improvement in the whole project —
+roughly a tenfold increase in achievable gross. That is the round's one genuine
+positive finding, and it supports the prior: features that observe supply
+directly beat features that proxy it through price.
+
+Prevalence in the candidate population: **18.6%** have a listing-deficiency
+notice (8-K item 3.01) within 180 days; **48.9%** a dilutive 8-K; **86.5%** have
+filed a 424B takedown at some point.
+
+## 19. The regime finding, and why it fails
+
+Edge appeared to concentrate in busy regimes:
+
+| regime | all | top 10% | lift |
+|---|---|---|---|
+| quiet | −1.54% | −0.28% | +1.25pp |
+| normal | −0.64% | +1.29% | +1.93pp |
+| **busy** | −0.91% | **+2.11%** | **+3.03pp** |
+
++2.11% gross clears the *optimistic* 200 bps bar. It does not survive:
+
+- **No CI excludes zero** at any selectivity (best p = 0.056, uncorrected)
+- **Only 2 of 4 folds contain busy-regime days**, and they disagree wildly:
+  +0.34% versus +3.00%
+- **Deflated Sharpe = 0.127** at 27 trials. The gross Sharpe of 1.52 looks
+  excellent and does not survive correction for having looked 27 times
+- Net at 200 bps: +0.11%, CI [−2.48%, +3.85%]
+
+A single period (fold 3, 2024–26) drives it. This is what an overfit looks like
+when the machinery is honest enough to say so.
+
+## 20. Round 2 verdict
+
+**H1 is not met at any tested cost level (200 / 300 / 437 bps).**
+
+| | |
+|---|---|
+| baseline gross | −1.08% |
+| best model gross (with EDGAR) | **+1.51%** |
+| best gross 95% CI | [−0.56%, ...] — includes zero |
+| best net @ 437 bps | −2.86% |
+| best net @ 200 bps (optimistic) | −1.74% |
+| trials in the grid | 12 (27 including the regime search) |
+
+The model is real and the lift is statistically significant (p = 0.001–0.03
+across configurations). It moves gross from −1.08% to +1.51%, a genuine
+**+2.6 percentage points**. The cost bar is 200–437 bps and the confidence
+interval on the best configuration still includes zero.
+
+**Two rounds now agree, by different mechanisms.** Round 1: no veto set works.
+Round 2: a learned ranker with filing data works *as a ranker* and still cannot
+reach the bar. The binding constraint is that the candidate population's gross
+expectancy is roughly −1%, and the best available selection buys ~2.5 points of
+that back — against a friction cost of at least 2 points and probably 4.4.
+
+## 21. What would actually change this
+
+Ranked by how much of the remaining gap each could close:
+
+1. **Measure the cost bar.** It is assumed, never measured: 2 × (118 bps
+   half-spread + 100 bps impact), both by convention. The best model gross of
+   +1.51% is *profitable* if true round-trip cost is below ~150 bps. This is now
+   the single highest-value experiment in the project, and it was explicitly
+   out of scope this round. Alpaca's free tier should serve historical NBBO
+   quotes, which would settle it in a day.
+2. **More filing features.** EDGAR gave the largest lift of anything tried.
+   Untested: going-concern language, shares-outstanding growth from XBRL, ATM
+   program size, warrant overhang.
+3. **A different population.** Every result here is conditional on "gap ≥ 10%
+   microcap". Intraday breakouts, halt-resumptions, and post-news setups are
+   different populations that this apparatus could screen without modification.
+
+## 22. Round 2 bug ledger
+
+| Where | Bug | Found by |
+|---|---|---|
+| `max_favourable` | truncated by the exit; reported as opportunity | barrier-free re-measurement |
+| decile monotonicity | ρ = +0.84 not distinguishable from a 0.515 null | shuffled-label test |
+| `build_pit_features` | O(symbols × filings) scan; would not have finished | running it on 1.4M rows |
+| EDGAR searchsorted | tz-aware `.to_numpy()` gives object dtype, cannot compare | tests after the rewrite |
+| `select_top_fraction` | `groupby.apply` deprecation, silently changes grouping behaviour | pandas warning |
