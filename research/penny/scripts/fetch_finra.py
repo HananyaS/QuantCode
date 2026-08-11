@@ -1,0 +1,103 @@
+"""fetch_finra.py — consolidated NMS daily short-sale volume.
+
+Filtered to candidate symbols during the fetch: the raw files carry ~12,000
+symbols a day and this study needs ~3,000, so filtering early keeps the cache
+small enough to commit alongside the other derived artifacts.
+
+Coverage note recorded in the summary: the consolidated series begins
+2018-08-01, while the study starts 2016-01. Roughly a fifth of candidate
+sessions therefore have no short-volume data at all, and those rows must read
+as "unknown" rather than "zero".
+
+    python research/penny/scripts/fetch_finra.py
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import sys
+import time
+from pathlib import Path
+
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from research.penny.etl import bars, finra  # noqa: E402
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-7s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger("finra")
+
+RAW_PATH = bars.DATA_ROOT / "finra_short_volume.parquet"
+FEATURES_PATH = bars.DATA_ROOT / "finra_features.parquet"
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Fetch FINRA short volume.")
+    parser.add_argument("--force", action="store_true")
+    args = parser.parse_args(argv)
+
+    cand_path = bars.DATA_ROOT / "candidates.parquet"
+    if not cand_path.exists():
+        raise SystemExit("candidates.parquet missing")
+
+    candidates = pd.read_parquet(cand_path, columns=["symbol", "date"])
+    symbols = sorted(candidates["symbol"].unique())
+    start = candidates["date"].min().date()
+    end = candidates["date"].max().date()
+    logger.info("candidates: %s rows, %d symbols, %s..%s",
+                f"{len(candidates):,}", len(symbols), start, end)
+
+    if RAW_PATH.exists() and not args.force:
+        raw = pd.read_parquet(RAW_PATH)
+        logger.info("short volume: %s rows (cached)", f"{len(raw):,}")
+    else:
+        t0 = time.time()
+        raw = finra.fetch_range(start, end, symbols=symbols)
+        if raw.empty:
+            raise SystemExit("no short-volume data retrieved")
+        raw.to_parquet(RAW_PATH, index=False)
+        logger.info("wrote %s (%s rows, %.0fs)", RAW_PATH, f"{len(raw):,}", time.time() - t0)
+
+    features = finra.build_lagged_features(candidates, raw)
+    features.to_parquet(FEATURES_PATH, index=False)
+
+    # Spot-check the lag on a real symbol-day rather than trusting the unit
+    # tests alone: a leak here would look like an excellent feature.
+    checked = 0
+    for _, row in features.dropna(subset=["short_volume_ratio"]).head(200).iterrows():
+        finra.assert_short_volume_is_lagged(features, raw, row["symbol"], row["date"])
+        checked += 1
+    logger.info("lag tripwire passed on %d real symbol-days", checked)
+
+    covered = features["short_volume_ratio"].notna()
+    in_window = features["date"] >= pd.Timestamp(finra.HISTORY_START)
+    summary = {
+        "raw_rows": int(len(raw)),
+        "sessions": int(raw["date"].nunique()),
+        "symbols": int(raw["symbol"].nunique()),
+        "candidate_rows": int(len(features)),
+        "with_short_ratio": int(covered.sum()),
+        "coverage_overall": float(covered.mean()),
+        "coverage_since_2018_08": float(covered[in_window].mean()),
+        "rows_before_history_start": int((~in_window).sum()),
+        "median_short_ratio": float(features["short_volume_ratio"].median()),
+    }
+    (bars.DATA_ROOT / "finra_summary.json").write_text(
+        json.dumps(summary, indent=2), encoding="utf-8"
+    )
+    logger.info("coverage overall %.1f%% | since 2018-08 %.1f%% | median ratio %.3f",
+                100 * summary["coverage_overall"],
+                100 * summary["coverage_since_2018_08"],
+                summary["median_short_ratio"])
+    logger.info("wrote %s", FEATURES_PATH)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
