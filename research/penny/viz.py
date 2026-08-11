@@ -388,15 +388,29 @@ def outcome_mix(trades: pd.DataFrame, group_col: str, theme: Theme = THEME) -> g
 
 
 def excursion_density(trades: pd.DataFrame, spec_target: float, spec_stop: float,
-                      theme: Theme = THEME) -> go.Figure:
-    """Maximum favourable vs maximum adverse excursion.
+                      theme: Theme = THEME,
+                      mfe_col: str = "mfe_full", mae_col: str = "mae_full") -> go.Figure:
+    """Maximum favourable vs maximum adverse excursion, measured barrier-free.
 
     Sequential (single-hue) density, because the encoded quantity is magnitude.
-    Shows directly whether the chosen barriers sit anywhere near where the
-    price actually travels -- a target beyond the bulk of the MFE mass is
-    unreachable by construction, no matter what the model predicts.
+
+    **Must be given the barrier-free columns.** An earlier version of this
+    figure used ``max_favourable``, which is measured only until a barrier
+    fires and is therefore capped near the profit target. That made the figure
+    say "price never travels far" when the truth is the opposite -- barrier-free
+    P(MFE >= 20%) is 0.187, not 0.004. The defaults now point at the
+    barrier-free columns, and passing the truncated ones is an explicit choice.
     """
-    df = trades.dropna(subset=["max_favourable", "max_adverse"])
+    missing = [c for c in (mfe_col, mae_col) if c not in trades.columns]
+    if missing:
+        raise KeyError(
+            f"excursion_density needs barrier-free columns {missing}; passing the "
+            "barrier-truncated max_favourable/max_adverse understates the true "
+            "excursion by an order of magnitude"
+        )
+    df = trades.dropna(subset=[mfe_col, mae_col]).rename(
+        columns={mfe_col: "max_favourable", mae_col: "max_adverse"}
+    )
     fig = go.Figure(
         go.Histogram2d(
             x=df["max_adverse"].clip(-0.5, 0),
@@ -420,8 +434,79 @@ def excursion_density(trades: pd.DataFrame, spec_target: float, spec_stop: float
     fig.update_yaxes(title="maximum favourable excursion", tickformat=".0%")
     return _base_layout(
         fig, "Where price actually travels",
-        "Density of intraday excursions against the chosen barriers.",
+        "Barrier-free intraday excursions from the 09:35 entry, against the chosen barriers. "
+        "Measured over the whole session, so the exit rule does not truncate it.",
         theme, height=520,
+    )
+
+
+def model_score_deciles(table: pd.DataFrame, cost_levels: Sequence[float],
+                        theme: Theme = THEME) -> go.Figure:
+    """Mean gross outcome by model-score decile, against the cost bars.
+
+    The cost lines are the point of the figure: a decile can be the best of ten
+    and still sit far below the line it must clear to be worth trading. Reading
+    only the gradient -- which is what a decile chart invites -- hides that.
+    """
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=table["score_bin"], y=table["mean_gross"],
+            marker=dict(color=theme.series[0], line=dict(width=0)),
+            customdata=np.stack([table["n"], table["hit_rate"]], axis=-1),
+            hovertemplate="decile %{x}<br>gross %{y:+.2%}<br>n=%{customdata[0]:,}"
+                          "<br>hit rate %{customdata[1]:.1%}<extra></extra>",
+            showlegend=False,
+        )
+    )
+    fig.add_hline(y=0, line=dict(color=theme.text_secondary, width=1.5))
+    for cost, colour in zip(sorted(cost_levels), (theme.warning, theme.serious if hasattr(theme, "serious") else theme.critical, theme.critical)):
+        fig.add_hline(y=cost, line=dict(color=colour, width=2, dash="dash"))
+        fig.add_annotation(
+            x=1.0, xref="paper", y=cost, xanchor="right", yanchor="bottom",
+            text=f"cost bar {cost:.2%}", showarrow=False,
+            font=dict(size=11, color=colour),
+        )
+    fig.update_xaxes(title="model score decile (10 = highest)")
+    fig.update_yaxes(title="mean gross return", tickformat=".1%")
+    return _base_layout(
+        fig, "Model score vs outcome",
+        "Every decile must clear a cost bar to be tradable, not merely beat the decile below it.",
+        theme,
+    )
+
+
+def regime_comparison(regime: pd.DataFrame, theme: Theme = THEME) -> go.Figure:
+    """Selected-population return by regime, with intervals.
+
+    Three groups, so within the validated adjacent-pairlist cap. Intervals are
+    shown because the headline number here (+2.11% in the busy regime) is
+    entirely a story about whether its interval excludes zero -- and it does not.
+    """
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=regime["regime"], y=regime["gross_all"], name="all candidates",
+        marker=dict(color=theme.series[0]),
+        hovertemplate="<b>%{x}</b><br>all: %{y:+.2%}<extra></extra>",
+    ))
+    fig.add_trace(go.Bar(
+        x=regime["regime"], y=regime["gross_top10"], name="model top 10%",
+        marker=dict(color=theme.series[1]),
+        error_y=dict(
+            type="data", symmetric=False,
+            array=(regime["top10_ci_hi"] - regime["gross_top10"]).clip(lower=0),
+            arrayminus=(regime["gross_top10"] - regime["top10_ci_lo"]).clip(lower=0),
+            color=theme.axis, thickness=1, width=5,
+        ),
+        hovertemplate="<b>%{x}</b><br>top 10%%: %{y:+.2%}<extra></extra>",
+    ))
+    fig.add_hline(y=0, line=dict(color=theme.text_secondary, width=1.5))
+    fig.update_layout(barmode="group", bargap=0.35)
+    fig.update_yaxes(title="mean gross return", tickformat=".1%")
+    return _base_layout(
+        fig, "Does the edge concentrate in a regime?",
+        "Trailing 60-day candidate rate, split into terciles. Whiskers are day-clustered 95% intervals.",
+        theme,
     )
 
 
