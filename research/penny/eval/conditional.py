@@ -347,6 +347,65 @@ def random_veto_placebo(
     }
 
 
+def compare_selection_to_baseline(
+    trades: pd.DataFrame,
+    selected: np.ndarray,
+    return_col: str = "net_return",
+    date_col: str = "date",
+    n_boot: int = 4_000,
+    seed: int = 23,
+) -> Dict[str, float]:
+    """Paired, day-clustered bootstrap of (selected mean - full-sample mean).
+
+    Takes an arbitrary boolean mask rather than a veto list, so a model score
+    threshold can be tested with exactly the same machinery as a veto set.
+
+    This is the test that matters for a ranker. A decile-monotonicity statistic
+    looks compelling and is not evidence: with ten bins, Spearman rho has a
+    standard deviation near 0.33, so a shuffled-label null routinely produces
+    |rho| above 0.7. Measured on this study's data, shuffling gave a mean |rho|
+    of 0.515 against a "real" 0.842 -- indistinguishable. Only the return
+    difference, resampled by day, discriminates.
+    """
+    df = trades.dropna(subset=[return_col])
+    if df.empty or selected.sum() == 0:
+        return {"delta": np.nan, "lo": np.nan, "hi": np.nan, "p_value": np.nan, "helps": False}
+
+    mask = np.asarray(selected, dtype=bool)[: len(df)]
+    values = df[return_col].to_numpy(dtype=float)
+    unique_days, day_index = np.unique(df[date_col].to_numpy(), return_inverse=True)
+    n_days = len(unique_days)
+
+    base_sums = np.bincount(day_index, weights=values, minlength=n_days)
+    base_counts = np.bincount(day_index, minlength=n_days).astype(float)
+    sel_sums = np.bincount(day_index, weights=values * mask, minlength=n_days)
+    sel_counts = np.bincount(day_index, weights=mask.astype(float), minlength=n_days)
+
+    def _delta(bs, bc, ss, sc):
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(sc > 0, ss / sc, np.nan) - np.where(bc > 0, bs / bc, np.nan)
+
+    observed = float(_delta(base_sums.sum(), base_counts.sum(),
+                            sel_sums.sum(), sel_counts.sum()))
+
+    rng = np.random.default_rng(seed)
+    picked = rng.integers(0, n_days, size=(n_boot, n_days))
+    draws = _delta(
+        base_sums[picked].sum(axis=1), base_counts[picked].sum(axis=1),
+        sel_sums[picked].sum(axis=1), sel_counts[picked].sum(axis=1),
+    )
+
+    lo, hi = np.nanpercentile(draws, [2.5, 97.5])
+    centred = draws - np.nanmean(draws)
+    return {
+        "delta": observed,
+        "lo": float(lo),
+        "hi": float(hi),
+        "p_value": float(np.nanmean(np.abs(centred) >= abs(observed))),
+        "helps": bool(lo > 0),
+    }
+
+
 def compare_to_baseline(
     trades: pd.DataFrame,
     vetoes: Sequence[str],
