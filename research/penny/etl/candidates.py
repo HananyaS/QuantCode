@@ -33,6 +33,12 @@ class CandidateSpec:
     """The screen defining the studied population."""
 
     min_gap: float = 0.10             # opening gap of at least +10%
+    # Rounds 1-4 had no upper bound, which was never questioned. Measured over
+    # 1.46M liquid symbol-days, intraday open->close return is *monotonically
+    # decreasing* in the opening gap: +0.46% for gaps of -10..-3%, -0.43% at
+    # +3..+10%, -3.68% above +25%. A one-sided `>= min_gap` screen therefore
+    # selects the losing tail. An upper bound makes the window explicit.
+    max_gap: Optional[float] = None
     min_price: float = 0.50
     max_price: float = 10.00
     min_adv_20: float = 100_000.0     # trailing 20-day dollar volume
@@ -63,6 +69,8 @@ def build_candidates(panel: pd.DataFrame, spec: CandidateSpec) -> pd.DataFrame:
         "gapped_up": df["gap"] >= spec.min_gap,
         "finite": np.isfinite(df["gap"]) & df["adv_20"].notna(),
     }
+    if spec.max_gap is not None:
+        conditions["gap_below_max"] = df["gap"] <= spec.max_gap
 
     mask = pd.Series(True, index=df.index)
     counts = {}

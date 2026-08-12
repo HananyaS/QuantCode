@@ -33,6 +33,7 @@ def main(argv=None) -> int:
     parser.add_argument("--start-year", type=int, default=2021)
     parser.add_argument("--end-year", type=int, default=2026)
     parser.add_argument("--min-gap", type=float, default=0.10)
+    parser.add_argument("--max-gap", type=float, default=None)
     parser.add_argument("--min-price", type=float, default=0.50)
     parser.add_argument("--max-price", type=float, default=10.00)
     parser.add_argument("--min-adv", type=float, default=100_000.0)
@@ -63,6 +64,7 @@ def main(argv=None) -> int:
 
     spec = cand.CandidateSpec(
         min_gap=args.min_gap,
+        max_gap=args.max_gap,
         min_price=args.min_price,
         max_price=args.max_price,
         min_adv_20=args.min_adv,
