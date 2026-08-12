@@ -961,3 +961,48 @@ Two more caught while running:
 `edgar_features.parquet` ad hoc, with no script in the repo that regenerates it —
 so the input underneath round 2's largest claimed lift could not be rebuilt from
 the codebase. Written now.
+
+## 32. The liquidity screen changed what population is under study
+
+Worth stating before any result, because the ADV floor would otherwise redefine
+the question quietly.
+
+| | round 3 | round 4 |
+|---|---|---|
+| screen | gap ≥ +10%, ADV ≥ $100k | gap ≥ +3%, ADV ≥ $5M |
+| candidates | 20,558 | **44,136** |
+| labelled trades | 17,390 | **41,895** |
+| symbols | 2,785 | 2,419 |
+| mean gross return | −0.39% | **−0.22%** |
+| modelled cost | 437 bps | **318 bps** |
+| minute coverage | 82.7% | **92.2%** |
+| EDGAR coverage | ~85% | **95.5%** |
+| median float | microcap | **$437M** |
+| 8-K deficiency within 180d | 18.6% | **11.1%** |
+| reached the +30% target | 15.5% | **1.9%** |
+| ran to the 15:55 close | 8.6% | **78.3%** |
+
+Three things follow, and only the first is good news.
+
+**The population is less toxic.** Unconditional gross is roughly half as
+negative, data coverage is materially better because liquid names actually
+print, and the filing-distress rate nearly halves.
+
+**It is also far less explosive.** Only 1.9% of trades reach +30% against 15.5%
+in round 3, and 78% simply run to the close. The right tail that motivated the
+whole study — the user's original observation that these names "explode every
+day with tens or hundreds of percent" — is largely *not present* in the liquid
+band. Less violence means less to lose to a stop, but also less to win.
+
+**Median float is $437M and median share count 111M.** These are low-*priced*
+stocks of real companies, not the pump-and-dump microcaps rounds 1–3 studied.
+Round 4 therefore answers "is there an edge in liquid low-priced gappers", which
+is a genuinely different question from "is there an edge in penny stocks". The
+answer is worth having either way, but it is not a continuation of the same
+measurement, and no round-4 number should be quoted as though it were.
+
+One consequence for the labels: the `+30% / −10%` barrier geometry was chosen
+for the violent population and is badly matched to this one, which is why 78% of
+outcomes are `vertical`. It does not drive the verdict — the study evaluates
+`ret_c2c` from the barrier-free path, not the barrier outcome — but the barrier
+sweep of §12 should not be assumed to transfer.
