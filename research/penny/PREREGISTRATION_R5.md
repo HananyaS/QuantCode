@@ -180,3 +180,54 @@ Unchanged from round 4 §10, and non-negotiable:
 9. **The pool was data-derived. Round 5 is therefore a confirmatory test of a
    hypothesis generated in round 4's data, and no result from it may be
    described as an out-of-sample discovery.**
+
+---
+
+## Amendment 1 — 2026-08-12, after the Gate R probe, before any modelling
+
+**Gate R FAILED as specified.** On a year-stratified probe of 264 of 2,605
+sessions (6,727 matched candidate-days):
+
+| entry | n | mean | CI | hit |
+|---|---|---|---|---|
+| 09:31 | 5,151 | +0.50% | [−0.34%, +1.27%] | 51.7% |
+| **09:35** | **5,289** | **+0.37%** | **[−0.39%, +1.06%]** | 49.9% |
+| 09:40 | 5,223 | +0.23% | | 48.6% |
+| 09:45 | 5,159 | +0.17% | | 47.1% |
+| 10:00 | 5,146 | +0.08% | | 46.4% |
+| 10:30 | 4,972 | +0.05% | | 45.3% |
+| 11:00 | 4,795 | +0.13% | | 47.8% |
+
+§4 required **both** a point estimate ≥ +0.20% **and** a CI excluding zero. The
+first is met (+0.37%); the second is not.
+
+**The failure is attributable to power, not to the effect, and the arithmetic is
+checkable rather than rhetorical:**
+
+- the probe is 8.1% of available sessions;
+- its CI half-width is ±0.72pp against ±0.31pp for the full-sample open→close
+  measurement — the √n widening one would predict;
+- the point estimate is what the full sample implies: decay leaves 74% of the
+  09:31 edge at 09:35, and 0.74 × 0.50% = **0.37%**, against +0.46% open→close.
+
+Reversal decays monotonically through the morning and is ~zero by 10:00, which
+is the predicted signature of liquidity provision (Nagel 2012) and is evidence
+the effect is real rather than an artefact.
+
+**Single pre-specified escalation.** The probe existed to decide where to spend
+fetches (§4), and it says: spend them. Minute bars are fetched for all 2,605
+pool sessions and **Gate R is re-evaluated exactly once** on the full sample,
+against the identical threshold.
+
+Constraints on this escalation, fixed now:
+
+1. **One escalation only.** If Gate R fails on the full sample, the round stops.
+   There is no third sample to draw and none will be sought.
+2. **The threshold does not move.** ≥ +0.20% with a CI excluding zero, at 09:35.
+3. **The entry time does not move.** 09:35 is the decision instant for the gate.
+   The alternative entries in §6 remain a *separate, exploratory* question and
+   may not be substituted for a failed gate.
+4. **This escalation is a trial.** `PRIOR_TRIALS` rises 89 → **90**.
+
+Recorded because "we ran it again on more data" is only legitimate when the
+decision to do so, and its limits, are written down before the result is seen.
