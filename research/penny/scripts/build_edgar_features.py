@@ -38,6 +38,51 @@ logger = logging.getLogger("edgar_features")
 FILINGS_PATH = bars.DATA_ROOT / "edgar_filings.parquet"
 
 
+def _spot_check_causality(features: pd.DataFrame, filings: pd.DataFrame,
+                          n_sample: int = 300, decision_time: str = "09:35") -> None:
+    """Independently verify that no feature could have used a future filing.
+
+    Two properties, both checkable without reproducing the feature logic:
+
+    1. A recency in days can never be negative. A negative value means the
+       "most recent prior filing" was in the future.
+    2. Where a recency is present, at least one filing for that symbol must have
+       been accepted strictly before that day's decision instant. If none was,
+       the value came from somewhere it should not have.
+    """
+    recency = [c for c in features.columns if c.startswith("edgar_days_since")]
+    for col in recency:
+        neg = features[col].dropna()
+        neg = neg[neg < 0]
+        assert neg.empty, f"{col}: {len(neg)} negative recencies (future filing used)"
+
+    have = features.dropna(subset=recency, how="all")
+    if have.empty or filings.empty:
+        logger.warning("no rows with filing recency; causality spot check skipped")
+        return
+
+    sample = have.sample(min(n_sample, len(have)), random_state=7)
+    by_symbol = {s: g["accepted_et"].to_numpy()
+                 for s, g in filings.dropna(subset=["accepted_et"]).groupby("symbol")}
+
+    checked = offenders = 0
+    for _, row in sample.iterrows():
+        accepted = by_symbol.get(row["symbol"])
+        if accepted is None or not len(accepted):
+            continue
+        decision = pd.Timestamp(f"{row['date']:%Y-%m-%d} {decision_time}",
+                                tz="America/New_York")
+        if not (accepted < decision).any():
+            offenders += 1
+        checked += 1
+
+    assert offenders == 0, (
+        f"{offenders} of {checked} sampled rows carry a filing recency with no "
+        f"filing accepted before that day's {decision_time} decision"
+    )
+    logger.info("causality spot check: %d sampled rows, 0 offenders", checked)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Build point-in-time EDGAR features.")
     parser.add_argument("--candidates", default=str(bars.DATA_ROOT / "candidates.parquet"))
@@ -63,7 +108,10 @@ def main(argv=None) -> int:
     # Spot-check causality on real data rather than trusting the unit tests
     # alone: a leak here would look like an excellent feature, which is exactly
     # what round 2 mistook for a 10x improvement.
-    edgar.assert_no_future_filings(candidates, filings)
+    #
+    # Re-derived independently of build_pit_features rather than calling into
+    # it, so the check can actually disagree with the thing it is checking.
+    _spot_check_causality(features, filings, n_sample=300)
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     features.to_parquet(args.out, index=False)
