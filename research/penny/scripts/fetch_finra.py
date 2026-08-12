@@ -55,16 +55,39 @@ def main(argv=None) -> int:
     logger.info("candidates: %s rows, %d symbols, %s..%s",
                 f"{len(candidates):,}", len(symbols), start, end)
 
+    # Incremental by symbol. The cache was filtered to whichever screen built
+    # it, so a rebuilt candidate set leaves symbols uncovered -- and a
+    # file-keyed early return would report "cached" while giving them nothing.
+    # The daily files contain every symbol, so this costs the same downloads as
+    # a full refetch; it is the parse and the merge that are saved.
+    cached = pd.DataFrame()
+    missing = sorted({s.upper() for s in symbols})
     if RAW_PATH.exists() and not args.force:
-        raw = pd.read_parquet(RAW_PATH)
-        logger.info("short volume: %s rows (cached)", f"{len(raw):,}")
-    else:
+        cached = pd.read_parquet(RAW_PATH)
+        missing = sorted({s.upper() for s in symbols} - set(cached["symbol"].unique()))
+        logger.info("short volume: %s rows cached, %d symbols missing",
+                    f"{len(cached):,}", len(missing))
+
+    if missing:
         t0 = time.time()
-        raw = finra.fetch_range(start, end, symbols=symbols)
-        if raw.empty:
+        fresh = finra.fetch_range(start, end, symbols=missing)
+        if fresh.empty and cached.empty:
             raise SystemExit("no short-volume data retrieved")
+        # Plain concat, deliberately no drop_duplicates. `missing` is the
+        # cache's symbol complement, so the two frames are disjoint and there is
+        # nothing to dedupe -- while FINRA's consolidated files legitimately
+        # carry several rows per (symbol, date), one per market, which
+        # build_lagged_features sums. A content-based dedupe here would silently
+        # destroy those and understate short volume.
+        if not cached.empty and not fresh.empty:
+            overlap = set(cached["symbol"].unique()) & set(fresh["symbol"].unique())
+            assert not overlap, f"cached and fresh symbol sets overlap: {sorted(overlap)[:5]}"
+        raw = pd.concat([cached, fresh], ignore_index=True) if not cached.empty else fresh
         raw.to_parquet(RAW_PATH, index=False)
-        logger.info("wrote %s (%s rows, %.0fs)", RAW_PATH, f"{len(raw):,}", time.time() - t0)
+        logger.info("wrote %s (%s rows, +%s new, %.0fs)", RAW_PATH,
+                    f"{len(raw):,}", f"{len(fresh):,}", time.time() - t0)
+    else:
+        raw = cached
 
     features = finra.build_lagged_features(candidates, raw)
     features.to_parquet(args.features_out, index=False)

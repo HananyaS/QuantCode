@@ -1,4 +1,4 @@
-﻿"""fetch_xbrl.py â€” shares outstanding via the XBRL frames API.
+"""fetch_xbrl.py — shares outstanding via the XBRL frames API.
 
 One request per quarter across all filers, rather than one large payload per
 company: ~44 requests instead of ~2,600.
@@ -48,10 +48,25 @@ def main(argv=None) -> int:
     filings = pd.read_parquet(bars.DATA_ROOT / "edgar_filings.parquet")
     ticker_map = pd.read_parquet(bars.DATA_ROOT / "edgar_ticker_map.parquet")
 
-    if RAW_PATH.exists() and not args.force:
+    # Rebuild when the cache does not cover the candidate symbols. The frames
+    # API is one request per quarter across all filers -- ~44 requests -- so a
+    # full rebuild is cheap and there is no reason to merge partial state. The
+    # cache is keyed on nothing but its own existence, which was fine until
+    # round 4 rebuilt the candidate screen.
+    wanted = {s.upper() for s in candidates["symbol"].unique()}
+    rebuild = args.force or not RAW_PATH.exists()
+    if not rebuild:
         dated = pd.read_parquet(RAW_PATH)
-        logger.info("share counts: %s rows (cached)", f"{len(dated):,}")
-    else:
+        missing = wanted - set(dated["symbol"].unique())
+        logger.info("share counts: %s rows cached, %d candidate symbols missing",
+                    f"{len(dated):,}", len(missing))
+        # Many microcaps genuinely never report the DEI tag, so a nonzero gap is
+        # expected; refetch only when it is large enough to be a cache artefact.
+        rebuild = len(missing) > 0.05 * len(wanted)
+        if rebuild:
+            logger.info("gap exceeds 5%% of candidates -- refetching frames")
+
+    if rebuild:
         periods = xbrl.quarter_frames(args.start_year, args.end_year)
         logger.info("fetching %d quarterly frames ...", len(periods))
         t0 = time.time()

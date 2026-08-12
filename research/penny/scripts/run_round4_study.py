@@ -223,6 +223,7 @@ def main(argv=None) -> int:
     parser.add_argument("--trades", default="trades_r4.parquet")
     parser.add_argument("--windows", default="quote_windows_r4.parquet")
     parser.add_argument("--skip-sequence", action="store_true")
+    parser.add_argument("--skip-nulls", action="store_true")
     parser.add_argument("--n-boot", type=int, default=3_000)
     args = parser.parse_args(argv)
 
@@ -314,6 +315,15 @@ def main(argv=None) -> int:
             rows = run_transformer(df, folds, scored, cols, order_size)
             grid.extend(rows)
 
+        # --- validity: nulls and cost sensitivity, once, at the base size --
+        if order_size == ORDER_SIZES[0] and not args.skip_nulls:
+            results["nulls"] = run_nulls(df, folds, cols)
+            results["cost_sensitivity"] = run_cost_sensitivity(
+                df_all, windows, order_size,
+                dict(n_splits=args.n_splits, embargo_days=args.embargo_days,
+                     min_train_days=args.min_train_days),
+            )
+
     results["tradeability"] = tradeability
     grid_df = pd.DataFrame(grid)
     results["grid"] = grid_df
@@ -351,6 +361,120 @@ def main(argv=None) -> int:
     _report(grid_df, results)
     _save(results)
     return 0
+
+
+def run_nulls(df: pd.DataFrame, folds, cols: Sequence[str], seed: int = 11) -> List[Dict]:
+    """Destroy the signal two ways; both must destroy the result.
+
+    Measured as **lift over the panel baseline**, never as a level. Round 3's
+    shuffled-label null "failed" once for the wrong reason -- it tested the
+    selected mean against zero on a panel whose own mean was far from zero, so
+    it flagged a null that was behaving perfectly. ``compare_selection_to_baseline``
+    is paired against the same panel and has no such failure mode.
+
+    Both nulls run through the full pipeline including the calibrator, because
+    the calibrator is new this round and is exactly the kind of component that
+    can manufacture an edge from nothing.
+    """
+    rng = np.random.default_rng(seed)
+    out: List[Dict] = []
+
+    variants = {
+        # Labels shuffled within day: the day effect survives, the
+        # feature-label relationship does not. Stricter than a global shuffle.
+        "shuffled_label": df.assign(
+            meta_label=df.groupby("date")["meta_label"].transform(
+                lambda s: rng.permutation(s.to_numpy())
+            )
+        ),
+        # Features describe a different session than the outcome they are paired
+        # with. Catches anything keyed on a symbol's identity rather than state.
+        "date_shift": df.assign(
+            **{c: df.groupby("symbol")[c].shift(20) for c in cols if c in df.columns}
+        ),
+    }
+
+    for name, null_df in variants.items():
+        null_df = null_df.dropna(subset=["meta_label"])
+        if null_df.empty:
+            continue
+        for arm, scorer in (("rank", "gbdt"), ("ev", "ev")):
+            if scorer == "gbdt":
+                scored, _ = T.walk_forward_scores(null_df, folds, cols, "meta_label")
+                if scored.empty:
+                    continue
+                sel = T.select_top_fraction(scored, 0.02)
+                keys = set(zip(sel["symbol"], sel["date"]))
+                mask = np.array([(s, d) in keys
+                                 for s, d in zip(scored["symbol"], scored["date"])])
+            else:
+                scored = C.walk_forward_ev(null_df, folds, cols, "meta_label")
+                if scored.empty:
+                    continue
+                mask = C.select_by_expected_value(scored, "cost_hat").to_numpy()
+            if mask.sum() < 30:
+                out.append({"null": name, "arm": arm, "n_selected": int(mask.sum()),
+                            "lift": np.nan, "p": np.nan, "passes": True})
+                continue
+            lift = cx.compare_selection_to_baseline(
+                scored, mask, return_col="ret_c2c", n_boot=2_000
+            )
+            row = {
+                "null": name, "arm": arm,
+                "n_selected": int(mask.sum()),
+                "lift": float(lift["delta"]),
+                "p": float(lift["p_value"]),
+                "passes": bool(lift["p_value"] > 0.05),
+            }
+            out.append(row)
+            logger.info("null %-15s %-4s lift %+.4f (p=%.3f) -> %s",
+                        name, arm, row["lift"], row["p"],
+                        "PASS" if row["passes"] else "FAIL -- signal survived destruction")
+    return out
+
+
+def run_cost_sensitivity(
+    df_all: pd.DataFrame, windows: pd.DataFrame, order_size: int, folds_kwargs: Dict
+) -> List[Dict]:
+    """Re-price the same trades under a harsher depth model.
+
+    ``depth_shortfall_bps`` is crude by its own docstring -- one extra
+    half-spread per notional-multiple beyond the inside, with no depth-of-book
+    data to calibrate the shape. A conclusion that survives only at
+    ``levels_penalty=1.0`` is a conclusion about that assumption, not about the
+    market, so every penalty in the pre-registered set is reported.
+    """
+    rows: List[Dict] = []
+    for penalty in LEVELS_PENALTIES:
+        costed = Q.attach_costs(df_all, windows, float(order_size), levels_penalty=penalty)
+        df, _ = apply_tradeability(costed, float(order_size))
+        if df.empty:
+            continue
+        df["meta_label"] = (df["ret_c2c"] > df["cost_hat"]).astype(int)
+        df = df.dropna(subset=["cost_hat"]).reset_index(drop=True)
+        folds = walk_forward_folds(df["date"].unique(), **folds_kwargs)
+        cols = F.feature_columns(df, include_cost=True)
+        scored, _ = T.walk_forward_scores(df, folds, cols, "meta_label")
+        if scored.empty:
+            continue
+        sel = T.select_top_fraction(scored, 0.02)
+        net = (sel["ret_c2c"] - sel["cost_realized"]).dropna()
+        if len(net) < 30:
+            continue
+        est = pstats.cluster_bootstrap_mean(
+            net, sel.loc[net.index, "date"], n_boot=2_000
+        )
+        rows.append({
+            "levels_penalty": penalty,
+            "order_size": order_size,
+            "n": int(est.n),
+            "net": float(est.mean),
+            "net_lo": float(est.lo),
+            "cost_mean_bps": float(10_000 * sel["cost_realized"].mean()),
+        })
+        logger.info("levels_penalty %.1f: net %+.4f  CI low %+.4f  cost %.0f bps",
+                    penalty, est.mean, est.lo, rows[-1]["cost_mean_bps"])
+    return rows
 
 
 def run_transformer(df, folds, gbdt_scored, cols, order_size) -> List[Dict]:

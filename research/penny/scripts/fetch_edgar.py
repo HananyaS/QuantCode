@@ -34,11 +34,12 @@ MAP_PATH = bars.DATA_ROOT / "edgar_ticker_map.parquet"
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Fetch EDGAR filing indexes.")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--candidates", default=str(bars.DATA_ROOT / "candidates.parquet"))
     args = parser.parse_args(argv)
 
-    cand_path = bars.DATA_ROOT / "candidates.parquet"
+    cand_path = Path(args.candidates)
     if not cand_path.exists():
-        raise SystemExit("candidates.parquet missing; run build_candidates first")
+        raise SystemExit(f"{cand_path} missing; run build_candidates first")
 
     symbols = sorted(pd.read_parquet(cand_path, columns=["symbol"])["symbol"].unique())
     logger.info("candidate symbols: %d", len(symbols))
@@ -57,16 +58,32 @@ def main(argv=None) -> int:
         len(matched), len(symbols), 100 * len(matched) / max(len(symbols), 1),
     )
 
+    # Incremental by symbol, not all-or-nothing. Returning early because the
+    # file exists was fine while the candidate screen never changed; round 4
+    # rebuilt it, and 436 of its 2,488 symbols are absent from the round-3
+    # cache. A file-keyed early return would have reported "filings: cached"
+    # and silently given those symbols no filing features at all.
+    cached = pd.DataFrame()
     if FILINGS_PATH.exists() and not args.force:
-        filings = pd.read_parquet(FILINGS_PATH)
-        logger.info("filings: %s rows (cached)", f"{len(filings):,}")
-        return 0
+        cached = pd.read_parquet(FILINGS_PATH)
+        have = set(cached["symbol"].unique())
+        missing = sorted({s.upper() for s in symbols} - have)
+        logger.info("filings: %s rows cached, %d symbols missing",
+                    f"{len(cached):,}", len(missing))
+        if not missing:
+            return 0
+        symbols = missing
 
     t0 = time.time()
-    filings = edgar.fetch_all_filings(symbols, ticker_map)
-    if filings.empty:
+    fetched = edgar.fetch_all_filings(symbols, ticker_map)
+    if fetched.empty and cached.empty:
         raise SystemExit("no filings retrieved")
 
+    filings = (
+        pd.concat([cached, fetched], ignore_index=True)
+        .drop_duplicates(subset=["symbol", "form", "acceptance"], keep="last")
+        if not cached.empty else fetched
+    )
     FILINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     filings.to_parquet(FILINGS_PATH, index=False)
 
