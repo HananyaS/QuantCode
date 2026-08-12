@@ -1006,3 +1006,150 @@ for the violent population and is badly matched to this one, which is why 78% of
 outcomes are `vertical`. It does not drive the verdict — the study evaluates
 `ret_c2c` from the barrier-free path, not the barrier outcome — but the barrier
 sweep of §12 should not be assumed to transfer.
+
+## 33. Gate A′: the cost bar, measured honestly — and it is not the constraint
+
+Every session, both books, both legs. 2,582 sessions, 43,792 symbol-days,
+**99.9% of trades matched** against round 3's 56.3%.
+
+| | round 3 | round 4 (liquid band) |
+|---|---|---|
+| entry half-spread | 37.7 bps | **21.2** |
+| exit half-spread | *assumed equal to entry* | **12.2 measured** |
+| entry ask inside book | $1,900 | **$3,624** (p25 $1,632) |
+| exit bid inside book | *never measured* | **$20,280** |
+| depth shortfall @ $2k | 398.4 bps | **≈ 0** |
+| round trip, mean @ $2k | 728.9 bps | **66.6** |
+| trade coverage | 56.3% | **99.9%** |
+
+An **11× reduction**, from three corrections compounding: sizing at a fixed
+dollar amount instead of 1% of ADV, screening to the liquid band, and measuring
+the exit rather than assuming it. At a $2,000 order the median entry book
+($3,624) *contains the whole order*, so the depth term — 398 of round 3's 728
+bps — goes to zero. The cost-sensitivity sweep confirms this is not an artefact
+of the crude depth model: net moves by 12 bps across `levels_penalty` in
+{1.0, 1.5, 2.0}, because there is no shortfall for the penalty to multiply.
+
+**One correction to section 30, stated plainly.** I flagged round 3's 60-second
+look-ahead as a defect. It was real and worth fixing, but the measured
+entry-minus-decision half-spread drift is **+0.0 bps at the median**. The bug
+had no magnitude. A fixed bug should not be allowed to imply a rescued result.
+
+**This overturns the round-3 verdict.** Section 27 concluded "the binding
+constraint is microstructure, not prediction". With costs measured honestly the
+constraint is **prediction**: mean gross on the tradeable panel is **−0.19%**
+against a 66.6 bps round trip, and no model configuration below finds a positive
+sub-population.
+
+## 34. The precision ladder inverted, and round 4's own design caused it
+
+H1′ is not met. 17 eligible cells, none survive BH-FDR with the 72 prior trials
+folded into the input. But the interesting result is the shape, not the verdict.
+
+**GBDT, $2,000 order:**
+
+| selectivity | n | gross | mean cost | hit rate |
+|---|---|---|---|---|
+| top 0.5% | 117 | **−3.32%** | 24.9 bps | 20.5% |
+| top 1% | 232 | −2.77% | 25.8 | 25.0% |
+| top 2% | 466 | −2.08% | 29.0 | 28.8% |
+| top 5% | 1,165 | −1.35% | 35.4 | 33.3% |
+| top 10% | 2,330 | −0.73% | 37.6 | 37.2% |
+| whole panel | 27,287 | −0.19% | 66.6 | — |
+
+Monotone in the **wrong** direction: more confidence, worse outcome. Round 3's
+shallowest cut was 10%, where this reads as mild underperformance (−0.73%). The
+0.5% rung is what makes it unmissable. **The deep ladder earned its place by
+finding a defect, not an edge.**
+
+Mean cost falls monotonically with selectivity in the same table — 66.6 → 37.6 →
+24.9 bps — which names the suspect. `diagnose_inversion.py` tests it by refitting
+on the identical funnel and folds with each cause ablated:
+
+| arm | rho(score, cost_hat) | gross @ 0.5% | gross @ 10% |
+|---|---|---|---|
+| round 4 as run | **−0.476** | −3.32% | −0.73% |
+| per-trade label, no cost features | **−0.388** | −2.40% | −0.85% |
+| fixed label, with cost features | **+0.366** | +0.42% | +0.09% |
+| fixed label, no cost features | **+0.355** | +0.59% | −0.21% |
+
+**The per-trade cost label is the cause; the cost features are not.** Labelling
+`ret_c2c > cost_hat` makes a cheap trade mechanically easier to call positive, so
+the model learned to rank by *low cost* — and did so even without cost features,
+because other features proxy for liquidity. With the label fixed at a constant,
+the correlation flips positive (a volatile, expensive name is what clears a fixed
+437 bps bar) and the inversion disappears.
+
+Round 4 introduced the per-trade label to "align the objective with the
+decision". It did the opposite: it let the model optimise the *hurdle* instead of
+the *return*.
+
+**The sign flip is not a strategy.** A model with genuine inverted skill has a
+positive bottom tail. This one does not — bottom 0.5% is −2.28%, bottom 2% is
+−2.82%. Both ends of the cost distribution lose (cheap names at ~27 bps, dear
+ones at ~205 bps) while the panel averages −0.19%. The score sorts on cost, and
+cost is non-monotone in return.
+
+**Fixing the bug yields no skill, not positive skill.** The best repaired arm is
++0.59% at the top 0.5%, n=117, CI **[−1.13%, +2.23%]**.
+
+## 35. A null "failed", and the failure is evidence for section 34
+
+The date-shift null returned lift **+0.59%, p=0.045** on the rank arm:
+scrambling the features *improved* the result.
+
+Read naively that is a leakage signature. It is not. A null test assumes
+destroying information removes an edge — which presumes skill is non-negative.
+When skill is *below* zero, destroying the information removes the harm, and the
+null "fails" by getting better. That is precisely the model characterised in
+section 34.
+
+The other three nulls pass (shuffled-label on both arms, date-shift on the EV
+rule). Recorded here rather than quietly re-run, because "one null failed" is
+exactly the sort of line that gets dropped from a write-up.
+
+## 36. Round 4 verdict
+
+**H1′ NOT MET.** 17 eligible cells of 33, zero surviving BH-FDR at q=0.05 with
+72 prior trials folded in.
+
+| | |
+|---|---|
+| filter-only baseline, $2k (no model) | −0.87%, CI [−1.12%, −0.64%] |
+| best net, any arm | +0.25% — n=45, 39 days, CI [−1.07%, +1.74%], p=0.36 |
+| best *eligible* net | −0.67% (EV rule, $2k, n=2,373) |
+| measured round trip @ $2k | **66.6 bps** |
+| panel gross | **−0.19%** |
+
+Three things are now settled that were not before.
+
+1. **Cost is not the binding constraint.** 66.6 bps at a $2,000 order, robust to
+   a doubled depth penalty. Round 3's 728.9 bps figure was inflated ~11x by
+   order-sizing, population and an unmeasured exit.
+2. **Prediction is the binding constraint.** Panel gross is −0.19%; the honest
+   arms are flat; the best-repaired configuration's CI spans zero.
+3. **The filter is not a free lunch.** Trading every tradeable candidate loses
+   0.87% net per trade, and the tradeability screen keeps the *worse* half by
+   gross (−0.19% kept vs −0.08% removed) — it buys cheap execution, not alpha.
+
+The liquid band is cheap enough to trade and has no edge to trade on. That is a
+different answer from round 3's, arrived at with better data, and it closes the
+cost hypothesis rather than the study.
+
+## 37. Round 4 bug ledger
+
+Ten, of which five were the same latent defect in five places.
+
+| Where | Bug | Found by |
+|---|---|---|
+| `fetch_{intraday,premarket,edgar,finra,xbrl}` | cache keyed on file existence, not symbol coverage — would have reported "cached" while silently serving round-3 coverage to 436 EDGAR and 277 FINRA symbols | pointing the pipeline at a new funnel |
+| `measure_costs_r4` | Alpaca's `end` is an inclusive instant: `[09:34, 09:35)` returns the 09:35:00.000 quote | the new `cost_hat` tripwire, on ~3% of sessions |
+| `fetch_xbrl.py` | UTF-8 BOM written by my own `Set-Content -Encoding utf8`, breaking the module | running it |
+| `build_edgar_features` | called `assert_no_future_filings(candidates, filings)`; the signature is `(filings, decision)` | reading before running |
+| `run_round4_study` | `walk_forward_folds` raises `ValueError`, not `AssertionError` — an under-length panel killed the whole run | smoke test on partial data |
+| `run_round4_study` | fold construction fatal rather than adaptive | smoke test |
+| **study design** | **per-trade cost label taught the model to minimise the hurdle, not maximise the return** | **the 0.5% rung of the precision ladder** |
+
+The last is the one worth remembering. It was introduced *this round*, as an
+improvement, and it was only visible because the ladder went four times deeper
+than round 3's shallowest cut.
