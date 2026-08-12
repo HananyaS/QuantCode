@@ -40,11 +40,13 @@ FEATURES_PATH = bars.DATA_ROOT / "finra_features.parquet"
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Fetch FINRA short volume.")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--candidates", default=str(bars.DATA_ROOT / "candidates.parquet"))
+    parser.add_argument("--features-out", default=str(FEATURES_PATH))
     args = parser.parse_args(argv)
 
-    cand_path = bars.DATA_ROOT / "candidates.parquet"
+    cand_path = Path(args.candidates)
     if not cand_path.exists():
-        raise SystemExit("candidates.parquet missing")
+        raise SystemExit(f"{cand_path} missing")
 
     candidates = pd.read_parquet(cand_path, columns=["symbol", "date"])
     symbols = sorted(candidates["symbol"].unique())
@@ -65,7 +67,7 @@ def main(argv=None) -> int:
         logger.info("wrote %s (%s rows, %.0fs)", RAW_PATH, f"{len(raw):,}", time.time() - t0)
 
     features = finra.build_lagged_features(candidates, raw)
-    features.to_parquet(FEATURES_PATH, index=False)
+    features.to_parquet(args.features_out, index=False)
 
     # Spot-check the lag on a real symbol-day rather than trusting the unit
     # tests alone: a leak here would look like an excellent feature.
@@ -95,7 +97,7 @@ def main(argv=None) -> int:
                 100 * summary["coverage_overall"],
                 100 * summary["coverage_since_2018_08"],
                 summary["median_short_ratio"])
-    logger.info("wrote %s", FEATURES_PATH)
+    logger.info("wrote %s", args.features_out)
     return 0
 
 

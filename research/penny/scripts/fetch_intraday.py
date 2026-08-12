@@ -12,6 +12,7 @@ Resumable -- a session already cached is skipped.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 import time
@@ -44,6 +45,39 @@ _KEEP = [
 
 def session_path(day: pd.Timestamp) -> Path:
     return MINUTE_DIR / f"dt={day:%Y-%m-%d}" / "minute.parquet"
+
+
+def requested_path(day: pd.Timestamp) -> Path:
+    """Sidecar recording which symbols were *asked for* on this session.
+
+    Existence of ``minute.parquet`` is not sufficient to skip a session. Round 4
+    rebuilt the candidate screen, so a session cached under round 3's screen is
+    present on disk but missing the symbols round 4 needs -- and a skip keyed on
+    the file alone would silently return round-3 coverage while reporting a
+    clean run.
+
+    The sidecar records the requested set rather than the returned set, because
+    a symbol can legitimately have no prints that day (halted, no quotes); keying
+    on what came back would refetch those forever.
+    """
+    return MINUTE_DIR / f"dt={day:%Y-%m-%d}" / "requested.json"
+
+
+def cached_symbols(day: pd.Timestamp) -> set:
+    """Symbols already covered for this session, from sidecar or the data."""
+    side = requested_path(day)
+    if side.exists():
+        try:
+            return set(json.loads(side.read_text(encoding="utf-8")))
+        except (ValueError, OSError):
+            pass
+    path = session_path(day)
+    if path.exists():
+        try:
+            return set(pd.read_parquet(path, columns=["symbol"])["symbol"].unique())
+        except Exception:  # noqa: BLE001
+            return set()
+    return set()
 
 
 def main(argv=None) -> int:
@@ -80,11 +114,15 @@ def main(argv=None) -> int:
     for i, day in enumerate(days, start=1):
         day_ts = pd.Timestamp(day)
         path = session_path(day_ts)
-        if path.exists() and not args.force:
+
+        needed = set(by_day.loc[day])
+        have = set() if args.force else cached_symbols(day_ts)
+        missing = sorted(needed - have)
+        if not missing:
             skipped += 1
             continue
 
-        symbols: List[str] = list(by_day.loc[day])
+        symbols: List[str] = missing
         try:
             df, rejected = alpaca_fetch.fetch_minute_for_day(
                 client, symbols, day_ts.strftime("%Y-%m-%d")
@@ -101,7 +139,24 @@ def main(argv=None) -> int:
 
         df = df[[c for c in _KEEP if c in df.columns]]
         path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Merge with whatever this session already held rather than overwriting:
+        # the cached rows are valid data for symbols still in the screen.
+        if path.exists() and not args.force:
+            try:
+                prior = pd.read_parquet(path)
+                df = (
+                    pd.concat([prior, df], ignore_index=True)
+                    .drop_duplicates(subset=["symbol", "date", "minute_et"], keep="last")
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("%s: could not merge cache (%s); rewriting",
+                               day_ts.date(), str(exc)[:80])
+
         df.to_parquet(path, engine="pyarrow", index=False, compression="snappy")
+        requested_path(day_ts).write_text(
+            json.dumps(sorted(have | needed)), encoding="utf-8"
+        )
 
         fetched += 1
         total_rows += len(df)

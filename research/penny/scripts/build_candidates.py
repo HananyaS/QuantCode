@@ -37,6 +37,10 @@ def main(argv=None) -> int:
     parser.add_argument("--max-price", type=float, default=10.00)
     parser.add_argument("--min-adv", type=float, default=100_000.0)
     parser.add_argument("--max-per-day", type=int, default=None)
+    # Round 4 rebuilds the funnel at a different screen. Writing to a tagged
+    # path keeps round 3's artefacts byte-identical, so its published numbers
+    # stay reproducible from the same repo state.
+    parser.add_argument("--tag", type=str, default="")
     args = parser.parse_args(argv)
 
     years = list(range(args.start_year, args.end_year + 1))
@@ -67,7 +71,8 @@ def main(argv=None) -> int:
     selected = cand.build_candidates(panel, spec)
     selected = cand.add_delisting_distance(selected, panel)
 
-    out_path = bars.DATA_ROOT / "candidates.parquet"
+    suffix = f"_{args.tag}" if args.tag else ""
+    out_path = bars.DATA_ROOT / f"candidates{suffix}.parquet"
     selected.to_parquet(out_path, engine="pyarrow", index=False, compression="snappy")
 
     per_year = (
@@ -90,7 +95,7 @@ def main(argv=None) -> int:
         "date_min": str(selected["date"].min().date()),
         "date_max": str(selected["date"].max().date()),
     }
-    (bars.DATA_ROOT / "candidates_report.json").write_text(
+    (bars.DATA_ROOT / f"candidates_report{suffix}.json").write_text(
         json.dumps(report, indent=2, default=str), encoding="utf-8"
     )
 

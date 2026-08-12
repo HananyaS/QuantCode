@@ -100,6 +100,24 @@ FLOAT_FEATURES: List[str] = [
     "gap_to_float",
 ]
 
+# Round 4: microstructure state at the DECISION instant, from the 09:34 window.
+#
+# Rounds 1-3 banned every quote-derived column outright. That was hygiene rather
+# than a leakage argument -- the module measuring them says plainly that the
+# NBBO is "directly observable from the decision instant" -- and it had a real
+# cost: the model could not learn to avoid expensive names, while cost turned
+# out to vary 6.3x across the candidate universe.
+#
+# The distinction that makes these admissible is the window, not the quantity.
+# The 09:34 book is knowable before entering. The 09:35 entry book and the 15:55
+# exit book are not, and stay forbidden below.
+COST_FEATURES: List[str] = [
+    "half_spread_bps_decision",
+    "log_inside_notional_decision",
+    "depth_ratio_decision",
+    "cost_hat_bps",
+]
+
 
 def add_cross_sectional_ranks(
     df: pd.DataFrame, columns: Sequence[str] = RANK_FEATURES, date_col: str = "date"
@@ -207,6 +225,7 @@ def feature_columns(
     include_premarket: bool = True,
     include_short: bool = True,
     include_float: bool = True,
+    include_cost: bool = False,
 ) -> List[str]:
     """The columns the model may see.
 
@@ -230,6 +249,8 @@ def feature_columns(
         cols += [c for c in SHORT_FEATURES if c in df.columns]
     if include_float:
         cols += [c for c in FLOAT_FEATURES if c in df.columns]
+    if include_cost:
+        cols += [c for c in COST_FEATURES if c in df.columns]
 
     cols = list(dict.fromkeys(cols))
     banned = _forbidden_columns(df)
@@ -248,7 +269,18 @@ def _forbidden_columns(df: pd.DataFrame) -> set:
         "coverage", "halt_suspect", "ambiguous_bar", "meta_label",
         "net_at_cost", "model_score", "measured_cost", "measured_round_trip_bps",
         "seq_score", "fold", "cost_2000", "cost_5000", "cost_10000",
-        "half_spread_bps", "ask_notional",
+        # Round-3 quote columns: measured over [09:35:00, 09:36:00), i.e. from
+        # the entry minute itself. Admissible as a charge, never as an input.
+        "half_spread_bps", "ask_notional", "bid_notional",
+        # Round-4 realised cost. `cost_realized` is what the trade actually
+        # paid, measured at entry and at 15:55; a model that saw it would know
+        # how the day's liquidity turned out. Its decision-time twin,
+        # `cost_hat_bps` from the 09:34 book, is allowed -- see COST_FEATURES.
+        "half_spread_bps_entry", "ask_notional_entry", "bid_notional_entry",
+        "half_spread_bps_exit", "ask_notional_exit", "bid_notional_exit",
+        "entry_leg_bps", "exit_leg_bps", "round_trip_bps",
+        "cost_realized", "cost_realized_bps", "p_calib", "ev",
+        "payoff_win_mean", "payoff_loss_mean",
         # Coverage flags are booleans about data availability, not signals.
         # Left out deliberately: a model could otherwise learn "symbols the SEC
         # has no record of behave differently", which is a statement about the

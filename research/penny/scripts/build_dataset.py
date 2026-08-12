@@ -115,11 +115,16 @@ def main(argv=None) -> int:
     parser.add_argument("--profit-target", type=float, default=0.30)
     parser.add_argument("--stop-loss", type=float, default=0.10)
     parser.add_argument("--out", default=str(bars.DATA_ROOT / "trades.parquet"))
+    # Round 4 rebuilt the funnel; a tagged input keeps round 3's trade table
+    # byte-identical so its published numbers stay reproducible.
+    parser.add_argument("--candidates", default=str(bars.DATA_ROOT / "candidates.parquet"))
+    parser.add_argument("--summary-out",
+                        default=str(bars.DATA_ROOT / "dataset_summary.json"))
     args = parser.parse_args(argv)
 
-    cand_path = bars.DATA_ROOT / "candidates.parquet"
+    cand_path = Path(args.candidates)
     if not cand_path.exists():
-        raise SystemExit("candidates.parquet not found; run build_candidates first")
+        raise SystemExit(f"{cand_path} not found; run build_candidates first")
 
     candidates = pd.read_parquet(cand_path)
     logger.info("candidates: %s rows over %d sessions",
@@ -182,7 +187,7 @@ def main(argv=None) -> int:
         },
         "barriers": {"profit_target": spec.profit_target, "stop_loss": spec.stop_loss},
     }
-    (bars.DATA_ROOT / "dataset_summary.json").write_text(
+    Path(args.summary_out).write_text(
         json.dumps(summary, indent=2, default=str), encoding="utf-8"
     )
 

@@ -38,11 +38,12 @@ OUT_PATH = bars.DATA_ROOT / "barrier_free.parquet"
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Compute barrier-free path stats.")
     parser.add_argument("--out", default=str(OUT_PATH))
+    parser.add_argument("--candidates", default=str(bars.DATA_ROOT / "candidates.parquet"))
     args = parser.parse_args(argv)
 
-    cand_path = bars.DATA_ROOT / "candidates.parquet"
+    cand_path = Path(args.candidates)
     if not cand_path.exists():
-        raise SystemExit("candidates.parquet missing")
+        raise SystemExit(f"{cand_path} missing")
 
     candidates = pd.read_parquet(cand_path, columns=["symbol", "date"])
     wanted = candidates.groupby("date")["symbol"].apply(set)

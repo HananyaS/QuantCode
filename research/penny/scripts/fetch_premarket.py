@@ -57,17 +57,44 @@ def session_path(day: pd.Timestamp) -> Path:
     return PREMARKET_DIR / f"dt={day:%Y-%m-%d}" / "premarket.parquet"
 
 
+def _requested_path(day: pd.Timestamp) -> Path:
+    return PREMARKET_DIR / f"dt={day:%Y-%m-%d}" / "requested.json"
+
+
+def _requested_symbols(day: pd.Timestamp) -> set:
+    """Symbols already covered for this session, from sidecar or the data."""
+    side = _requested_path(day)
+    if side.exists():
+        try:
+            return set(json.loads(side.read_text(encoding="utf-8")))
+        except (ValueError, OSError):
+            pass
+    path = session_path(day)
+    if path.exists():
+        try:
+            return set(pd.read_parquet(path, columns=["symbol"])["symbol"].unique())
+        except Exception:  # noqa: BLE001
+            return set()
+    return set()
+
+
+def _write_requested(day: pd.Timestamp, symbols: set) -> None:
+    _requested_path(day).parent.mkdir(parents=True, exist_ok=True)
+    _requested_path(day).write_text(json.dumps(sorted(symbols)), encoding="utf-8")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Fetch 04:00-09:34 bars for candidates.")
     parser.add_argument("--limit-days", type=int, default=None)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--candidates", default=str(bars.DATA_ROOT / "candidates.parquet"))
     args = parser.parse_args(argv)
 
     load_dotenv(_PROJECT_ROOT / ".env")
 
-    cand_path = bars.DATA_ROOT / "candidates.parquet"
+    cand_path = Path(args.candidates)
     if not cand_path.exists():
-        raise SystemExit("candidates.parquet missing")
+        raise SystemExit(f"{cand_path} missing")
 
     candidates = pd.read_parquet(cand_path, columns=["symbol", "date"])
     days = sorted(candidates["date"].unique())
@@ -90,13 +117,25 @@ def main(argv=None) -> int:
     for i, day in enumerate(days, start=1):
         day_ts = pd.Timestamp(day)
         path = session_path(day_ts)
-        if path.exists() and not args.force:
+
+        # Existence alone is not enough to skip. Round 4 rebuilt the candidate
+        # screen, so a session cached under round 3's screen is on disk but
+        # missing the symbols round 4 needs -- and a file-keyed skip would
+        # report a clean run while silently returning round-3 coverage.
+        #
+        # The sidecar records what was *requested*, not what came back: thin
+        # names legitimately have no pre-open prints, and keying on the returned
+        # set would refetch those every time.
+        needed = set(by_day.loc[day])
+        have = set() if args.force else _requested_symbols(day_ts)
+        missing = sorted(needed - have)
+        if not missing:
             skipped += 1
             continue
 
         try:
             df, _ = alpaca_fetch.fetch_minute_for_day(
-                client, list(by_day.loc[day]), day_ts.strftime("%Y-%m-%d"),
+                client, missing, day_ts.strftime("%Y-%m-%d"),
                 start_et=START_ET, end_et=END_ET,
             )
         except Exception as exc:  # noqa: BLE001
@@ -109,7 +148,9 @@ def main(argv=None) -> int:
             # pre-open. Recorded so the absence is evidence, not a gap.
             empty += 1
             path.parent.mkdir(parents=True, exist_ok=True)
-            pd.DataFrame(columns=_KEEP).to_parquet(path, index=False)
+            if not path.exists():
+                pd.DataFrame(columns=_KEEP).to_parquet(path, index=False)
+            _write_requested(day_ts, have | needed)
             continue
 
         # Hard guarantee: nothing at or after the decision minute may be stored.
@@ -120,7 +161,22 @@ def main(argv=None) -> int:
 
         df = df[[c for c in _KEEP if c in df.columns]]
         path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Merge rather than overwrite: cached rows are valid for symbols still
+        # in the screen.
+        if path.exists() and not args.force:
+            try:
+                prior = pd.read_parquet(path)
+                if not prior.empty:
+                    df = pd.concat([prior, df], ignore_index=True).drop_duplicates(
+                        subset=["symbol", "date", "minute_et"], keep="last"
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("%s: could not merge cache (%s); rewriting",
+                               day_ts.date(), str(exc)[:80])
+
         df.to_parquet(path, engine="pyarrow", index=False, compression="snappy")
+        _write_requested(day_ts, have | needed)
 
         fetched += 1
         total_rows += len(df)

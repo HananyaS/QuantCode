@@ -37,9 +37,10 @@ OUT_PATH = bars.DATA_ROOT / "premarket_features.parquet"
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Build premarket features.")
     parser.add_argument("--out", default=str(OUT_PATH))
+    parser.add_argument("--candidates", default=str(bars.DATA_ROOT / "candidates.parquet"))
     args = parser.parse_args(argv)
 
-    candidates = pd.read_parquet(bars.DATA_ROOT / "candidates.parquet")
+    candidates = pd.read_parquet(args.candidates)
     needed = ["symbol", "date", "prev_close", "adv_20"]
     daily = candidates[[c for c in needed if c in candidates.columns]].copy()
 

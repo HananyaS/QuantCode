@@ -1,4 +1,4 @@
-"""fetch_xbrl.py — shares outstanding via the XBRL frames API.
+﻿"""fetch_xbrl.py â€” shares outstanding via the XBRL frames API.
 
 One request per quarter across all filers, rather than one large payload per
 company: ~44 requests instead of ~2,600.
@@ -40,9 +40,11 @@ def main(argv=None) -> int:
     parser.add_argument("--start-year", type=int, default=2015)
     parser.add_argument("--end-year", type=int, default=2026)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--candidates", default=str(bars.DATA_ROOT / "candidates.parquet"))
+    parser.add_argument("--features-out", default=str(FEATURES_PATH))
     args = parser.parse_args(argv)
 
-    candidates = pd.read_parquet(bars.DATA_ROOT / "candidates.parquet")
+    candidates = pd.read_parquet(args.candidates)
     filings = pd.read_parquet(bars.DATA_ROOT / "edgar_filings.parquet")
     ticker_map = pd.read_parquet(bars.DATA_ROOT / "edgar_ticker_map.parquet")
 
@@ -66,7 +68,7 @@ def main(argv=None) -> int:
                     RAW_PATH, f"{len(dated):,}", dated["symbol"].nunique())
 
     features = xbrl.build_pit_features(candidates, dated)
-    features.to_parquet(FEATURES_PATH, index=False)
+    features.to_parquet(args.features_out, index=False)
 
     covered = features["shares_outstanding"].notna()
     summary = {
@@ -89,7 +91,7 @@ def main(argv=None) -> int:
                 summary["median_float_dollar"])
     logger.info("share count grew >5%% QoQ on %.1f%% of candidate days",
                 100 * summary["pct_diluting_qoq"])
-    logger.info("wrote %s", FEATURES_PATH)
+    logger.info("wrote %s", args.features_out)
     return 0
 
 
