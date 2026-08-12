@@ -255,7 +255,7 @@ def main(argv=None) -> int:
         try:
             _run_one_size(df_all, windows, order_size, args, grid,
                           tradeability, ladder_moves, results)
-        except AssertionError as exc:
+        except (AssertionError, ValueError) as exc:
             # A validity failure invalidates this order size, not the round.
             # Recorded as a ladder move so the reader sees what was dropped and
             # why, rather than finding a silently absent row.
@@ -332,10 +332,31 @@ def _run_one_size(df_all, windows, order_size, args, grid,
     logger.info("labelled %s trades | positive class %.1f%%",
                 f"{len(df):,}", 100 * df["meta_label"].mean())
 
-    folds = walk_forward_folds(
-        df["date"].unique(), n_splits=args.n_splits,
-        embargo_days=args.embargo_days, min_train_days=args.min_train_days,
-    )
+    # Adaptive rather than fatal. A larger order passes the tradeability filter
+    # on fewer symbol-days, so the surviving panel can be too short for the
+    # requested fold count. Reducing the split count is the honest response --
+    # it costs statistical resolution, which the recorded ladder move makes
+    # visible, rather than dropping the order size entirely.
+    folds, n_splits = None, args.n_splits
+    while n_splits >= 2:
+        try:
+            folds = walk_forward_folds(
+                df["date"].unique(), n_splits=n_splits,
+                embargo_days=args.embargo_days, min_train_days=args.min_train_days,
+            )
+            break
+        except ValueError as exc:
+            logger.warning("$%s: %d folds impossible (%s); trying %d",
+                           f"{order_size:,}", n_splits, exc, n_splits - 1)
+            ladder_moves.append(
+                f"${order_size}: reduced folds {n_splits} -> {n_splits - 1} ({exc})"
+            )
+            n_splits -= 1
+    if folds is None:
+        raise ValueError(
+            f"panel has {df['date'].nunique()} distinct dates -- too few for even "
+            f"2 folds at min_train_days={args.min_train_days}"
+        )
     assert_folds_are_clean(folds, embargo_days=args.embargo_days)
     for f in folds:
         n_train = int(df["date"].isin(f.train_dates).sum())
@@ -348,6 +369,29 @@ def _run_one_size(df_all, windows, order_size, args, grid,
 
     cols = F.feature_columns(df, include_cost=True)
     logger.info("%d features (cost features enabled)", len(cols))
+
+    # The baseline that actually matters now: take EVERY tradeable candidate,
+    # no model at all. The smoke test showed the tradeability filter selecting a
+    # better population on its own (kept gross positive, removed gross negative),
+    # so a positive net after modelling could be the filter's doing entirely.
+    # If this is already positive, the model is decorative and must be reported
+    # as such.
+    base_net = (df["ret_c2c"] - df["cost_realized"]).dropna()
+    if len(base_net) >= 30:
+        b = pstats.cluster_bootstrap_mean(
+            base_net, df.loc[base_net.index, "date"], n_boot=3_000
+        )
+        results.setdefault("filter_only_baseline", {})[order_size] = {
+            "n": int(b.n), "n_days": int(b.n_days),
+            "gross": float(df["ret_c2c"].mean()),
+            "net": float(b.mean), "net_lo": float(b.lo), "net_hi": float(b.hi),
+            "net_p": float(b.p_value_greater),
+            "cost_mean_bps": float(10_000 * df["cost_realized"].mean()),
+        }
+        logger.info(
+            "FILTER-ONLY BASELINE (no model): net %+.4f  CI [%+.4f, %+.4f]  n=%d",
+            b.mean, b.lo, b.hi, b.n,
+        )
 
     # --- arm 1: rank cut, the comparator ----------------------------------
     scored, _ = T.walk_forward_scores(df, folds, cols, "meta_label")
