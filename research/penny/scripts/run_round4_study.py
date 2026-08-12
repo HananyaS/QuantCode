@@ -128,10 +128,13 @@ def apply_tradeability(
     the removed population's own return is reported, because a filter that
     happens to remove the losers is doing the work the model claims to do.
     """
-    quoted = df.rename(columns={
-        "half_spread_bps_decision": "half_spread_bps",
-        "ask_notional_decision": "ask_notional",
-    })
+    # Build a minimal frame rather than renaming in place: `df` may already
+    # carry an unwindowed `half_spread_bps`, and a rename onto an existing name
+    # produces duplicate columns that then index as a DataFrame, not a Series.
+    quoted = pd.DataFrame({
+        "half_spread_bps": df["half_spread_bps_decision"],
+        "ask_notional": df["ask_notional_decision"],
+    }, index=df.index)
     mask = Q.tradeable_mask(quoted, order_notional, max_spread_bps)
     removed = df[~mask]
     report = {
@@ -249,80 +252,15 @@ def main(argv=None) -> int:
     for order_size in ORDER_SIZES:
         logger.info("=" * 72)
         logger.info("ORDER SIZE $%s", f"{order_size:,}")
-
-        costed = Q.attach_costs(df_all, windows, order_notional=float(order_size))
-        df, report = apply_tradeability(costed, float(order_size))
-        tradeability[order_size] = report
-        if df.empty:
-            ladder_moves.append(f"${order_size}: no tradeable candidates")
-            continue
-
-        # The label is now per trade: "would this have cleared ITS OWN cost".
-        # Round 3 trained against a flat 437 bps while true cost spanned
-        # 34 -> 2000+ bps, so the model was learning the wrong question.
-        df["meta_label"] = (df["ret_c2c"] > df["cost_hat"]).astype(int)
-        df = df.dropna(subset=["cost_hat"]).reset_index(drop=True)
-        logger.info("labelled %s trades | positive class %.1f%%",
-                    f"{len(df):,}", 100 * df["meta_label"].mean())
-
-        folds = walk_forward_folds(
-            df["date"].unique(), n_splits=args.n_splits,
-            embargo_days=args.embargo_days, min_train_days=args.min_train_days,
-        )
-        assert_folds_are_clean(folds, embargo_days=args.embargo_days)
-        for f in folds:
-            n_train = int(df["date"].isin(f.train_dates).sum())
-            logger.info("%s | %s train rows", f.describe(), f"{n_train:,}")
-            assert n_train >= MIN_TRAIN_ROWS, (
-                f"fold {f.index} trains on {n_train} rows, below "
-                f"MIN_TRAIN_ROWS={MIN_TRAIN_ROWS}; round 3's fold 0 trained on "
-                f"610 rows and fabricated the round-2 headline"
-            )
-
-        cols = F.feature_columns(df, include_cost=True)
-        logger.info("%d features (cost features enabled)", len(cols))
-
-        # --- arm 1: rank cut, the comparator ------------------------------
-        scored, _ = T.walk_forward_scores(df, folds, cols, "meta_label")
-        if scored.empty:
-            continue
-        for frac in TOP_FRACTIONS:
-            sel = T.select_top_fraction(scored, frac)
-            keys = set(zip(sel["symbol"], sel["date"]))
-            mask = np.array([(s, d) in keys
-                             for s, d in zip(scored["symbol"], scored["date"])])
-            row = evaluate_selection(scored, mask, "gbdt_liquid", frac, order_size)
-            if row:
-                grid.append(row)
-
-        # --- arm 2: expected value against each trade's own cost ----------
-        ev_scored = C.walk_forward_ev(df, folds, cols, "meta_label")
-        if not ev_scored.empty:
-            ev_mask = C.select_by_expected_value(ev_scored, "cost_hat").to_numpy()
-            row = evaluate_selection(ev_scored, ev_mask, "ev_rule",
-                                     float("nan"), order_size)
-            if row:
-                grid.append(row)
-            results.setdefault("calibration", {})[order_size] = (
-                C.calibration_table(ev_scored, "meta_label").to_dict(orient="records")
-            )
-            logger.info("ev_rule selected %d of %s (%.2f%%)",
-                        int(ev_mask.sum()), f"{len(ev_scored):,}",
-                        100 * ev_mask.mean())
-
-        # --- arm 3: transformer blend, promoted to confirmatory -----------
-        if not args.skip_sequence:
-            rows = run_transformer(df, folds, scored, cols, order_size)
-            grid.extend(rows)
-
-        # --- validity: nulls and cost sensitivity, once, at the base size --
-        if order_size == ORDER_SIZES[0] and not args.skip_nulls:
-            results["nulls"] = run_nulls(df, folds, cols)
-            results["cost_sensitivity"] = run_cost_sensitivity(
-                df_all, windows, order_size,
-                dict(n_splits=args.n_splits, embargo_days=args.embargo_days,
-                     min_train_days=args.min_train_days),
-            )
+        try:
+            _run_one_size(df_all, windows, order_size, args, grid,
+                          tradeability, ladder_moves, results)
+        except AssertionError as exc:
+            # A validity failure invalidates this order size, not the round.
+            # Recorded as a ladder move so the reader sees what was dropped and
+            # why, rather than finding a silently absent row.
+            logger.error("$%s: validity failure -- %s", f"{order_size:,}", exc)
+            ladder_moves.append(f"${order_size}: dropped -- {exc}")
 
     results["tradeability"] = tradeability
     grid_df = pd.DataFrame(grid)
@@ -331,12 +269,17 @@ def main(argv=None) -> int:
     if grid_df.empty:
         logger.error("no results produced")
         results["h1_met"] = False
+        results["ladder_moves"] = ladder_moves
         _save(results)
         return 1
 
     # --- multiple testing --------------------------------------------------
     confirmatory = grid_df["arm"].isin(CONFIRMATORY_ARMS)
-    eligible = confirmatory & grid_df.get("eligible_h1", False).fillna(False)
+    if "eligible_h1" in grid_df.columns:
+        elig_col = grid_df["eligible_h1"].fillna(False).astype(bool)
+    else:
+        elig_col = pd.Series(False, index=grid_df.index)
+    eligible = confirmatory & elig_col
     logger.info("cells: %d total, %d confirmatory, %d eligible",
                 len(grid_df), int(confirmatory.sum()), int(eligible.sum()))
 
@@ -361,6 +304,92 @@ def main(argv=None) -> int:
     _report(grid_df, results)
     _save(results)
     return 0
+
+
+def _run_one_size(df_all, windows, order_size, args, grid,
+                  tradeability, ladder_moves, results) -> None:
+    """Everything for one order size.
+
+    Raises AssertionError on a validity failure, which the caller records as a
+    ladder move and continues past -- an invalid fold structure invalidates this
+    order size, not the round.
+    """
+    costed = Q.attach_costs(df_all, windows, order_notional=float(order_size))
+    df, report = apply_tradeability(costed, float(order_size))
+    tradeability[order_size] = report
+    if df.empty:
+        ladder_moves.append(f"${order_size}: no tradeable candidates")
+        return
+
+    # The label is now per trade: "would this have cleared ITS OWN cost".
+    # Round 3 trained against a flat 437 bps while true cost spanned
+    # 34 -> 2000+ bps, so the model was learning the wrong question.
+    df = df.dropna(subset=["cost_hat", "ret_c2c"]).reset_index(drop=True)
+    if df.empty:
+        ladder_moves.append(f"${order_size}: no priced candidates")
+        return
+    df["meta_label"] = (df["ret_c2c"] > df["cost_hat"]).astype(int)
+    logger.info("labelled %s trades | positive class %.1f%%",
+                f"{len(df):,}", 100 * df["meta_label"].mean())
+
+    folds = walk_forward_folds(
+        df["date"].unique(), n_splits=args.n_splits,
+        embargo_days=args.embargo_days, min_train_days=args.min_train_days,
+    )
+    assert_folds_are_clean(folds, embargo_days=args.embargo_days)
+    for f in folds:
+        n_train = int(df["date"].isin(f.train_dates).sum())
+        logger.info("%s | %s train rows", f.describe(), f"{n_train:,}")
+        assert n_train >= MIN_TRAIN_ROWS, (
+            f"fold {f.index} trains on {n_train} rows, below "
+            f"MIN_TRAIN_ROWS={MIN_TRAIN_ROWS}; round 3's fold 0 trained on "
+            f"610 rows and fabricated the round-2 headline"
+        )
+
+    cols = F.feature_columns(df, include_cost=True)
+    logger.info("%d features (cost features enabled)", len(cols))
+
+    # --- arm 1: rank cut, the comparator ----------------------------------
+    scored, _ = T.walk_forward_scores(df, folds, cols, "meta_label")
+    if scored.empty:
+        ladder_moves.append(f"${order_size}: walk-forward produced no scores")
+        return
+    for frac in TOP_FRACTIONS:
+        sel = T.select_top_fraction(scored, frac)
+        keys = set(zip(sel["symbol"], sel["date"]))
+        mask = np.array([(s, d) in keys
+                         for s, d in zip(scored["symbol"], scored["date"])])
+        row = evaluate_selection(scored, mask, "gbdt_liquid", frac, order_size)
+        if row:
+            grid.append(row)
+
+    # --- arm 2: expected value against each trade's own cost --------------
+    ev_scored = C.walk_forward_ev(df, folds, cols, "meta_label")
+    if not ev_scored.empty:
+        ev_mask = C.select_by_expected_value(ev_scored, "cost_hat").to_numpy()
+        row = evaluate_selection(ev_scored, ev_mask, "ev_rule",
+                                 float("nan"), order_size)
+        if row:
+            grid.append(row)
+        results.setdefault("calibration", {})[order_size] = (
+            C.calibration_table(ev_scored, "meta_label").to_dict(orient="records")
+        )
+        logger.info("ev_rule selected %d of %s (%.2f%%)",
+                    int(ev_mask.sum()), f"{len(ev_scored):,}",
+                    100 * ev_mask.mean())
+
+    # --- arm 3: transformer blend, promoted to confirmatory ---------------
+    if not args.skip_sequence:
+        grid.extend(run_transformer(df, folds, scored, cols, order_size))
+
+    # --- validity: nulls and cost sensitivity, once, at the base size -----
+    if order_size == ORDER_SIZES[0] and not args.skip_nulls:
+        results["nulls"] = run_nulls(df, folds, cols)
+        results["cost_sensitivity"] = run_cost_sensitivity(
+            df_all, windows, order_size,
+            dict(n_splits=args.n_splits, embargo_days=args.embargo_days,
+                 min_train_days=args.min_train_days),
+        )
 
 
 def run_nulls(df: pd.DataFrame, folds, cols: Sequence[str], seed: int = 11) -> List[Dict]:

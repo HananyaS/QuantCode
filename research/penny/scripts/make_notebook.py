@@ -12,6 +12,8 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
 OUT = Path(__file__).resolve().parents[1] / "notebooks" / "penny_veto_study.ipynb"
 
 
@@ -914,8 +916,15 @@ CELLS = [
 
 
 def main() -> int:
+    # Round-4 cells live in their own module -- four rounds in one list stopped
+    # being readable. Inserted before the closing Sources cell so the references
+    # stay last.
+    from research.penny.scripts.notebook_round4 import ROUND4_CELLS
+
+    cells = CELLS[:-1] + list(ROUND4_CELLS) + CELLS[-1:]
+
     notebook = {
-        "cells": CELLS,
+        "cells": cells,
         "metadata": {
             "kernelspec": {
                 "display_name": "Python 3", "language": "python", "name": "python3",
@@ -927,7 +936,7 @@ def main() -> int:
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(notebook, indent=1), encoding="utf-8")
-    print(f"wrote {OUT} ({len(CELLS)} cells)")
+    print(f"wrote {OUT} ({len(cells)} cells)")
     return 0
 
 
