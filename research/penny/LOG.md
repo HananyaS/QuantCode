@@ -838,3 +838,126 @@ Audit items verified **correct**: FINRA lag placement, XBRL searchsorted
 arithmetic and tz handling, premarket causality (checked in cache: max minute
 09:34, zero bars ≥09:35), sequence left-padding and truncation, chronological
 validation split, one-to-one merges, and the feature allowlist.
+
+---
+
+# Round 4 — precision inside the liquid band
+
+## 29. Round 3's cost conclusion was drawn from a mis-specified table
+
+Round 3 measured a median round-trip of **728.9 bps**, dominated by a **398.4 bps
+depth shortfall**, and concluded the binding constraint is microstructure rather
+than prediction. That conclusion was premature, for a reason visible only on
+re-reading the code that produced it.
+
+`build_cost_table` sizes every order at **1% of ADV** (`etl/quotes.py:196`). A
+more liquid name therefore receives a proportionally *larger* order and comes out
+looking more expensive. That is not how the strategy would trade — a real book
+places a fixed dollar amount. Recomputed at a fixed order size, the ranking
+inverts, and the spread is enormous:
+
+| ADV bucket | n | RT @ $2k | RT @ $10k | uncond. gross |
+|---|---|---|---|---|
+| ≤ $300k | 1,501 | 395.1 bps | 1034.6 | −1.24% |
+| $300k–1M | 2,085 | 259.4 | 683.8 | −0.80% |
+| $1–5M | 2,731 | 149.4 | 371.6 | −1.00% |
+| $5–20M | 1,956 | **98.6** | 215.5 | −0.45% |
+| > $20M | 1,521 | **63.1** | **124.0** | −0.59% |
+
+A **6.3× span**. The "irreducible 77 bps floor" reported in §23 is a whole-panel
+median, not a floor — in the liquid tail the round trip is 63 bps at a $2,000
+order. **Cost is a filter, not a wall**, and `adv_20` is ex-ante, already in the
+panel, and free.
+
+Two further facts made the round-3 framing worse than it needed to be:
+
+- **Cost and edge were never crossed.** Selection is a rank cut on score alone
+  (`run_round3_study.py:133`); measured cost is subtracted *after* selection
+  (`:165`); and every quote-derived column is banned from the feature list
+  (`model/features.py:249-251`) — by convention, with no leakage rationale
+  recorded anywhere in the code, comments or tests.
+- **The screen contradicted the project's own veto.** `adv_20 >= $100k`
+  (`etl/candidates.py:62`) admits names ten times thinner than the `$1M` floor
+  round 1's `_veto_thin_adv` used (`features/veto.py:84`).
+
+## 30. Three cost-accounting defects, all of which flattered the result
+
+Fixed **before** testing the promising hypothesis, which is the only thing that
+distinguishes this from motivated reasoning. All three push costs up.
+
+**Depth was charged once for a round trip that crosses the book twice.**
+`2 × (half_spread + impact) + depth` (`etl/quotes.py:204`) assumes the 15:55 exit
+fills entirely at the inside. Since depth was 398 of the 728 bps, the single
+largest term was half-counted. Each leg is now charged against its own measured
+book.
+
+**Only the ask was ever measured.** A long exit sells into the *bid*. Round 3
+never fetched bid depth, so the exit leg was priced off the wrong side of a book
+whose two sides routinely differ by an order of magnitude.
+
+**The estimate peeked at the entry minute.** The measured half-spread is the
+median over `[09:35:00, 09:36:00)` (`etl/quotes.py:85-86`) while entry is the
+09:35 bar **open** (`labels/triple_barrier.py:172`). Harmless while cost was
+evaluation-only; disqualifying the moment cost informs the decision, which is
+exactly what round 4 does. The two are now separate quantities:
+
+| | window | role |
+|---|---|---|
+| `cost_hat` | `[09:34:00, 09:35:00)` | decision input — what was knowable |
+| `cost_realized` | 09:35 ask + 15:55 bid | charged — what actually happened |
+
+**Coverage, stated plainly for the first time.** Round 3's cost table covered
+**56.3%** of trades (9,794 of 17,390) and *dropped* the remainder from the
+bootstrap rather than defaulting them. The code concedes the direction of the
+bias — "tilts the estimate toward names with firm quotes — i.e. optimistically"
+(`run_round3_study.py:174`) — but §24's coverage table omits the cost table
+entirely, so the published net figures carry an unstated 44% exclusion. One
+mitigating fact, verified: the quote-match rate is flat across ADV buckets
+(53.0 / 56.3 / 56.9 / 57.7 / 57.2 %), so the gap is missing-at-random with
+respect to liquidity — under-powered rather than skewed.
+
+## 31. Five caches that would have silently supplied round-3 coverage
+
+Found while pointing the pipeline at the rebuilt funnel. The same latent bug in
+five places, and in every case the symptom is a log line reading `cached`, not an
+exception.
+
+| Fetcher | Skipped when | Consequence for round 4 |
+|---|---|---|
+| `fetch_intraday` | session parquet exists | 2,553 sessions skipped, round-3 symbols only |
+| `fetch_premarket` | session parquet exists | same |
+| `fetch_edgar` | `edgar_filings.parquet` exists | **436 symbols** with no filing features |
+| `fetch_finra` | `finra_short_volume.parquet` exists | **277 symbols** with no short volume |
+| `fetch_xbrl` | `xbrl_shares.parquet` exists | 483 symbols with no float proxy |
+
+Each cache is keyed on a path that encodes nothing about which symbols it
+covers. That was safe for three rounds because the candidate screen never
+changed; round 4's funnel overlaps round 3's by only 2,212 of 2,488 symbols.
+
+Each now computes the symbol complement and fetches only that. The bar fetchers
+key on a **requested**-symbols sidecar rather than the returned set, because a
+thin name legitimately has no prints and keying on what came back would refetch
+it forever. FINRA merges with a plain concat plus an explicit disjointness
+assertion, deliberately **not** `drop_duplicates`: its consolidated files carry
+several rows per (symbol, date), one per market, which `build_lagged_features`
+sums — a content-based dedupe there would silently understate short volume,
+which is the same duplicate-row property §28 had to handle in the other
+direction.
+
+Two more caught while running:
+
+- **Alpaca's `end` is an inclusive instant.** A request for
+  `[09:34:00, 09:35:00)` returns the quote stamped exactly `09:35:00.000` — a
+  quote from the entry instant itself. The new `cost_hat` tripwire fired on ~3%
+  of sessions. This is the same trap that made rounds 1–2 drop each target day's
+  own bar (§7). Now trimmed before asserting, so the assertion verifies the trim
+  rather than restating the request.
+- **A BOM in my own tooling.** A `Set-Content -Encoding utf8` while editing
+  `fetch_xbrl.py` wrote a UTF-8 BOM and mangled an em-dash, breaking the module.
+  Windows PowerShell 5.1's `utf8` means *with* BOM. Round 3 hit the BOM problem
+  reading Nasdaq's halt RSS (§8); this time it was self-inflicted.
+
+**`build_edgar_features.py` did not exist.** Round 3 produced
+`edgar_features.parquet` ad hoc, with no script in the repo that regenerates it —
+so the input underneath round 2's largest claimed lift could not be rebuilt from
+the codebase. Written now.
