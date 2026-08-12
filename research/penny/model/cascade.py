@@ -176,6 +176,23 @@ def run_cascade(
     Returns the surviving test-fold rows -- carrying one ``score_<stage>`` column
     per stage -- and a per-stage trace of how the population narrowed.
     """
+    # Validate configuration before touching data. A stage naming columns that
+    # do not exist is a configuration error, and it must not be reported as a
+    # thin-fold warning -- which is what happens if the row-count guard fires
+    # first and quietly stops the fold.
+    for stage in stages:
+        present = [c for c in stage.features if c in df.columns]
+        if not present:
+            raise ValueError(
+                f"stage {stage.name}: no features present in the frame "
+                f"(asked for {list(stage.features)[:5]})"
+            )
+        missing = set(stage.features) - set(df.columns)
+        if missing:
+            logger.warning("stage %s: %d features absent, using %d: %s",
+                           stage.name, len(missing), len(present),
+                           sorted(missing)[:5])
+
     survivors: List[pd.DataFrame] = []
     trace: List[Dict] = []
 

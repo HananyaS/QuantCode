@@ -1153,3 +1153,160 @@ Ten, of which five were the same latent defect in five places.
 The last is the one worth remembering. It was introduced *this round*, as an
 improvement, and it was only visible because the ladder went four times deeper
 than round 3's shallowest cut.
+
+---
+
+# Round 5 — the cascade, and the screen that was wrong all along
+
+## 38. The gap screen was selecting the losing tail
+
+Rounds 1–3 screened `gap ≥ +10%`; round 4 screened `gap ≥ +3%`. The rule came
+from round 1, justified as selecting "in play" names, and **was never tested
+against its own alternative in four rounds.**
+
+Measured across 1,455,390 liquid low-priced symbol-days (ADV ≥ $1M, prior
+unadjusted close $0.50–$10, 2016–2026), intraday open→close return is
+**monotonically decreasing in the opening gap**:
+
+| gap bucket | n | open→close | hit rate | P(intraday high ≥20%) |
+|---|---|---|---|---|
+| < −10% | 9,292 | −0.00% | 48.5% | 15.5% |
+| **−10% to −3%** | **68,737** | **+0.46%** | **50.9%** | 3.9% |
+| −3% to 0% | 702,143 | −0.05% | 46.2% | 0.7% |
+| 0% to +3% | 586,182 | −0.14% | 44.2% | 0.7% |
+| +3% to +10% | 77,386 | −0.43% | 41.0% | 4.0% |
+| +10% to +25% | 8,831 | −1.07% | 37.7% | 15.7% |
+| > +25% | 2,819 | **−3.68%** | 31.6% | 32.8% |
+
+A one-sided `gap ≥ X` screen selects the **losing tail**. Rounds 1–3 bought the
+−1.07% bucket; round 4 bought −0.43% and −1.07%. **Four rounds of negative gross
+are substantially explained by the screen itself**, not by the model, the
+features or the cost bar.
+
+The user's original observation was right and its interpretation was wrong: names
+that explode *are* concentrated in the big gappers (P(high ≥20%) rises to 32.8%
+above +25%), but so are the losses, and the mean is deeply negative. The right
+tail is real; it is bought at a price that exceeds it.
+
+The gap-**down** bucket is the first positive-gross pool the project has
+produced: day-clustered **+0.461%, CI [+0.146%, +0.766%]**, 10 of 11 years
+positive, robust across seven cut variants, stronger excluding 2020. This is
+short-term reversal (Lehmann 1990; Lo & MacKinlay 1990; Nagel 2012), and buying
+oversold names is long-only, so it respects the standing constraint.
+
+## 39. Gate R: the edge survives to 09:35, but not past its own cost
+
+`open → close` is a daily-bar proxy. The study enters at 09:35. Gate R measured
+the difference before any modelling, first on a 264-session probe (**FAIL on
+power**: +0.37%, CI [−0.39%, +1.06%]), then — under a single pre-declared
+escalation, with the threshold and entry time fixed in writing beforehand — on
+all 2,605 sessions and 19.1M minute rows:
+
+| entry | n | mean | CI | p(>0) | hit | fill |
+|---|---|---|---|---|---|---|
+| 09:31 | 50,360 | +0.30% | [−0.03%, +0.64%] | 0.043 | 49.7% | 75.6% |
+| **09:35** | **51,361** | **+0.31%** | **[−0.03%, +0.63%]** | **0.0295** | 49.6% | 77.1% |
+| 09:45 | 50,377 | +0.28% | [−0.05%, +0.61%] | 0.047 | 49.3% | 75.6% |
+| 10:00 | 50,424 | +0.17% | [−0.13%, +0.44%] | 0.113 | 48.6% | 75.7% |
+| 11:00 | 47,046 | +0.04% | [−0.17%, +0.27%] | 0.346 | 47.8% | 70.6% |
+
+**GATE R FAILS.** The point estimate clears +0.20%; the CI lower bound is
+−0.03% and does not exclude zero. Round 5 stops, as Amendment 1 required.
+
+Three findings, on the best-powered measurement in the project:
+
+1. **The daily proxy overstated the edge by a third** — +0.46% open→close
+   against **+0.31%** actual at 09:35. This is why §4 promised the proxy would
+   never be used as a result.
+2. **The probe's sharp intraday decay was noise.** On full data the edge is flat
+   through 09:45 and only fades after 10:00.
+3. **The economics fail independently of the statistics.** 31 bps gross against
+   a round trip measured at **66.6 bps** (round 4, ADV ≥ $5M — and this pool
+   reaches down to $1M, so dearer). The edge is about half what it must be.
+
+No cascade was fitted on this pool. `model/cascade.py` — staged selection with
+per-stage feature sets, lambdarank grouped by session, and quantile regression
+on the right tail — is built and tested but deliberately unused: hunting for a
+profitable subset of a population whose gross is half its cost is exactly the
+exercise rounds 1–4 already performed.
+
+## 40. Holding longer does not help, and the control explains why
+
+Every round held one intraday session, a choice fixed in round 1 and never
+varied. Since cost is paid once per round trip, a longer hold amortises it — so
+if 1-day reversal is 31 bps and 5-day reversal were 150 bps, the second would be
+tradable on the same cost base.
+
+It is not. Reversal is a one-day effect and decays immediately:
+
+| pool | h=1 | h=2 | h=3 | h=5 | h=20 |
+|---|---|---|---|---|---|
+| reversal ADV≥$1M | **+0.42%** (p=0.010) | +0.26% | +0.19% | +0.38% | +0.73% |
+| reversal deep | **+0.52%** (p=0.019) | −0.26% | −0.36% | −0.43% | −0.44% |
+| reversal ADV≥$5M | +0.13% | +0.06% | −0.09% | −0.14% | +0.18% |
+
+Extending the hold multiplies variance (sd 0.127 → 0.584 from h=1 to h=20)
+without adding mean. Net is negative at every horizon on every reversal pool.
+
+**The trap in this table, named explicitly.** Two rows clear cost with a CI
+excluding zero, and **both are controls at 20 days**:
+
+| pool | h | mean | CI | net |
+|---|---|---|---|---|
+| CONTROL gap-up | 20 | +1.37% | [+0.12%, +2.65%] | +0.70% |
+| **CONTROL no screen** | 20 | **+1.08%** | [+0.67%, +1.51%] | +0.42% |
+
+The second applies **no selection whatsoever** — 650,865 symbol-days, p < 0.0001.
+That is equity drift, roughly +0.05%/day, not alpha. Reporting it as a finding
+would be the single most misleading thing in this log, which is why it is here.
+
+It reframes the whole study: an intraday strategy in this universe is not
+competing against zero. It competes against **+0.05%/day available for free**,
+at one round trip per month rather than one per day.
+
+## 41. Features that turned out not to matter
+
+**Insider and institutional flow.** `etl.edgar` filters Forms 3/4/144 out
+deliberately — correctly, for a *supply* question — so 738,623 filings sat
+unused for four rounds: 568,896 Form 4, 73,880 SC 13G, 22,580 SC 13D. Insider
+buying is among the better-documented small-cap anomalies (Lakonishok & Lee
+2001; Cohen, Malloy & Pomorski 2012), so this looked like the largest untapped
+signal in the cache.
+
+Built as `etl/filings_flow.py` with counts normalised against each symbol's own
+trailing rate (a firm with twelve insiders files twelve Form 4s per board
+decision; the *departure* is the signal). Coverage 95.5%; an insider transaction
+in the trailing 30 days on 39.8% of candidate-days.
+
+Measured univariately on the round-4 panel:
+
+| feature | q1 → q5 gross | spread | ρ |
+|---|---|---|---|
+| `passive_365d` | −0.38% → −0.01% | +0.37pp | +0.60 |
+| `insider_txn_90d` | −0.23% → −0.01% | +0.22pp | **+0.90** |
+| `activist_365d` | +0.17% → −0.33% | −0.50pp | −0.50 |
+
+`insider_txn_90d` is almost perfectly monotone across quintiles, and the entire
+spread is 22 bps — an order of magnitude too small, with every top-quintile CI
+including zero. This was *in-sample over the whole panel*, so it is an upper
+bound. Recorded as a negative because a monotone ρ=+0.90 is exactly the sort of
+diagnostic that gets published as a signal when its magnitude is ignored.
+
+**Market regime.** No index symbol exists in the daily cache — the universe
+fetch was microcap-focused — so no regime feature was available in four rounds.
+`features/market_regime.py` builds the factor from the studied cross-section
+instead, which for this segment is the better benchmark anyway, and derives
+`gap_vs_market` to separate an idiosyncratic gap-down from a systematic one.
+Built and tested; unused, because Gate R stopped the round before stage 2.
+
+## 42. Round 5 bug ledger
+
+| Where | Bug | Found by |
+|---|---|---|
+| `filings_flow` | counts returned NaN rather than 0 for a covered symbol with no prior filings — "no insider filed" is an observation, not an absence of one | its own tests |
+| `filings_flow` | ratio-to-baseline damped small-count symbols hardest, exactly where a burst is most informative; replaced with a Poisson-style standardised excess | its own tests |
+| `cascade` | feature validation ran *after* the row-count guard, so a mistyped column surfaced as a thin-fold warning instead of an error | its own tests |
+| test fixtures (×3) | two panels sharing a start date, an undersized fold, and index arithmetic that mismatched fits to folds | running them |
+
+None reached a result. Worth recording only because all four were caught by
+tests written before the code was run on real data.

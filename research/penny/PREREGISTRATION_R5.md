@@ -231,3 +231,51 @@ Constraints on this escalation, fixed now:
 
 Recorded because "we ran it again on more data" is only legitimate when the
 decision to do so, and its limits, are written down before the result is seen.
+
+---
+
+## Amendment 2 — 2026-08-12, the escalated Gate R result. ROUND 5 STOPS.
+
+Full sample, all 2,605 sessions, 66,628 matched candidate-days, 19.1M minute
+rows:
+
+| entry | n | mean | CI | p(>0) | hit | fill |
+|---|---|---|---|---|---|---|
+| 09:31 | 50,360 | +0.30% | [−0.03%, +0.64%] | 0.043 | 49.7% | 75.6% |
+| **09:35** | **51,361** | **+0.31%** | **[−0.03%, +0.63%]** | **0.0295** | 49.6% | 77.1% |
+| 09:40 | 50,624 | +0.26% | [−0.07%, +0.58%] | 0.056 | 49.2% | 76.0% |
+| 09:45 | 50,377 | +0.28% | [−0.05%, +0.61%] | 0.047 | 49.3% | 75.6% |
+| 10:00 | 50,424 | +0.17% | [−0.13%, +0.44%] | 0.113 | 48.6% | 75.7% |
+| 10:30 | 48,729 | +0.14% | [−0.13%, +0.39%] | 0.150 | 48.3% | 73.1% |
+| 11:00 | 47,046 | +0.04% | [−0.17%, +0.27%] | 0.346 | 47.8% | 70.6% |
+
+**GATE R FAILS.** The point estimate (+0.31%) clears the +0.20% threshold; the
+CI lower bound is **−0.03%** and does not exclude zero. Per Amendment 1 §1 there
+is no further escalation and **round 5 stops here.**
+
+Three things this settles, on a far better-powered measurement than any prior
+round:
+
+1. **The effect is real but marginal.** p = 0.0295 one-sided over 2,575 distinct
+   days. Against `PRIOR_TRIALS = 90` it would not survive BH correction.
+
+2. **The daily-bar proxy overstated it.** Open→close said +0.46%; the actual
+   09:35→15:55 return is **+0.31%**, a third smaller. Recorded because §4
+   promised open→close would never be used as a result, and this is why that
+   mattered. The probe's apparent sharp intraday decay was noise: on full data
+   the edge is flat through 09:45 and only fades after 10:00.
+
+3. **The economics fail independently of the statistics.** 31 bps gross against
+   a round trip measured at **66.6 bps for ADV ≥ $5M** in round 4 — and this
+   pool is ADV ≥ $1M, thinner and therefore dearer. The edge is roughly *half*
+   what it must be. Had the CI cleared zero the trade would still not exist.
+
+Note the honest asymmetry: §7 predicted "on the arithmetic available before
+measuring, this round starts behind", and it did. Nothing here is a surprise
+that needed a gate to catch — the gate simply prevented four weeks of modelling
+a population that could never pay for its own execution.
+
+**No cascade was fitted on this pool.** The machinery (`model/cascade.py`, with
+lambdarank and quantile arms) is built and tested but deliberately unused here:
+searching for a profitable subset of a population whose gross is half its cost
+is precisely the exercise rounds 1–4 already performed.
