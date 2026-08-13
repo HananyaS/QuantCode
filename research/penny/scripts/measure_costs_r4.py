@@ -59,8 +59,11 @@ logging.basicConfig(
 logger = logging.getLogger("costs4")
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
-QUOTE_DIR = bars.DATA_ROOT / "quotes_r4"
-SUMMARY_PATH = bars.DATA_ROOT / "quote_summary_r4.parquet"
+# Tagged so a second pool can be measured without overwriting the first. Round 5
+# added a reversal pool whose cost bar had been *extrapolated* from the round-4
+# liquid band rather than measured -- and the two populations differ by an order
+# of magnitude in ADV, which is exactly the term cost is most sensitive to.
+DEFAULT_TAG = "r4"
 
 # Window label -> clock minute. Order matters only for logging.
 WINDOWS = {
@@ -70,8 +73,16 @@ WINDOWS = {
 }
 
 
-def session_path(day: pd.Timestamp) -> Path:
-    return QUOTE_DIR / f"dt={day:%Y-%m-%d}" / "quotes.parquet"
+def quote_dir(tag: str = DEFAULT_TAG) -> Path:
+    return bars.DATA_ROOT / f"quotes_{tag}"
+
+
+def summary_path(tag: str = DEFAULT_TAG) -> Path:
+    return bars.DATA_ROOT / f"quote_summary_{tag}.parquet"
+
+
+def session_path(day: pd.Timestamp, tag: str = DEFAULT_TAG) -> Path:
+    return quote_dir(tag) / f"dt={day:%Y-%m-%d}" / "quotes.parquet"
 
 
 def fetch_session(client, symbols: List[str], day: pd.Timestamp) -> pd.DataFrame:
@@ -112,7 +123,10 @@ def main(argv=None) -> int:
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--rebuild-summary", action="store_true",
                         help="skip fetching; just re-aggregate what is cached")
+    parser.add_argument("--tag", default=DEFAULT_TAG,
+                        help="output suffix, so a second pool does not overwrite the first")
     args = parser.parse_args(argv)
+    tag = args.tag
 
     load_dotenv(_PROJECT_ROOT / ".env")
 
@@ -132,7 +146,10 @@ def main(argv=None) -> int:
         t0 = time.time()
         for i, day in enumerate(days, start=1):
             day_ts = pd.Timestamp(day)
-            path = session_path(day_ts)
+            # Tagged: a different pool covers different symbols on the same
+            # session, so keying the skip on the untagged path would silently
+            # reuse another pool's quotes -- the round-4 cache trap again.
+            path = session_path(day_ts, tag)
             if path.exists() and not args.force:
                 skipped += 1
                 continue
@@ -160,13 +177,13 @@ def main(argv=None) -> int:
                     fetched, skipped, failed)
 
     # --- aggregate -----------------------------------------------------------
-    parts = sorted(QUOTE_DIR.glob("dt=*/quotes.parquet"))
+    parts = sorted(quote_dir(tag).glob("dt=*/quotes.parquet"))
     if not parts:
         raise SystemExit("no quote sessions cached")
     summary = pd.concat((pd.read_parquet(p) for p in parts), ignore_index=True)
-    summary.to_parquet(SUMMARY_PATH, index=False, compression="snappy")
+    summary.to_parquet(summary_path(tag), index=False, compression="snappy")
     logger.info("wrote %s (%s rows, %d sessions)",
-                SUMMARY_PATH, f"{len(summary):,}", len(parts))
+                summary_path(tag), f"{len(summary):,}", len(parts))
 
     wide = summary.pivot_table(
         index=["symbol", "date"], columns="window",
@@ -221,15 +238,15 @@ def main(argv=None) -> int:
                 stats[side] = {"median": float(s.median()), "p25": float(s.quantile(0.25))}
     logger.info("=" * 66)
 
-    wide.to_parquet(bars.DATA_ROOT / "quote_windows_r4.parquet", index=False,
+    wide.to_parquet(bars.DATA_ROOT / f"quote_windows_{tag}.parquet", index=False,
                     compression="snappy")
-    (bars.DATA_ROOT / "cost_summary_r4.json").write_text(
+    (bars.DATA_ROOT / f"cost_summary_{tag}.json").write_text(
         json.dumps({"coverage": coverage, "windows": stats,
                     "sessions": len(parts), "symbol_days": int(len(wide))},
                    indent=2, default=str),
         encoding="utf-8",
     )
-    logger.info("wrote quote_windows_r4.parquet (%s symbol-days)", f"{len(wide):,}")
+    logger.info("wrote quote_windows_%s.parquet (%s symbol-days)", tag, f"{len(wide):,}")
     return 0
 
 
