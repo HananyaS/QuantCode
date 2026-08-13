@@ -1447,3 +1447,61 @@ What is now established rather than assumed:
 The first two would not have raised and would have produced a plausible result.
 Both were caught by loading the study's inputs and printing feature counts
 before running it — a habit worth keeping.
+
+## 49. The portfolio view: why per-trade expectancy was the wrong object
+
+Six rounds reported the mean return **per trade**. An account earns a return
+**per day**, equal-weighted across what it held, and flat on days it sat out.
+§47 named portfolio construction as the remaining lever, on the argument that
+thirty small positions a day would diversify away idiosyncratic variance.
+
+**That argument was wrong, and the measurement says so in two ways.**
+
+### There is no diversification available
+
+| arm | avg positions per active day | % of days active |
+|---|---|---|
+| cascade @ $250 | **2.10** | 39.4% |
+| cascade_capped @ $250 | 1.78 | 22.4% |
+| flat top-1% @ $250 | 2.43 | 6.8% |
+| flat top-2% @ $250 | 2.56 | 12.9% |
+| all_tradeable @ $250 | 18.04 | 100% |
+
+The cascade keeps 4.6% of a pool averaging 26 names a session — about **1.2
+names a day**, and ~2 once folds are pooled. Position caps of 5, 10 and 20 make
+no difference because the cap never binds. The thirty-position portfolio I
+proposed does not exist at any selectivity that produces an edge; the only arm
+holding meaningful numbers is `all_tradeable`, which has no edge at all.
+
+### Volatility drag destroys the edge even where the mean is positive
+
+| arm @ $500 | mean daily | Sharpe | **compounded** | max DD |
+|---|---|---|---|---|
+| flat top-2% | **+0.08%** | 0.31 | **−15.2%** | −98.0% |
+| flat top-1% | +0.00% | 0.02 | −60.5% | −95.1% |
+| flat top-5% | +0.01% | 0.03 | −98.6% | −99.9% |
+| cascade | −0.16% | −0.26 | −100% | −100% |
+| all_tradeable | −0.90% | −3.29 | **−100%** | −100% |
+
+The best arm has a **positive arithmetic mean and compounds to −15%.** Implied
+daily σ is ≈4.2% against an 8 bps edge, so σ²/2 exceeds μ and the geometric
+return is negative. An account compounds; it does not earn the arithmetic mean.
+
+**This is a stronger negative than "the edge does not clear costs".** It says
+that at the one point where costs *are* covered, the variance is roughly 50× the
+edge, so the equity curve still falls. No amount of selection fixes that, because
+selecting harder shrinks positions per day and raises variance further — visible
+above as Sharpe falling from 0.31 at top-2% to 0.02 at top-1%.
+
+**No configuration has a daily mean whose CI excludes zero.** Best is flat top-2%
+at $500: +0.08%/day, CI [−0.07%, …].
+
+### What this settles
+
+The per-trade framing used for six rounds was not merely incomplete, it was
+measuring something no account could have collected. The correct object — daily
+compounded return — is negative everywhere, including in the cells where
+per-trade net was positive.
+
+Recorded as exploratory: it changes no round-6 verdict, since diversification
+alters variance rather than mean, and H1‴ was already not met.
