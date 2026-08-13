@@ -139,3 +139,64 @@ compounds silently across stages, and it is pinned by
 **Standing:** the pool was derived from data in round 5. Round 6 is a
 confirmatory test of that hypothesis and no result may be described as an
 out-of-sample discovery.
+
+---
+
+## Amendment 1 — 2026-08-13, before any round-6 model result
+
+**Adding order sizes $250, $500 and $1,000.** Recorded as an amendment rather
+than slipped into §5, because it is a **new axis chosen after seeing data** — the
+partial cost measurement, not a model result, but data nonetheless.
+
+### What prompted it
+
+On 620 of 2,605 quote sessions (3,934 joined trades), two facts:
+
+**Cost-aware selection buys nothing.** Gross is flat across cost quintiles while
+cost rises 35×:
+
+| quintile | n | mean cost | gross | net |
+|---|---|---|---|---|
+| Q1 | 787 | 15.7 bps | +0.155% | **−0.00%** |
+| Q2 | 787 | 30.3 | +0.171% | −0.13% |
+| Q3 | 786 | 58.1 | +0.276% | −0.31% |
+| Q4 | 787 | 117.1 | +0.216% | −0.95% |
+| Q5 | 787 | 556.8 | +0.401% | −5.17% |
+
+Every gross CI includes zero. The best cell is breakeven before any model.
+
+**The edge sits in names too thin to buy at $2,000.** Requiring the entry book
+to absorb the order (58% of rows) cuts gross from **+0.244% to +0.034%**.
+
+### Why smaller sizes, and why this is not fishing
+
+Depth shortfall is `(order/inside − 1)⁺ × half_spread`. It scales with order
+size and **no round has ever tested below $2,000**. The median entry book in
+this pool is $2,719, so at $500 most of the pool fits inside the quote and the
+depth term goes to zero by construction — this is arithmetic, not a hoped-for
+empirical regularity.
+
+The distinction from fishing: the *mechanism* is known in advance and the
+prediction is directional and falsifiable — smaller orders must reduce depth
+cost, and the open question is only whether **gross survives the tradeability
+filter** at $500 the way it fails at $2,000. If gross at $500 is also ~+0.03%,
+the effect is untradable at any size and the round ends.
+
+### Fixed now
+
+| Constant | Value |
+|---|---|
+| `ORDER_SIZES` | **250, 500, 1,000**, 2,000, 5,000, 10,000 |
+| `PRIOR_TRIALS` | 91 → **94** (one per added size) |
+
+Everything else in §3–§7 is unchanged. Gate C's 150 bps threshold still refers
+to the **$2,000** round trip, so the gate cannot be passed by shrinking the
+order until it clears its own bar.
+
+### Predicted outcome, recorded before the run
+
+At $500 the depth term largely vanishes and cost should approach twice the
+half-spread, roughly **45 bps** (30.6 entry + 14.4 exit at the median). Against
+an unconditional +24 to +31 bps gross that is **still negative**, so the round
+needs the cascade to roughly double gross on a population where every quintile
+CI currently includes zero. **The honest prior is that this fails.**
