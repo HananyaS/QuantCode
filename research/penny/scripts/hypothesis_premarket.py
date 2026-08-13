@@ -120,7 +120,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     u = pd.read_parquet(bars.DATA_ROOT / "forensic_universe.parquet")
-    u = u[~u["is_suspect_split"]]
+    u = u[~u["any_split"]]
     pool = u[(u["adv20"] >= ADV_MIN) & (u["adv20"] < ADV_MAX)].copy()
     logger.info("pool: %s symbol-days | %d sessions | %s tickers",
                 f"{len(pool):,}", pool["date"].nunique(),

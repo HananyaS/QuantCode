@@ -1762,3 +1762,35 @@ the one to use when excluding rows from a return study, where a false positive
 costs far less than a false negative.
 
 **One in five "top gainers" in this universe is a share consolidation.**
+
+## 60. The premarket hypothesis, rejected at the movers' own size
+
+Round 4 tested premarket dollar volume on ADV ≥ $5M names and found it negative.
+That did not settle the question, because the thirty largest gainers have a
+**median ADV of $548,901** and 60% sit below $1M — a population the $5M floor
+structurally excludes. So premarket bars were fetched for the band where the
+explosions actually occur: **ADV $100k–$5M, 420,395 symbol-days, 379 sessions,
+2,441 tickers, 5.59M premarket bars**, corporate actions excluded on both flags.
+
+| premarket $ / ADV | n | open→close | CI |
+|---|---|---|---|
+| whole pool | 420,395 | −0.048% | [−0.196%, +0.100%] |
+| **<0.01× — did not trade pre-open** | 125,226 | **+0.056%** | [−0.077%, +0.184%] |
+| 0.1 – 1× | 49,016 | −0.074% | [−0.283%, +0.147%] |
+| 1 – 5× | 2,740 | −0.260% | [−0.873%, +0.350%] |
+| **≥20×** | 1,128 | **−2.928%** | **[−4.304%, −1.512%]** |
+| **H: ≥1× ADV** | 4,838 | **−0.769%** | **[−1.390%, −0.146%]** |
+| ≥1× ADV **and** fell >25% over 20d | 1,059 | **−1.726%** | **[−3.077%, −0.331%]** |
+
+**The hypothesis is rejected, and not for want of power.** The sign is negative
+with an interval excluding zero on 420k observations, at both size ranges tested.
+The prior-decline interaction — the one condition that might have rescued it —
+makes the result *worse*.
+
+The quietest cell is the best one: names that did not trade at all before the
+bell returned **+0.056%**, the highest in the panel.
+
+This closes the most visible precursor in the top-30 study. Seventy per cent of
+the winners traded at least their whole ADV before the open; across the
+population that same condition loses money at every threshold, and loses more the
+louder it gets. The signal marks the move as *already priced*, not as beginning.
