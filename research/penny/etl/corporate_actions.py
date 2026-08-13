@@ -50,6 +50,15 @@ MIN_MULTIPLE = 1.8          # below this, an ordinary gap is more likely
 RATIO_TOLERANCE = 0.12      # how close to a round ratio counts as "round"
 MAX_INTRADAY_MOVE = 0.35    # a real catalyst keeps moving after the open
 
+# A consolidation followed by a genuine move fails the inert-session test. Five
+# of the ten largest contributors to a spurious "accumulation edge" were splits
+# with open-to-high of 274%, 70%, 56%, 48% and 47% -- all far above
+# MAX_INTRADAY_MOVE, all missed. `flag_reverse_splits` is therefore a *lower
+# bound* on contamination, and `strict=False` widens it to ratio-only for use
+# where a false positive is cheaper than a false negative -- excluding
+# contaminated rows from a return study, rather than counting them.
+RATIO_ONLY_TOLERANCE = 0.06  # tighter ratio, since the session test is dropped
+
 
 def nearest_ratio(multiple: float) -> tuple:
     """Closest common consolidation ratio and the relative error."""
@@ -81,10 +90,18 @@ def flag_reverse_splits(
     out["split_nearest_ratio"] = near
     out["split_ratio_error"] = err
 
-    out["is_suspect_split"] = (
-        (mult >= min_multiple)
-        & (pd.Series(err, index=out.index) < tolerance)
-        & (out[o2h_col].abs() < max_intraday)
+    err_s = pd.Series(err, index=out.index)
+    round_ratio = (mult >= min_multiple) & (err_s < tolerance)
+
+    # Strict: round ratio AND an inert session. Few false positives, but blind
+    # to a consolidation followed by a real move.
+    out["is_suspect_split"] = (round_ratio & (out[o2h_col].abs() < max_intraday)).fillna(False)
+
+    # Wide: a tight round ratio alone. Catches the split-then-rally case the
+    # strict test misses, at the cost of flagging the occasional genuine gap
+    # that happens to land on a round multiple.
+    out["is_possible_split"] = (
+        (mult >= min_multiple) & (err_s < RATIO_ONLY_TOLERANCE)
     ).fillna(False)
     return out
 

@@ -1627,3 +1627,138 @@ A veto helps only if the remaining population is tradable, and it is not.
 5. **Case studies mislead without base rates.** Three of ten dossiers produced a
    sign error on the strongest precursor, and the second-strongest precursor
    appeared in none of the ten.
+
+---
+
+# Hypothesis grid — a swept parameter search, and what it caught
+
+## 56. The grid: 441 cells, 17 families, zero survivors
+
+Four hypothesis families were supplied (reversion, momentum, reverse split, gap)
+and seven added (volume shock, quiet-volume accumulation, range compression, new
+high/low, consecutive down days, overnight decomposition, and a no-condition
+control). Each was swept over its parameters and five holding horizons.
+
+Discipline fixed before running, because a sweep of this size manufactures
+winners by arithmetic:
+
+- **calibrate and confirm on disjoint periods** — all cells fitted before
+  2026-02-01, re-measured untouched after it;
+- **Benjamini-Hochberg over the whole grid**, not over the survivors;
+- **costs charged before judging**, on a schedule anchored to the measured
+  59.7 bps spread-only round trip for ADV ≥ $1M.
+
+| | |
+|---|---|
+| cells tested | 441 |
+| cells with enough data | 422 |
+| in-sample net CI excluding zero | **2** |
+| surviving BH-FDR across the grid | **0** |
+| confirmed out-of-sample | **0** |
+
+Two of 422 cells is *below* what chance alone would produce at a 5% threshold.
+The families as stated — down-A-then-up-B, up-A-continues, gap-A-then-B — are
+not profitable at any parameterisation tested, once costs are charged.
+
+## 57. The one candidate, and why it was an artifact
+
+One cell was positive in both windows with intervals excluding zero:
+
+> **volume ≥ 5× its 20-day average while the close moves less than 5%**,
+> buy the close, sell the next close
+
+| | n | gross | net | CI |
+|---|---|---|---|---|
+| in-sample | 836 | +3.71% | +2.51% | [+0.54%, …] |
+| out-of-sample | 527 | — | +2.96% | [+0.44%, …] |
+
+It looked strong. The threshold sweep was **monotone** — net −0.42% at 2×,
++0.50% at 3×, +1.75% at 4×, +2.68% at 5×, +5.71% at 7×, +10.37% at 10× — which
+is the signature of a real effect rather than a fitted parameter. It was stable
+across 2025, 2026, and both halves. The placebo (same liquidity, no condition)
+returned −0.97%.
+
+The portfolio view then produced **+31,677% compounded at Sharpe 2.26**, which is
+not a number any real microcap strategy produces. That implausibility is what
+prompted the audit rather than a write-up.
+
+**Cause one: splits on the exit day.** `is_suspect_split` was applied to the
+*signal* day, but the forward return runs to day *t+1* — so a reverse split
+occurring on the exit day was being booked as a return. Only **18 of 1,363
+rows (1.3%)** were affected, and they carried **58% of the edge**:
+
+| | n | net | CI |
+|---|---|---|---|
+| as run | 1,363 | +2.68% | [+1.09%, +4.44%] |
+| splits excluded from the window | 1,345 | **+1.13%** | **[−0.21%, +2.71%]** |
+
+**Cause two: the detector's own blind spot.** What remained at ≥7× (+2.80%)
+dissolved on inspection. Of its ten largest contributors, **five are corporate
+actions the detector missed** — it requires an inert session (open→high < 35%),
+and a reverse split followed by a genuine move shows 274%, 70%, 56%, 48%, 47%.
+The consequence runs backwards through this log too: **the 16.1%
+split-contamination rate reported in §50 is a lower bound.**
+
+**Cause three: concentration and structure.** Even taking the residual at face
+value, the top **5 trades of 698 produce 55% of the total return**; dropping
+them leaves +1.83%, dropping ten leaves +0.99%. The median forward return is
+**0.00%** and the hit rate 47%. And **129% of the mean return is the overnight
+gap** — the intraday component is negative, so the "signal" is a lottery ticket
+on overnight events, which in this universe are largely corporate actions,
+halt resumptions and offerings.
+
+## 58. Verdict on the hypothesis families
+
+| family | best parameterisation | net | verdict |
+|---|---|---|---|
+| A. down A% → up in C days | ret_5d ≤ −40%, H=5 | +0.40% | CI spans zero; −1.83% out-of-sample |
+| B. up A% → continues | none positive after cost | — | rejected |
+| C. reverse split → rise | — | negative | rejected; splits *fade* −15% from the open |
+| D. large gap down → bounce | gap ≤ −30%, H=5 | +7.55% | n=221, CI [−11.3%, …] — noise |
+| D. large gap up → continues | none positive | — | rejected |
+| E. volume shock + quiet close | vol ≥ 5×, H=1 | +1.13% clean | artifact; see §57 |
+| F. range compression | none positive | — | rejected |
+| G. new 20-day low / high | none positive | — | rejected |
+| H. 3+ consecutive down days | none positive | — | rejected |
+| I. overnight vs intraday | — | — | control only |
+
+**No profitable strategy was found.** The single candidate that survived the
+statistical filters failed the forensic one, and it failed for reasons that are
+specific and checkable rather than a matter of judgement.
+
+The methodological point is the durable one: the candidate passed a monotone
+threshold sweep, a placebo, a period split, and a cost-sensitivity test. It was
+caught by asking why a Sharpe of 2.26 appeared in a universe where six rounds had
+found nothing, and then reading the ten largest trades. **Statistical validation
+did not catch it; inspecting the trades did.**
+
+## 59. Contamination revised upward: 20.4%, not 16.1%
+
+Widening the detector to a tight round ratio *without* the inert-session
+requirement — the test §57 showed was missing split-then-rally cases — raises the
+count:
+
+| detector | events flagged | share of +50% gainers |
+|---|---|---|
+| strict (round ratio **and** inert session) | 195 | 16.1% |
+| wide (tight round ratio only) | 163 | 13.4% |
+| **either** | **247** | **20.4%** |
+
+Whole-universe false-positive pressure stays negligible at 0.05%.
+
+The three cohorts behave distinctly, which is itself evidence the split is real
+rather than a screening artefact:
+
+| cohort | n | median gap | open→close |
+|---|---|---|---|
+| strict-flagged | 195 | +131% | **−15.22%** [−17.64%, −12.82%] |
+| wide-only | 52 | +152% | **+27.24%** [+10.76%, +47.19%] |
+| clean by both | 966 | +20% | **+62.31%** [+55.08%, +72.64%] |
+
+The wide-only group is a consolidation followed by a genuine move — it gaps like
+a split and then trades like news. Both flags are kept separately rather than
+merged, because the strict one is the conservative estimate and the wide one is
+the one to use when excluding rows from a return study, where a false positive
+costs far less than a false negative.
+
+**One in five "top gainers" in this universe is a share consolidation.**
