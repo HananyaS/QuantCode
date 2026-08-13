@@ -93,6 +93,52 @@ def _load(name: str) -> Optional[pd.DataFrame]:
     return pd.read_parquet(path)
 
 
+def build_universe_market_factor(start: int = 2016, end: int = 2026) -> pd.DataFrame:
+    """Market factor from the whole liquid universe, not the candidate set.
+
+    ``market_regime.build_market_factor`` says plainly that the panel must be
+    the universe, "not just the candidates. Using the candidate set instead
+    would define the market by the very selection under test." Building it from
+    ``candidates_rev`` violates that twice over: it is circular, and the pool
+    averages 26 names a session, so 2,013 of 2,605 sessions fall below the
+    minimum-names floor and blank out — leaving the regime features almost
+    entirely null while looking like they were computed.
+    """
+    frames = []
+    for year in range(start, end + 1):
+        path = bars.DATA_ROOT / "daily" / f"bars_{year}.parquet"
+        if path.exists():
+            frames.append(pd.read_parquet(
+                path, columns=["symbol", "date", "open", "close", "volume",
+                               "close_unadj"]))
+    panel = pd.concat(frames, ignore_index=True).sort_values(["symbol", "date"])
+
+    g = panel.groupby("symbol", sort=False)
+    panel["prev_close"] = g["close"].shift(1)
+    panel["prev_close_unadj"] = g["close_unadj"].shift(1)
+    panel["dv"] = panel["close"] * panel["volume"]
+    panel["adv20"] = g["dv"].transform(
+        lambda s: s.shift(1).rolling(20, min_periods=20).mean())
+    panel["gap"] = panel["open"] / panel["prev_close"] - 1.0
+    panel["daily_ret"] = panel["close"] / panel["prev_close"] - 1.0
+
+    universe = panel[
+        panel["prev_close_unadj"].between(0.50, 10.0)
+        & (panel["adv20"] >= 1e6)
+        & np.isfinite(panel["gap"])
+        & np.isfinite(panel["daily_ret"])
+    ]
+    logger.info("market factor universe: %s symbol-days over %d sessions",
+                f"{len(universe):,}", universe["date"].nunique())
+
+    market = MR.build_market_factor(universe)
+    MR.assert_regime_is_causal(market, universe)
+    blanked = market["mkt_gap_today"].isna().sum()
+    logger.info("market factor: %d of %d sessions blanked (%.1f%%)",
+                blanked, len(market), 100 * blanked / max(len(market), 1))
+    return market
+
+
 def load_inputs() -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Trades, path stats, every feature family, regime, and quote windows."""
     trades = pd.read_parquet(bars.DATA_ROOT / "trades_rev.parquet")
@@ -117,13 +163,7 @@ def load_inputs() -> Tuple[pd.DataFrame, pd.DataFrame]:
                       how="left", validate="one_to_one")
         assert len(df) == before, "flow merge changed the row count"
 
-    # Regime from the studied cross-section. The factor must be built on the
-    # UNIVERSE, not the candidate set -- defining the market by the selection
-    # under test would make it circular.
-    cands = pd.read_parquet(bars.DATA_ROOT / "candidates_rev.parquet",
-                            columns=["symbol", "date", "daily_ret", "gap"])
-    market = MR.build_market_factor(cands)
-    MR.assert_regime_is_causal(market, cands)
+    market = build_universe_market_factor()
     df = MR.attach_regime(df, market)
 
     windows = pd.read_parquet(bars.DATA_ROOT / "quote_windows_rev.parquet")
@@ -271,13 +311,17 @@ def main(argv=None) -> int:
         _save(results)
         return 0
 
-    stages_cfg = feature_sets(df_all)
     grid: List[Dict] = []
     tradeability: Dict[int, Dict] = {}
 
     for order in ORDER_SIZES:
         logger.info("-" * 78)
         costed = Q.attach_costs(df_all, windows, float(order))
+        # Feature sets are derived AFTER costs are attached. Computing them on
+        # the raw frame silently drops every COST_FEATURE, because `cost_hat`
+        # does not exist until attach_costs runs -- which left stage 3 with
+        # exactly the same features as stage 2 and no microstructure at all.
+        stages_cfg = feature_sets(costed)
         df, report = apply_tradeability(costed, float(order))
         tradeability[order] = report
         if len(df) < MIN_TRAIN_ROWS * 2:
