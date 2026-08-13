@@ -200,3 +200,97 @@ half-spread, roughly **45 bps** (30.6 entry + 14.4 exit at the median). Against
 an unconditional +24 to +31 bps gross that is **still negative**, so the round
 needs the cascade to roughly double gross on a population where every quintile
 CI currently includes zero. **The honest prior is that this fails.**
+
+---
+
+## Amendment 2 — 2026-08-13, after the first round-6 result
+
+**H1‴ was not met**: 30 eligible cells, none surviving BH-FDR against 94 prior
+trials. Recorded before the follow-up below, so the follow-up cannot be
+presented as part of the original test.
+
+### What the round did establish
+
+The cascade concentrates the pool, and this is the first model result in six
+rounds whose **gross** CI excludes zero:
+
+| order | cascade gross | CI low | concentration vs pool (+0.28%) |
+|---|---|---|---|
+| $250 | **+1.15%** | **+0.54%** | 4.1× |
+| $500 | **+1.17%** | **+0.38%** | 4.2× |
+| $1,000 | +0.75% | +0.07% | 2.7× |
+
+§6 predicted 3–5× concentration would be needed and called it "strong but not
+absurd". It arrived. The cascade also beats the flat GBDT on gross at every
+order size, so the required ablation favours staging.
+
+Small order sizes behaved as Amendment 1 predicted: net improves monotonically
+as size falls (−0.80% at $10,000 → −0.09% at $1,000 → +0.04% at $250).
+
+**One Amendment 1 claim is retracted.** It asserted the edge sits in names too
+thin to buy, from partial data showing gross falling +0.244% → +0.034% under the
+tradeability filter. On the full measurement, kept gross is **+0.29% against
+removed +0.27%** at $10,000 — indistinguishable. That gap was noise.
+
+### Why it still fails, precisely
+
+The cascade selects **expensive** names. At a $250 order:
+
+| arm | gross | cost | net |
+|---|---|---|---|
+| cascade | +1.15% | **127.5 bps** | −0.12% |
+| flat GBDT (top 1%) | +0.95% | **91.5 bps** | +0.04% |
+
+Stage 3 uses a quantile objective on the right tail, and high-upside names carry
+wide spreads. Concentrating on the tail concentrates on costly execution — the
+round-4 pathology reached by a different route. Holding +1.15% gross at 91.5 bps
+would give net **+0.24%**.
+
+### Follow-up, fixed before running
+
+One additional arm, `cascade_capped`: identical stages, with a **cost cap
+applied as an ex-ante filter** before stage 1 — candidates whose `cost_hat_bps`
+at 09:34 exceeds the pool median are dropped.
+
+This is a **filter, not a label**. Round 4's failure came from labelling
+`ret > cost_hat`, which let the model optimise the hurdle; a filter removes
+names from consideration without telling the model anything about the target,
+and `cost_hat` is measured at 09:34, strictly before the decision.
+
+- Order sizes: **$250 and $500 only** — the sizes where net is already near zero.
+- `PRIOR_TRIALS` 94 → **96**.
+- Prediction, recorded now: capping cost roughly halves the selection's cost but
+  will also reduce gross, because cost and volatility are the same axis. **If
+  gross falls proportionally, net does not improve and the thesis is closed.**
+
+### Amendment 2 result
+
+`cascade_capped` ran on $250 and $500. It behaved as predicted:
+
+| $250 | gross | cost | net | net CI |
+|---|---|---|---|---|
+| cascade | +1.15% | 127.5 bps | −0.12% | [−0.75%, …] |
+| **cascade_capped** | **+0.67%** | **60.0 bps** | **+0.07%** | **[−0.72%, …]** |
+| flat_gbdt top-2% | +0.94% | 89.7 bps | +0.04% | [−1.21%, …] |
+
+Cost fell **53%** (127.5 → 60.0). Gross fell **42%** (1.15% → 0.67%). Net moved
+from −0.12% to **+0.07%** — 19 bps, and onto zero. At $500 the cap is actively
+harmful: gross collapses to +0.12% and net to −0.47%.
+
+The prediction written before the run was that if gross fell proportionally with
+cost, net would not improve and the thesis would be closed. Gross fell slightly
+*less* than proportionally, so net improved by a hair rather than not at all.
+That is a distinction without a difference: **+0.07% with a CI spanning
+[−0.72%, +0.86%] is breakeven, not profit.**
+
+**H1‴ is not met.** 30 eligible cells, none surviving BH-FDR against 96 prior
+trials. Three configurations land at net ≈ 0.00% (cascade_capped $250 +0.07%,
+flat_gbdt $500 top-2% +0.15%, flat_gbdt $250 top-1%/2% +0.04%); every one has a
+confidence interval roughly ±1.2pp wide.
+
+**60 bps is the floor and it is structural.** `cascade_capped` pays 60.0 bps,
+and the measured spread-only round trip on this pool is 59.7 bps (entry 40.2 +
+exit 19.5). The cap has already driven cost to the spread and no further —
+there is nothing left to remove without removing the trade itself. Profit
+therefore requires gross above ~60 bps *reliably*, and the best confirmed gross
+this round is +0.67% with a CI that includes zero.

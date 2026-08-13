@@ -1310,3 +1310,140 @@ Built and tested; unused, because Gate R stopped the round before stage 2.
 
 None reached a result. Worth recording only because all four were caught by
 tests written before the code was run on real data.
+
+---
+
+# Round 6 — the cascade, at retail size
+
+## 43. Gate C: the reversal pool's own cost bar, measured
+
+Round 5 extrapolated this pool's cost from round 4's ADV ≥ $5M measurement. It
+is now measured directly: 2,604 sessions, 66,598 symbol-days, 90–94% window
+coverage.
+
+| | median | p90 |
+|---|---|---|
+| decision half-spread | 41.2 bps | 166.7 |
+| entry half-spread | 40.2 bps | 168.2 |
+| exit half-spread | 19.5 bps | 84.3 |
+| entry ask inside book | **$2,120** | p25 $880 |
+| exit bid inside book | $8,130 | p25 $1,850 |
+
+**The spread-only round trip is 59.7 bps**, against +27.8% ÷ 100 = **+0.278%**
+unconditional gross — so the pool is roughly 2× underwater before depth, before
+the model, at any order size. Gate C passes on its own terms (median at $2,000
+is below 150 bps) but the number that matters is the floor, not the gate.
+
+The entry book at $2,120 median explains round 5's tradeability problem exactly:
+a $2,000 order barely fits at the median and fails outright at p25.
+
+## 44. Small order sizes work, directionally
+
+Amendment 1 predicted cost near 45 bps at $500 once depth vanishes; measured is
+59.7. The direction was right and the magnitude optimistic.
+
+Net improves monotonically as size falls, exactly as depth-scaling predicts:
+
+| order | flat GBDT best net | cost |
+|---|---|---|
+| $250 | **+0.04%** | 89.7 bps |
+| $500 | **+0.15%** | 98.0 |
+| $1,000 | −0.54% | 106.7 |
+| $2,000 | −0.80% | 136.9 |
+| $5,000 | −1.26% | 198.8 |
+| $10,000 | −2.45% | 296.5 |
+
+**One Amendment 1 claim is retracted.** It asserted the edge sits in names too
+thin to buy, from partial data showing gross falling +0.244% → +0.034% under the
+tradeability filter. On the full measurement, kept gross is **+0.29% against
+removed +0.27%** — indistinguishable. That gap was noise, and the retraction is
+recorded because the claim shaped the round's design.
+
+## 45. The cascade concentrates — the first model result in six rounds
+
+| order | cascade gross | CI low | vs pool (+0.28%) |
+|---|---|---|---|
+| $250 | **+1.15%** | **+0.54%** | **4.1×** |
+| $500 | **+1.17%** | **+0.38%** | 4.2× |
+| $1,000 | +0.75% | +0.07% | 2.7× |
+
+**This is the first time in six rounds that a model has produced gross with a
+confidence interval excluding zero, and it does so at three order sizes.** The
+pre-registration asked for 3–5× concentration and called it "strong but not
+absurd"; it arrived at 4.1×.
+
+The required ablation favours staging: the cascade beats a flat single-stage
+GBDT over the union of all features on gross at every order size, at ~4.6%
+retention against the flat model's 1–2%.
+
+## 46. And it fails for a nameable reason: it buys expensive names
+
+| $250 | gross | cost | net |
+|---|---|---|---|
+| cascade | +1.15% | **127.5 bps** | −0.12% |
+| flat GBDT top-1% | +0.95% | 91.5 | +0.04% |
+
+Stage 3 uses a quantile objective on the right tail, and high-upside names carry
+wide spreads. Concentrating the tail concentrates costly execution — round 4's
+pathology reached by a different route, and this time via a deliberate design
+choice rather than a bug.
+
+`cascade_capped` tested the fix directly: drop candidates whose 09:34 `cost_hat`
+exceeds the pool median, **as a filter, not a label** (round 4's failure came
+from labelling `ret > cost_hat`, which let the model optimise the hurdle).
+
+| $250 | gross | cost | net | net CI |
+|---|---|---|---|---|
+| cascade | +1.15% | 127.5 | −0.12% | [−0.75%, …] |
+| **cascade_capped** | **+0.67%** | **60.0** | **+0.07%** | **[−0.72%, …]** |
+
+Cost fell 53%; gross fell 42%; net moved 19 bps, onto zero. At $500 the cap is
+actively harmful (gross +0.12%, net −0.47%).
+
+**60 bps is a structural floor.** `cascade_capped` pays 60.0 bps against a
+measured spread-only round trip of 59.7. The cap has already driven cost to the
+spread and no further — there is nothing left to remove without removing the
+trade. Profit requires gross reliably above ~60 bps, and the best confirmed
+gross is +0.67% with a CI including zero.
+
+## 47. Round 6 verdict
+
+**H1‴ NOT MET.** 30 eligible cells, none surviving BH-FDR against 96 prior
+trials.
+
+| | |
+|---|---|
+| pool gross | +0.28% |
+| best cascade gross | **+1.15%**, CI [+0.54%, …] — 4.1× concentration |
+| measured spread floor | **59.7 bps** |
+| best net, any arm | **+0.15%** (flat, $500, top-2%), CI [−1.25%, +1.58%] |
+| next best | +0.07% (cascade_capped $250), +0.04% (flat $250) |
+
+**The honest summary: six rounds have moved this from −4.5% per trade to
+breakeven.** Round 1's sealed holdout was −4.48%; round 6's best cells sit at
+0.00% ± 1.2pp. That is real progress and it is not profit. Every configuration
+at or above zero has a confidence interval roughly ±1.2pp wide, which is another
+way of saying the result is indistinguishable from doing nothing.
+
+What is now established rather than assumed:
+
+1. **The pool is right.** Gap-downs, not gap-ups — established in round 5 on
+   1.46M symbol-days and confirmed here: this population's gross is positive.
+2. **The model works.** The cascade concentrates 4.1× with a gross CI excluding
+   zero, and beats a flat model at every size.
+3. **The floor is the spread.** 59.7 bps, structural, already reached by the
+   cost cap. Not reducible by better selection.
+4. **The gap is roughly 2×.** Reliable gross of ~60 bps is needed; confirmed
+   gross is ~67 bps with a CI touching zero.
+
+## 48. Round 6 bug ledger
+
+| Where | Bug | Found by |
+|---|---|---|
+| `run_round6_study` | market factor built from the **candidate set**, not the universe — circular, and at 26 names/session it blanked 2,013 of 2,605 sessions, leaving regime features almost entirely null while appearing computed | a load-time check before the run |
+| `run_round6_study` | `feature_sets()` ran **before** `attach_costs()`, so every cost feature was filtered out as non-existent and stage 3 had the identical 65 features as stage 2 — a no-op stage reported as a real one | the same check |
+| tooling | `Set-Content -Encoding ascii` mangled em-dashes to `???` | running it |
+
+The first two would not have raised and would have produced a plausible result.
+Both were caught by loading the study's inputs and printing feature counts
+before running it — a habit worth keeping.

@@ -1,4 +1,4 @@
-"""run_round6_study.py — the cascade on the reversal pool, at retail size.
+"""run_round6_study.py -- the cascade on the reversal pool, at retail size.
 
 Separate from rounds 3-5 so their results stay reproducible.
 
@@ -74,7 +74,7 @@ GATE_C_MAX_BPS = 150.0
 GATE_C_SIZE = 2_000          # the gate refers to $2k, so it cannot be passed
                              # by shrinking the order until it clears its bar
 FDR_Q = 0.05
-PRIOR_TRIALS = 94
+PRIOR_TRIALS = 96
 
 # Never per-trade. Round 4 labelled `ret > cost_hat`, the model learned to
 # minimise the hurdle, and the precision ladder inverted to -3.32% at the top
@@ -83,6 +83,16 @@ LABEL_COST = 0.0437
 
 CONFIRMATORY_ARMS = {"cascade", "flat_gbdt"}
 LEVELS_PENALTIES = [1.0, 1.5, 2.0]
+
+# Amendment 2. The cascade concentrates gross (+1.15% at $250, CI low +0.54%)
+# but selects expensive names -- 127.5 bps against the flat model's 91.5 -- so
+# net stays negative. `cascade_capped` drops candidates whose 09:34 `cost_hat`
+# exceeds the pool median BEFORE stage 1.
+#
+# A filter, not a label. Round 4 labelled `ret > cost_hat` and the model learned
+# to minimise the hurdle; a filter removes names from consideration without
+# telling the model anything about the target.
+CAPPED_SIZES = [250, 500]
 
 
 def _load(name: str) -> Optional[pd.DataFrame]:
@@ -101,7 +111,7 @@ def build_universe_market_factor(start: int = 2016, end: int = 2026) -> pd.DataF
     would define the market by the very selection under test." Building it from
     ``candidates_rev`` violates that twice over: it is circular, and the pool
     averages 26 names a session, so 2,013 of 2,605 sessions fall below the
-    minimum-names floor and blank out — leaving the regime features almost
+    minimum-names floor and blank out -- leaving the regime features almost
     entirely null while looking like they were computed.
     """
     frames = []
@@ -370,6 +380,32 @@ def main(argv=None) -> int:
                 logger.info("  cascade: n=%d retained %.2f%% gross %+.4f net %+.4f",
                             row["n"], 100 * row["retained"], row["gross"],
                             row.get("net", np.nan))
+
+        # --- arm 1b: the same cascade, on cheap names only -------------------
+        if order in CAPPED_SIZES and "cost_hat_bps" in df.columns:
+            cap = float(df["cost_hat_bps"].median())
+            cheap = df[df["cost_hat_bps"] <= cap].reset_index(drop=True)
+            logger.info("  cost cap %.1f bps -> %s of %s rows kept",
+                        cap, f"{len(cheap):,}", f"{len(df):,}")
+            if len(cheap) >= MIN_TRAIN_ROWS * 2:
+                cheap_folds = walk_forward_folds(
+                    cheap["date"].unique(), n_splits=args.n_splits,
+                    embargo_days=args.embargo_days,
+                    min_train_days=args.min_train_days)
+                surv_c, trace_c = CAS.run_cascade(cheap, cheap_folds, stages,
+                                                  "meta_label", "ret_c2c")
+                results.setdefault("capped_trace", {})[order] = (
+                    CAS.trace_table(trace_c).to_dict(orient="records"))
+                if not surv_c.empty:
+                    kc = set(zip(surv_c["symbol"], surv_c["date"]))
+                    mc = np.array([(s, d) in kc
+                                   for s, d in zip(cheap["symbol"], cheap["date"])])
+                    row = evaluate(cheap, mc, "cascade_capped", float("nan"), order)
+                    if row:
+                        grid.append(row)
+                        logger.info("  cascade_capped: n=%d gross %+.4f cost %.1f "
+                                    "net %+.4f", row["n"], row["gross"],
+                                    row["cost_mean_bps"], row.get("net", np.nan))
 
         # --- arm 2: flat GBDT over the union, the required ablation ---------
         scored, _ = T.walk_forward_scores(df, folds, stages_cfg["execution"],
