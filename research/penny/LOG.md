@@ -1505,3 +1505,125 @@ per-trade net was positive.
 
 Recorded as exploratory: it changes no round-6 verdict, since diversification
 alters variance rather than mean, and H1‴ was already not met.
+
+---
+
+# Forensic study — the ten most recent +50% movers
+
+## 50. Method: case studies, disciplined by base rates
+
+Six rounds averaged over tens of thousands of candidates. Averaging is exactly
+what destroys a precursor present in 2% of cases, so this inverts the method:
+read ten explosions closely, then hand every pattern back to the population to be
+measured against its own base rate.
+
+Sample: the ten most recent close-to-close ≥+50% events in the penny universe,
+selected mechanically (most recent N meeting a fixed condition) so it cannot
+drift toward whichever names tell the nicest story. Universe: **719,863
+symbol-days, 2025-02 to 2026-08, 1,213 events, base rate 0.169%.**
+
+The split is 5 gap-driven and 5 intraday runners, and ADV spans **$6,795 to
+$21M** — a 3,100× range within ten names.
+
+## 51. The blind spot: the biggest movers never entered any pool
+
+| symbol | gap | open→high |
+|---|---|---|
+| CLRO | +217% | +6.9% |
+| MB | +281% | +38% |
+| **YJ** | **+12%** | **+912%** |
+| **XHLD** | **+1.6%** | **+569%** |
+| **ZYBT** | **−1.6%** | **+240%** |
+
+Every round screened on the **opening gap** and entered at 09:35. The intraday
+runners are invisible to that: `gap ≥ +3%` excludes them and the round-5 reversal
+screen `gap ∈ [−10%, −3%]` excludes them too. The caches prove it — EDGAR and
+FINRA covered all twelve names checked, but minute and premarket data covered
+only the seven that happened to be candidates. **The names that exploded are the
+ones no screen ever looked at.**
+
+## 52. The case study got it backwards, and the base rates caught it
+
+Reading three dossiers, volume had *contracted* before every one — XHLD 0.29×,
+YJ 0.49×, CLRO 0.35× (5-day against 20-day). That looked like a counterintuitive
+finding and it was written up as one.
+
+Measured across the universe:
+
+| | lift on P(+50%) | fires on |
+|---|---|---|
+| volume **contraction** (5d/20d < 0.5) | **1.19** | 15.2% of days |
+| volume **expansion** (5d/20d > 2.0) | **5.57** | 6.5% of days |
+
+**The strongest precursor is the opposite of what three hand-read dossiers
+suggested.** Generalising from three of ten produced a sign error. This is the
+single clearest demonstration in the project of why the base-rate step is not
+optional.
+
+The same discipline caught a second error: `filing accepted the same morning` has
+**lift 5.21 — the second-strongest precursor — and zero hits in the ten.** A pure
+case study would have missed it entirely. And ultra-low ADV, flagged from MB's
+$6,795, has lift **0.81** — mildly *protective* against a +50% move.
+
+## 53. Predicting explosions and making money are opposite things
+
+Lift measures P(+50% move). It says nothing about expected return, and the two
+dissociate completely:
+
+| precursor | n | lift | E[open→close] | CI |
+|---|---|---|---|---|
+| **ADV under $50k** | 74,379 | **0.81** | **+0.279%** | **[+0.200%, +0.354%]** |
+| volume expansion | 46,739 | **5.57** | +0.094% | [−0.087%, +0.286%] |
+| fell >40% in 20d | 29,273 | 4.50 | −0.074% | [−0.350%, +0.205%] |
+| prior +50% within 90d | 70,970 | 3.20 | −0.173% | [−0.378%, +0.019%] |
+| **filing same morning** | 26,754 | **5.21** | **−0.396%** | **[−0.602%, −0.189%]** |
+| **≥3 shelf regs in 180d** | 35,245 | 2.26 | **−0.602%** | **[−0.824%, −0.377%]** |
+
+Unconditional open→close over the universe is **−0.014%** — flat.
+
+**The best explosion predictors lose money from the open.** A same-morning
+filing predicts a +50% day 5.2× more often than chance *and* returns −0.40% from
+the open, because the move happens in the gap: CLRO gapped +217% and then fell
+16% open-to-close. You cannot buy what has already happened.
+
+**The one precursor with a significantly positive open→close return does not
+predict explosions at all.** ADV under $50k: +0.279%, CI excluding zero, on
+74,379 symbol-days — with lift 0.81.
+
+## 54. Two real vetoes, from mechanism rather than search
+
+Round 1 searched **299 veto sets** and none survived FDR. Two here do, and both
+have confidence intervals excluding zero on open-to-close return:
+
+- **≥3 shelf registrations in 180 days → −0.602%** [−0.824%, −0.377%], 35,245
+  symbol-days. A company registering shares repeatedly is diluting into any
+  strength.
+- **Filing accepted the same morning → −0.396%** [−0.602%, −0.189%], 26,754
+  symbol-days. The news is in the gap; the open is the exit, not the entry.
+
+The difference from round 1 is that these came from reading what actually
+preceded specific explosions, not from enumerating combinations and testing all
+of them. A mechanism proposed first and tested second survives correction in a
+way that a search does not.
+
+**What they are worth is limited.** The universe they would filter has an
+unconditional open→close of −0.014%; removing the worst names lifts that to
+perhaps +0.05%, still far under the ~60 bps spread floor measured in round 6.
+A veto helps only if the remaining population is tradable, and it is not.
+
+## 55. What the forensic study establishes
+
+1. **Every screen in six rounds was structurally blind to half the movers.**
+   The intraday runners never gapped, so no gap-based screen could see them.
+   Trading them needs an intraday trigger, which does not exist in this codebase.
+2. **Explosion prediction is not the same problem as profit.** The strongest
+   predictors of +50% days have significantly *negative* open-to-close returns.
+   Six rounds spent optimising the wrong target would still have failed even with
+   a perfect explosion predictor.
+3. **Two vetoes are real** and were found by mechanism rather than search.
+4. **The one positive-return precursor is ADV < $50k** — +0.279% open-to-close,
+   CI excluding zero — and it sits in names too thin to trade, which is the same
+   wall rounds 5 and 6 hit from the other direction.
+5. **Case studies mislead without base rates.** Three of ten dossiers produced a
+   sign error on the strongest precursor, and the second-strongest precursor
+   appeared in none of the ten.
