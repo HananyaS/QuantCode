@@ -1794,3 +1794,81 @@ This closes the most visible precursor in the top-30 study. Seventy per cent of
 the winners traded at least their whole ADV before the open; across the
 population that same condition loses money at every threshold, and loses more the
 louder it gets. The signal marks the move as *already priced*, not as beginning.
+
+## 61. The last candidate, and the complete family verdict
+
+`D_gap_down` (gap ≤ −30%, buy the open) was the only family besides the
+already-refuted accumulation cell with materially positive gross. It fails the
+same way, and more starkly:
+
+| | value |
+|---|---|
+| n | 342 clean, 206 sessions, 292 tickers |
+| mean | +1.51% |
+| **median** | **−6.26%** |
+| hit rate | 37% |
+| after dropping top 3 trades | **−6.11%** |
+| after dropping top 5 trades | **−6.90%** |
+| out-of-sample | **−6.29%**, CI [−12.96%, +0.78%] |
+
+The mean is one trade: **WW on 2025-05-07 returned +2,294%** — WeightWatchers
+around its restructuring, which is a corporate action rather than a trade. Remove
+the three largest and the rule loses 6%. A positive mean sitting on a −6.26%
+median is not an edge, it is a lottery ticket priced as one.
+
+### Every family, final
+
+| family | best gross | verdict |
+|---|---|---|
+| E. volume shock + quiet close | +9.90% | artefact — splits on the exit day, §57 |
+| D. gap down ≤ −30% | +8.40% | one trade; median −6.26%; OOS −6.29% |
+| A. reversion (down A% → up) | +1.31% | CI spans zero; −1.83% out-of-sample |
+| H. consecutive down days | +0.32% | gross positive, net −0.67% |
+| F. range compression | +0.24% | net negative |
+| G. new 20-day low | +0.18% | net negative |
+| **I. overnight (buy close, sell open)** | **+0.08%** | **no overnight anomaly here; OOS −0.03%** |
+| **J. control (no condition)** | **+0.01%** | the base population is flat gross |
+| B. momentum (up A% → continues) | −0.04% | gross negative |
+| G. new 20-day high | −0.16% | gross negative |
+| E. volume shock (no quiet filter) | −0.69% | gross negative |
+| **D. gap up ≥ +5%** | **−2.06%** | **strongly gross-negative — gap-ups fade** |
+| **C. reverse split** | **−10.72%** | **splits crater; the supplied hypothesis is backwards** |
+
+Only **77 of 422** cells have positive in-sample gross at all, and the control
+shows why: the base population's gross is **+0.011%** against a ~98 bps cost.
+
+Two results here are worth keeping independently of the search:
+
+**The overnight anomaly does not exist in this universe.** Buying the close and
+selling the next open — one of the better-documented effects in large-cap equity
+— returns +0.076% in-sample and **−0.034% out-of-sample** across 317,873
+observations. Whatever compensates overnight risk-bearing elsewhere is absent
+here, which is consistent with a universe where overnight events are offerings
+and consolidations rather than earnings.
+
+**Two of the four supplied hypotheses are directionally backwards.** Reverse
+splits do not rise, they crater (−10.72% gross). Large gap-ups do not continue,
+they fade (−2.06% gross). Both are cleanly measured and both are the opposite of
+the stated conjecture.
+
+## 62. Final verdict on the search
+
+**No profitable strategy was found**, across 441 swept cells, 17 families, six
+research rounds and a forensic study of thirty explosions.
+
+The two candidates that reached the final filter were killed by the same
+technique and not by statistics:
+
+| candidate | passed | killed by |
+|---|---|---|
+| volume ≥5× on a quiet close | monotone thresholds, placebo, period split, cost sensitivity, out-of-sample | 1.3% of rows carrying 58% of the edge; 5 of 10 top trades were missed splits |
+| gap ≤ −30% | positive mean in-sample | median −6.26%; one trade (WW +2,294%) carrying the mean |
+
+Both were found by **reading the largest trades**. Neither would have been caught
+by any statistical test in this repository, and the accumulation cell in
+particular passed every one of them.
+
+That is the transferable result. In a universe where roughly one symbol-day in
+1,400 is an unadjusted corporate action, and where returns are this
+right-skewed, **trade-level inspection is not a supplement to statistical
+validation — it is the binding constraint on what can be believed.**
