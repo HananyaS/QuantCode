@@ -1872,3 +1872,116 @@ That is the transferable result. In a universe where roughly one symbol-day in
 1,400 is an unadjusted corporate action, and where returns are this
 right-skewed, **trade-level inspection is not a supplement to statistical
 validation — it is the binding constraint on what can be believed.**
+
+---
+
+# 63. A profitable strategy — on the short side
+
+## The reversal of framing
+
+Every reliable effect this project found is **negative**: reverse splits −10.72%
+gross, gap-ups −2.06%, premarket ≥20× ADV −2.93%, shelf registrations −0.60%,
+same-morning filings −0.40%. All were used as *vetoes*, because a long-only
+constraint was set early and never revisited. The strongest evidence in the study
+pointed one way and the search was pointed the other.
+
+## The strategy
+
+> **Short a suspected reverse split at the open, cover at the close, with a hard
+> stop.** Signal: the unadjusted overnight multiple sits on a round consolidation
+> ratio. Filter: ADV ≥ $250k. Costs: 150 bps round trip plus 50% annualised
+> borrow.
+
+All prices **unadjusted** — what actually printed. This matters enormously; see
+§64.
+
+| stop | per trade | CI | worst trade | hit |
+|---|---|---|---|---|
+| none | +7.53% | [+2.80%, +11.79%] | **−195.40%** | 69% |
+| **+30%** | **+6.32%** | **[+2.93%, +9.55%]** | **−31.70%** | 62% |
+| +50% | +6.43% | [+2.60%, +10.17%] | −51.70% | 65% |
+| +100% | +6.87% | [+2.31%, +11.26%] | −101.70% | 68% |
+
+Period stability, independently measured:
+
+| | n | per trade | CI |
+|---|---|---|---|
+| in-sample (< 2026-02) | 118 | +7.02% | [+0.26%, +12.83%] |
+| out-of-sample (≥ 2026-02) | 83 | **+8.25%** | [+1.13%, +14.81%] |
+
+**Portfolio** — 20% position sizing, +50% stop, equal weight, flat when nothing
+fires, compounded:
+
+| | |
+|---|---|
+| mean daily | **+0.536%** |
+| Sharpe | **2.56** |
+| compounded, 379 sessions | **+516.5%** |
+| max drawdown | **−31.5%** |
+| worst day | −10.3% |
+| days active | 40% |
+| trades | 201 (~11/month) |
+
+## Why this survives what killed the others
+
+The two long candidates died on concentration and on tail-driven means. This one
+inverts both:
+
+- **median +9.41% exceeds mean +7.53%** — the distribution is *left*-skewed, so
+  the mean is dragged down by losses rather than propped up by a few wins. Both
+  failed long candidates had medians far below their means (0.00% and −6.26%);
+- **dropping the best 10 trades still leaves +4.85%**;
+- it holds at every liquidity floor (no floor +7.04%, ≥$250k +7.53%, ≥$1M +7.19%)
+  and at every borrow assumption from 20% to 150% annualised;
+- the control — short every liquid day — returns **−1.00%**, so this is not
+  "shorting works".
+
+There is also a literature: post-reverse-split underperformance is documented
+(Desai & Jain 1997; Kim, Klein & Rosenfeld 2008). The mechanism is not mysterious
+— a consolidation is usually a listing-compliance action by a company whose price
+has been falling, and the decline resumes.
+
+## What stands between this and a live trade
+
+Stated plainly, because these are not minor:
+
+1. **Borrow availability is unmeasured, and it is the binding constraint.**
+   Post-reverse-split microcaps are among the hardest-to-borrow securities in the
+   market. IBKR's borrow feed is unreachable from this network and no free
+   substitute exists, so every number above assumes a locate that may not exist.
+   **A meaningful fraction of these 201 trades were probably unborrowable.**
+2. **The signal is my own heuristic, not a corporate-actions feed.** Trading it
+   means trading its classification errors, and the false positives — genuine
+   gappers on a round multiple — are precisely the names that squeeze.
+3. **The stop assumes a fill.** In a post-split squeeze the tape can gap through
+   +30% without trading there.
+4. **n = 201**, and the detector was developed on the same period it is measured
+   over. The in/out split mitigates but does not remove this.
+5. **Unbounded loss without the stop.** Five trades exceeded −100%; the strategy
+   is only survivable with both a hard stop and ≤20% position sizing.
+
+**Verdict: profitable in the data, conditional on borrow.** The honest next step
+is not more backtesting — it is checking locate availability and rates with a
+broker on the next twenty flagged names, forward, before any capital moves.
+
+## 64. The measurement error that nearly inverted the answer
+
+The first short test mixed price series: the split flag was computed on
+**unadjusted** prices while the return was computed on **adjusted** ones. Reading
+the extreme trades exposed it:
+
+| symbol | unadjusted open | adjusted open | volume |
+|---|---|---|---|
+| WOK | $4.80 | **$4,800,000** | **116 shares** |
+| GRI | $9.33 | **$261.24** | 435,282 |
+| MSS | $3.79 | **$189.50** | 1,869,048 |
+| ALDFW | — | — | **9,719 shares** |
+
+The apparent *gains* were adjusted/unadjusted mismatches and untradeable
+near-zero-volume names; the apparent *losses* (SPRB, PROK, ELBM, SUNE — 24M to
+343M shares) were real squeezes. Recomputing everything on unadjusted prices —
+what actually printed — the effect survives at +7.53%, but the number arrived at
+honestly rather than by accident.
+
+**Third time this session that reading the largest trades changed the
+conclusion**, after §57 and §61. In this universe that check is not optional.
