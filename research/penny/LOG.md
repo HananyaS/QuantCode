@@ -2143,3 +2143,104 @@ not another backtest.
   `notna()` drops exactly the worst outcomes for a long.
 - **Calibrate on the account, not on per-trade expectancy.** The same rule ran
   from −82% to +110% purely on the number of concurrent positions.
+
+---
+
+# 67. The first live screen, and a correction to §63
+
+## The screen
+
+`scripts/screen_today.py` fetches the last ~48 sessions for all 5,795 active
+listed symbols, raw **and** adjusted, and applies both rules to the most recent
+completed session. Run on **2026-08-13**: 8 long, 2 short.
+
+| long | close | 5d | ADV20 | what it actually is |
+|---|---|---|---|---|
+| TENX | $1.83 | −86.3% | $27.7M | Phase 3 LEVEL trial failed; **$117M cash, no debt** |
+| ACH | $1.10 | −62.3% | $2.6M | Accendra Health (NYSE) |
+| RETO | $1.20 | −57.9% | $0.5M | ReTo Eco-Solutions — near-zero volume until 08-10 |
+| CRIS | $1.87 | −57.6% | $0.7M | Curis Inc |
+| LESL | $0.77 | −49.3% | $2.4M | Leslie's Inc — −41.7% on 08-13 alone |
+| MEDS | $1.49 | −43.6% | $0.4M | DataMeds AI — 179k shares, thin |
+| GLND | $1.25 | −43.4% | $2.5M | Greenland Energy — −44.5% on 14M shares |
+| WFF | $1.63 | −40.2% | $4.3M | WF Holding — 08-07 ran $1.72→$10.53→$2.30 on 31M shares |
+
+Rate check: 8 in one session against a studied rate of ~1.1/session. Elevated,
+consistent with a wave of small-cap breakdowns that week rather than a bug.
+
+**Two tickers had to be identified before they could be trusted.** ACH fell
+**exactly −50.00%**, the signature of an ADR ratio change — Aluminum Corp of
+China's old ticker. Chalco delisted its ADRs from the NYSE in 2022 and the
+symbol was **reassigned to Accendra Health**. Real move, different company. And
+TENX's −89.8% is close to a 10:1 factor, but the session had a 27% intraday
+range (a unit change is inert), the vendor applied no adjustment, and the
+catalyst is documented. Both survive; neither was obvious from the tape.
+
+## The correction: borrow data existed, in a file already cached
+
+§63 stated that borrow availability "is NOT modelled ... no free substitute
+exists". **That was wrong.** Alpaca's asset registry — cached since round 0 at
+`data/research_penny/asset_registry.parquet` — carries **`shortable`** and
+**`easy_to_borrow`** per symbol. The claim was never checked against a file
+already on disk.
+
+Both of 2026-08-13's short candidates are flagged **not shortable**:
+
+| short | open | prev close | ratio | shortable |
+|---|---|---|---|---|
+| KIDZ | $4.28 | $0.27 | 15.7x | **False** |
+| BNRG | $3.10 | $0.47 | 6.6x | **False** |
+
+Both are genuine consolidations (KIDZ 15:1, volume collapsed 1.83M → 217k
+shares; BNRG 6:1). Had they been shortable: KIDZ +3.5% gross, BNRG **−11.6%**
+gross — BNRG kept running after the split, which is exactly the false-positive
+mode §63 named.
+
+## What the flag does to the short strategy
+
+Of 342 historical short signals (ADV ≥$250k), only **55 (16.1%)** are currently
+flagged shortable. Splitting the measurement on that flag:
+
+| | n | per trade | 95% CI | median | hit |
+|---|---|---|---|---|---|
+| all signals, as published | 342 | +8.61% | [+6.28%, +10.93%] | +7.24% | 65% |
+| **borrowable only** | **55** | **+4.32%** | **[−0.38%, +9.12%]** | +0.52% | 55% |
+| not borrowable | 287 | +9.43% | [+6.79%, +12.11%] | +7.58% | 67% |
+
+**The edge lives almost entirely in the names that cannot be shorted.** On the
+borrowable subset the confidence interval includes zero, the median falls from
++7.24% to +0.52%, and the hit rate from 65% to 55%.
+
+This is economically coherent rather than surprising: a name is hard to borrow
+*because* the demand to short it is high, and that demand exists precisely where
+the expected decline is largest. The short strategy was measuring an
+opportunity that other people had already taken.
+
+**Caveat on the caveat:** the registry is a *current* snapshot, not
+point-in-time. A name shortable today may not have been at signal time and vice
+versa, and 2026 flags applied to 2025 signals are anachronistic. The direction
+is clear and the mechanism is sound, but the magnitude is an estimate.
+
+## Revised verdict
+
+**§63's short strategy is downgraded from "profitable, conditional on borrow" to
+"not demonstrated".** The condition turned out to be most of the result. What
+survives is a much smaller claim: on the ~16% of consolidations that are
+borrowable, the point estimate is +4.32% with an interval that includes zero at
+n=55. That is a hypothesis, not a strategy.
+
+**§65's long strategy is unaffected** — a long position needs no locate. It
+remains the only demonstrated result in the project.
+
+# 68. The lesson
+
+**Check whether the data exists before declaring it unavailable.** The IBKR FTP
+probe failed in round 0, and "no borrow data" was carried as an assumption for
+seven rounds and written into a published document — while the field sat in a
+parquet file this project fetched itself. One `grep` of the registry columns
+would have caught it at any point.
+
+The pattern is the same one behind every other error in this log: **a fact was
+established once, under one set of conditions, and never re-tested when the
+question changed.** The gap screen (§53), the cost table (§37), the fold sizes
+(§30) and now the borrow feed all failed that way.
