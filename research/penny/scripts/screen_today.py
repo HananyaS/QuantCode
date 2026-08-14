@@ -36,9 +36,11 @@ import logging
 import os
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -47,7 +49,10 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from research.penny.etl import alpaca_fetch, bars, universe  # noqa: E402
-from research.penny.etl.corporate_actions import flag_reverse_splits  # noqa: E402
+from research.penny.etl.corporate_actions import (  # noqa: E402
+    flag_forward_splits,
+    flag_reverse_splits,
+)
 from research.penny.scripts.fetch_daily_history import resolve_credentials  # noqa: E402
 
 logging.basicConfig(level=logging.INFO,
@@ -128,10 +133,23 @@ def main(argv=None) -> int:
     symbols = sorted(active["symbol"].unique())
     logger.info("universe: %s active listed symbols", f"{len(symbols):,}")
 
-    end = date.today()
-    start = end - timedelta(days=args.days)
-    logger.info("fetching %s .. %s", start, end)
-    px = fetch_window(client, symbols, str(start), str(end))
+    # `end` must be an INSTANT slightly in the past, not a local calendar date.
+    # Two separate traps, both of which return zero rows rather than an error:
+    #   * `date.today()` is the *machine's* date. On a UTC+9 box that is a day
+    #     ahead of US/Eastern, so on a Friday evening in Asia it names a
+    #     session the US market has not reached, and every request is rejected
+    #     as "recent SIP data".
+    #   * Alpaca treats a bare date as midnight UTC, which is 20:00 ET the
+    #     *previous* day -- so passing the target date silently excludes that
+    #     date's own bar.
+    # Anchoring to "now minus 20 minutes" in UTC satisfies both, and clears the
+    # free tier's 15-minute delay on recent SIP data.
+    end_dt = datetime.now(timezone.utc) - timedelta(minutes=20)
+    end = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    start = (end_dt - timedelta(days=args.days)).strftime("%Y-%m-%d")
+    logger.info("fetching %s .. %s (ET now: %s)", start, end,
+                datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d %H:%M"))
+    px = fetch_window(client, symbols, start, end)
     if px.empty:
         raise SystemExit("no bars returned")
 
@@ -153,18 +171,34 @@ def main(argv=None) -> int:
                              open_col="open_unadj", o2h_col="o2h")
     px["any_split"] = px["is_suspect_split"] | px["is_possible_split"]
 
+    # A forward split prints as a large overnight DECLINE, so the reverse
+    # detector is structurally blind to it and a buy-the-crash screen would
+    # rank it as its most extreme signal. It also has to be excluded across the
+    # whole lookback: a 1:10 split three sessions ago makes ret_5d read -90%
+    # even though the signal day itself looks ordinary.
+    px = flag_forward_splits(px, prev_close_col="prev_close_unadj",
+                             open_col="open_unadj", high_col="high_unadj",
+                             low_col="low_unadj")
+    px["fwd_split_in_lookback"] = (
+        px.groupby("symbol", sort=False)["is_suspect_fwd_split"]
+          .transform(lambda s: s.rolling(LOOKBACK + 1, min_periods=1).max())
+          .astype(bool)
+    )
+
     day = px[px["date"] == asof].copy()
     logger.info("symbols trading on %s: %s", str(asof)[:10], f"{len(day):,}")
     out: Dict[str, object] = {"asof": str(asof)[:10], "n_symbols": int(len(day))}
 
     # ---------------- LONG ------------------------------------------------
-    lm = (
+    lm_base = (
         (day["adv20"] >= ADV_FLOOR)
         & (~day["any_split"])
         & (day[f"ret_{LOOKBACK}d"] <= -DROP)
         & (day["close_unadj"] >= PRICE_LO)
         & (day["close_unadj"] < PRICE_HI)
     ).fillna(False)
+    lm = lm_base & ~day["fwd_split_in_lookback"]
+    rejected = day[lm_base & day["fwd_split_in_lookback"]]
     longs = day[lm].sort_values(f"ret_{LOOKBACK}d")
 
     logger.info("=" * 108)
@@ -183,6 +217,14 @@ def main(argv=None) -> int:
                         r["symbol"], r["close_unadj"], 100 * r[f"ret_{LOOKBACK}d"],
                         f"${r['adv20']:,.0f}", r["close_unadj"] * (1 + TARGET),
                         f"{r['volume']:,.0f}")
+    if len(rejected):
+        logger.info("-" * 108)
+        logger.info("  EXCLUDED as forward splits (the decline is a unit change, not a loss):")
+        for _, r in rejected.iterrows():
+            logger.info("    %-8s divisor %.2fx", r["symbol"], r["fwd_split_divisor"])
+    out["excluded_forward_splits"] = [
+        {"symbol": r["symbol"], "divisor": float(r["fwd_split_divisor"])}
+        for _, r in rejected.iterrows()]
     out["long"] = [
         {"symbol": r["symbol"], "close": float(r["close_unadj"]),
          "ret_5d": float(r[f"ret_{LOOKBACK}d"]), "adv20": float(r["adv20"]),

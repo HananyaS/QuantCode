@@ -106,6 +106,64 @@ def flag_reverse_splits(
     return out
 
 
+def flag_forward_splits(
+    df: pd.DataFrame,
+    prev_close_col: str = "prev_close_unadj",
+    open_col: str = "open",
+    high_col: str = "high",
+    low_col: str = "low",
+    min_multiple: float = MIN_MULTIPLE,
+    tolerance: float = RATIO_TOLERANCE,
+    max_intraday: float = MAX_INTRADAY_MOVE,
+) -> pd.DataFrame:
+    """The mirror image: a *forward* split, which looks exactly like a crash.
+
+    Why this is separate from `flag_reverse_splits`
+    -----------------------------------------------
+    A reverse split multiplies the price and a forward split divides it, so a
+    detector keyed on ``open / prev_close >= 1.8`` is structurally blind to the
+    forward case. That blindness is dangerous in only one direction, and it is
+    the direction a long strategy cares about: an unadjusted 1-for-10 forward
+    split prints as a **90% overnight decline**, which is indistinguishable from
+    a catastrophe on price alone and would be selected by any "buy what
+    crashed" rule as its most extreme signal.
+
+    The test is the reciprocal of the reverse one -- a near-round *divisor*
+    together with an inert session, because a unit change has no news to trade.
+
+    Inertness is measured on the **full high-low range**, not open-to-high.
+    That difference is not cosmetic: Tenax Therapeutics fell 89.8% overnight on
+    a failed Phase 3 (a real catalyst) and opened at $1.79 with a high of
+    $1.83 -- an open-to-high of **2.2%**, which reads as perfectly inert. Its
+    low was $1.31, so the session range was **39.7%**. Open-to-high can only
+    see a stock that runs up; a name that opens and collapses looks quiet to
+    it, and that is precisely the shape this detector must not mistake for a
+    unit change.
+
+    Adds ``fwd_split_divisor``, ``is_suspect_fwd_split``, ``is_possible_fwd_split``.
+    """
+    out = df.copy()
+    mult = out[open_col] / out[prev_close_col].replace(0, np.nan)
+    divisor = 1.0 / mult.replace(0, np.nan)
+    out["fwd_split_divisor"] = divisor
+
+    err = []
+    for d in divisor.to_numpy():
+        _, e = nearest_ratio(d)
+        err.append(e)
+    err_s = pd.Series(err, index=out.index)
+
+    session_range = out[high_col] / out[low_col].replace(0, np.nan) - 1.0
+    round_divisor = (divisor >= min_multiple) & (err_s < tolerance)
+    out["is_suspect_fwd_split"] = (
+        round_divisor & (session_range.abs() < max_intraday)
+    ).fillna(False)
+    out["is_possible_fwd_split"] = (
+        (divisor >= min_multiple) & (err_s < RATIO_ONLY_TOLERANCE)
+    ).fillna(False)
+    return out
+
+
 def assert_detector_is_conservative(df: pd.DataFrame) -> None:
     """Tripwire: a flagged event must not look like a traded catalyst.
 

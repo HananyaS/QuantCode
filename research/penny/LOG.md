@@ -2244,3 +2244,69 @@ The pattern is the same one behind every other error in this log: **a fact was
 established once, under one set of conditions, and never re-tested when the
 question changed.** The gap screen (§53), the cost table (§37), the fold sizes
 (§30) and now the borrow feed all failed that way.
+
+---
+
+# 69. Two bugs the first live screen found
+
+## A forward split is invisible to a reverse-split detector
+
+`flag_reverse_splits` fires on `open / prev_close >= 1.8` -- price going **up**.
+A *forward* split divides the price, so a 1-for-10 prints as a **90% overnight
+decline**: indistinguishable from a catastrophe on price alone, and ranked by a
+buy-the-crash screen as its most extreme signal. Added `flag_forward_splits`,
+and excluded it across the **whole lookback** rather than the signal day alone
+-- a split three sessions back makes `ret_5d` read -90% while the signal day
+itself looks ordinary.
+
+**Writing the test caught a design flaw before it shipped.** The first version
+reused the reverse detector's inert-session test, `|open->high| < 35%`. That is
+the wrong measure here. Tenax Therapeutics fell 89.8% overnight on a failed
+Phase 3 -- a real catalyst -- and opened at $1.79 against a high of $1.83, an
+open-to-high of **2.2%**, which reads as perfectly inert. Its low was $1.31, so
+the session **range** was 39.7%. Open-to-high can only see a stock that runs up;
+a name that opens and collapses looks quiet to it. Inertness is now measured on
+the high-low range, and `test_inertness_uses_range_not_open_to_high` pins it.
+
+## `date.today()` is the machine's date, not the market's
+
+The Saturday run returned **zero rows** after 90 minutes. Not throttling: this
+machine reports UTC+9, so `date.today()` gave `2026-08-15` while the US market
+was still in Friday's session. `end=2026-08-15` asked for data hours in the
+future and every request was rejected as "recent SIP data" -- and
+`fetch_with_rejects` then binary-searched each failing batch hunting for a bad
+symbol, which is why it ran 7x slower and still produced nothing.
+
+Two traps stacked, both returning *empty* rather than raising:
+
+1. the local date can be a day ahead of US/Eastern;
+2. Alpaca reads a bare date as **midnight UTC** = 20:00 ET the *previous* day,
+   so passing the target date silently excludes that date's own bar.
+
+Both are fixed by anchoring to an instant -- `now(UTC) - 20 minutes` -- which
+also clears the free tier's 15-minute delay on recent SIP data.
+
+**This is the third time this exact bug has appeared** (§Phase-1 recorder, the
+01:00 UTC cron, and now the screener). It is written down each time and
+reintroduced anyway, because `date.today()` is the obvious thing to type. The
+durable fix is that no script in this project should call `date.today()` when it
+means "the last completed US session".
+
+## What the first two live screens looked like
+
+| session | long | short |
+|---|---|---|
+| 2026-08-13 | 8 | 2 |
+| 2026-08-14 | 9 | 4 |
+
+Against a studied rate of ~1.1 long/session. Elevated, and consistent with a
+broad small-cap breakdown that week rather than a defect -- both sessions'
+candidates verify as genuine crashes with real intraday ranges and heavy volume.
+
+**ADV20 can be dominated by the explosion itself.** YJ shows ADV20 of $9.4M, but
+that is one day: 2026-08-07 traded $174M on a +176% move. By Friday it traded
+**$148k**. RETO is the same shape -- $533k ADV20, $191k on the day, and 438
+shares on 08-06. The liquidity filter is backward-looking and a name can pass it
+while being effectively untradeable now. The backtest used the same filter, so
+the measured result is internally consistent; the constraint binds on execution,
+and how hard depends on account size.
