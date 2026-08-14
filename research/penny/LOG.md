@@ -1985,3 +1985,161 @@ honestly rather than by accident.
 
 **Third time this session that reading the largest trades changed the
 conclusion**, after §57 and §61. In this universe that check is not optional.
+
+---
+
+# 65. The four supplied hypotheses, calibrated on the LONG side
+
+## Why this section exists
+
+§63 found a profitable short and treated the question as answered. It was not.
+The four hypotheses supplied were all phrased **long** -- "raise by B",
+"continues to raise", "raise by A" -- and answering with a short strategy answers
+a different question. Worse, the 441-cell grid had tested them as *mean* effects,
+but they were stated as **thresholds**. "Rise by B in the next C days" asks
+whether the price *touches* +B%, not where it closes on day C. Those are
+different questions, and the threshold version is the tradable one: a limit order
+at +B% with a time stop captures a touch.
+
+So every family was re-run as a **long triple barrier** -- buy, sell on a +B%
+limit, time-stop at C sessions -- across 3,300 cells. Where both barriers fall in
+one session the **stop is assumed to fill first**, because daily bars cannot
+order intraday events and the favourable assumption manufactures edge out of
+missing information.
+
+## The result
+
+| family | best condition | h | tgt | net | 95% CI | median | n |
+|---|---|---|---|---|---|---|---|
+| **H11 price band** | **down>=25%/5d, $0.50-$2** | 10 | 50% | **+3.87%** | **[+2.75%, +4.96%]** | -1.42% | 3,897 |
+| H10 overnight | vol shock >=5x | - | - | +0.14% | [-0.81%, +1.36%] | -1.50% | 6,022 |
+| H5 capitulation | down>=25%/5d, vol>=3x, at 20d low | 1 | 50% | +0.43% | [-1.21%, +2.35%] | -2.81% | 252 |
+| H2 momentum | up>=100%/3d | 1 | 50% | -0.14% | [-1.37%, +1.12%] | -10.45% | 877 |
+| H1 reversion | down>=25%/3d | 1 | 50% | -0.57% | [-0.96%, -0.21%] | -2.94% | 7,834 |
+| H7 quiet decline | down>=35%/10d, low volume | 1 | 50% | -0.91% | [-1.28%, -0.56%] | -1.88% | 8,873 |
+| **CONTROL** | no condition | 1 | 50% | **-0.98%** | [-1.15%, -0.79%] | -1.23% | 489,756 |
+| H9 dip in trend | up>=20%/20d, down>=5%/3d | 1 | 50% | -1.03% | [-1.34%, -0.72%] | -1.63% | 13,169 |
+| H6 confirmation | down>=25%/20d then a green day | 10 | 50% | -1.05% | [-2.08%, +0.03%] | -3.36% | 19,967 |
+| H4 gap up | overnight >= +5% | 1 | 50% | -1.09% | [-1.51%, -0.54%] | -2.57% | 15,357 |
+| H4 gap down | overnight <= -10% | 1 | 50% | -1.42% | [-1.82%, -1.00%] | -3.84% | 4,715 |
+| **H3 split (long)** | reverse split | 1 | 50% | **-4.67%** | [-6.26%, -3.10%] | -10.90% | 306 |
+
+**Direct answers to the four supplied hypotheses:**
+
+1. *down by A -> rise by B* — **true, but only inside a price band.**
+   Unconditional reversion is −0.57%; the same rule restricted to $0.50–$2.00 is
+   +3.87%. The band is the hypothesis, not the drop.
+2. *up by A -> continues to rise* — **false.** −0.14% at best, and the median of
+   the strongest momentum cell is **−10.45%**. Buying strength here loses.
+3. *reverse split -> rise* — **false, and inverted.** −4.67% long, which is §63's
+   short read from the other side. Of the four, this one is exactly backwards.
+4. *large gap -> rise* — **false in both directions.** Gap up −1.09%, gap down
+   −1.42%, both worse than the unconditional control.
+
+Three cells survived Benjamini-Hochberg over 3,006 and confirmed on disjoint
+periods. All three were H11 at different parameters.
+
+## Then the account lost money anyway
+
+Per-trade expectancy positive, compounded return **−82%**. The §49/§56 trap
+again, and it took three corrections to reach the real number:
+
+| step | n | per trade | CI |
+|---|---|---|---|
+| as measured | 3,923 | +4.16% | [+3.03%, +5.31%] |
+| less reverse splits **inside the holding window** | 3,865 | +3.49% | [+2.39%, +4.60%] |
+| less **overlapping** entries on the same symbol | **1,443** | **+2.34%** | [+0.84%, +3.86%] |
+
+The overlap correction is the one a day-clustered bootstrap cannot make: AZI
+entered 2026-06-17, 06-23 and 06-24 all reach the same $3.50 high — one event
+booked three times. Clustering is on the *entry* date, so it never sees it.
+**2,422 of 3,865 entries were re-entries into a position already open.**
+
+And then, event-driven with real capital:
+
+| slots | Sharpe | compounded | maxDD |
+|---|---|---|---|
+| 3 | −1.32 | **−82.2%** | −82.6% |
+| 5 | −0.66 | −57.0% | −64.2% |
+| 10 | −0.33 | −27.6% | −41.5% |
+| 20 | +0.75 | +31.7% | −33.3% |
+
+σ²/2 exceeded μ at every concentrated setting. **Diversification is not a
+refinement here, it is the difference between +32% and −82%.**
+
+## Calibrating on the account, which is where it matters
+
+Sweeping drop × hold × target × slots on the *account* rather than on per-trade
+expectancy, the surface is monotone and the peak is a plateau:
+
+> **drop ≥40%, hold 10 sessions, target +50%, ~30 slots**
+
+| drop | per trade | Sharpe | compounded |
+|---|---|---|---|
+| ≥30% | +3.40% | 2.01 | +83.0% |
+| ≥35% | +4.37% | 2.61 | +102.8% |
+| **≥40%** | **+5.56%** | **3.06** | **+109.4%** |
+| ≥45% | +6.96% | 3.10 | +102.9% |
+| ≥50% | +3.48% | 1.36 | +27.4% (n=217) |
+
+Smooth degradation on both sides — the signature of an effect rather than of a
+fitted spike.
+
+## The audit
+
+| test | result |
+|---|---|
+| entry at t+1 **open**, not t's close | +5.56% vs +5.89% — **not a closing-print artifact** |
+| in-sample | +4.52% CI [+0.21%, +8.94%], Sharpe 2.60 |
+| out-of-sample | **+6.76%** CI [+2.18%, +11.44%], Sharpe 4.23 |
+| ADV ≥ $2M | +4.60% CI [+0.41%, +8.99%], Sharpe 1.94 |
+| **survivorship**, delisted at last print | **+4.97%** CI [+1.74%, +8.14%] |
+| **survivorship**, delisted = −100% | **+3.59%** CI [+0.03%, +7.02%] |
+| concentration, drop best 50 of 421 | **−0.35%** |
+| mean vs median | +5.56% vs −0.05% — **right-tailed** |
+
+The largest winners read as real events in liquid names, not artifacts: **WOLF**
+($133M ADV), **BYND**, **GRML** ($157M), **CIRC**, **DVLT**, **HUBC**, **AIFF**,
+**BIYA** — ADVs of $20M to $157M. This is the check that killed §57, §61 and the
+first §63 run, and it is the first time a long candidate has passed it.
+
+**Survivorship was a real hole and is now closed.** 16 trades had no tenth
+forward bar because the stock stopped trading; `notna()` was silently dropping
+them, and a delisting is not a neutral outcome for a long. Exited at the last
+print they average **−20.12%**. The result survives including them, and survives
+assuming a total loss on every one.
+
+## Verdict
+
+**A profitable long exists.** Buy a $0.50–$2.00 stock with ADV ≥ $250k that has
+fallen ≥40% in five sessions; enter at the next open; sell on a +50% limit or at
+the close of the tenth session; run ~30 concurrent positions.
+
+**+4.97% per trade, CI [+1.74%, +8.14%], n=429. Sharpe ~3.0, compounded +109%,
+max drawdown −10.2%. Out-of-sample better than in-sample.**
+
+**Its weakness is convexity, and it is structural rather than a defect.** The
+target hits 27% of the time; the median trade is flat; dropping the best 50 of
+421 turns the whole thing negative. That is what a capped-upside lottery payoff
+looks like, and it dictates the operating rules: **take every signal**, never
+size up, and hold ~30 positions. Cherry-picking this strategy destroys it —
+the opposite of how a discretionary trader would be tempted to run it.
+
+**What is not established:** the parameters were chosen by looking at this data,
+and the out-of-sample window is six months. The honest confirmation is forward,
+not another backtest.
+
+# 66. Standing lessons added
+
+- **Test the hypothesis in the form it was stated.** "Rise by B" is a barrier
+  question. Testing it as a mean effect answered a different question and hid a
+  real effect for a full round.
+- **Day-clustered bootstraps do not fix overlapping holding periods.** Clustering
+  is on the entry date; two entries days apart share a forward window. 63% of
+  entries here were re-entries into an already-open position.
+- **Exclude corporate actions over the whole holding window, not just the signal
+  day.** Repeat of §57's bug at a longer horizon.
+- **A truncated forward window is not missing data, it is a delisting.**
+  `notna()` drops exactly the worst outcomes for a long.
+- **Calibrate on the account, not on per-trade expectancy.** The same rule ran
+  from −82% to +110% purely on the number of concurrent positions.
