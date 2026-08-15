@@ -160,9 +160,15 @@ def main(argv=None) -> int:
                 f"{len(px):,}", len(sessions), str(asof)[:10])
 
     g = px.groupby("symbol", sort=False)
-    px["adv20"] = g.apply(
-        lambda d: (d["close"] * d["volume"]).rolling(20, min_periods=10).mean(),
-        include_groups=False).reset_index(level=0, drop=True)
+    # ADV must be computed exactly as the backtest computes it: STRICTLY
+    # TRAILING, excluding the signal day itself. A crashed name trades
+    # enormous volume on its crash day -- including it would inflate the
+    # liquidity measure by precisely the amount the crash caused, and would
+    # admit names the measured result never admitted. See
+    # `build_universe._derive`, which this mirrors.
+    px["dv"] = px["close"] * px["volume"]
+    px["adv20"] = px.groupby("symbol", sort=False)["dv"].transform(
+        lambda s: s.shift(1).rolling(20, min_periods=20).mean())
     px[f"ret_{LOOKBACK}d"] = g["close"].shift(0) / g["close"].shift(LOOKBACK) - 1.0
     px["prev_close_unadj"] = g["close_unadj"].shift(1)
     px["o2h"] = px["high_unadj"] / px["open_unadj"] - 1.0

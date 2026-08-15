@@ -2450,3 +2450,144 @@ $27M ADV would slip perhaps 10-20 bps on an MOC, where RETO at $191k/day would
 slip far more. Entering the liquid names at the close and the thin ones at the
 open might capture the difference -- but that is a rule change requiring its own
 walk-forward, not an adjustment to make live.
+
+---
+
+# 72. RETRACTION — §65's long strategy was look-ahead bias
+
+## The gate failed
+
+Phase 1 of the continuation plan re-tested the §65 long over the eleven years of
+daily bars that were already on disk and never used. It does not survive. Worse,
+the reason it does not survive is that **it was never real**.
+
+## The bug: the price band was filtered on adjusted prices
+
+`long_reversion_verify.select()` screened the entry band with
+
+```python
+& (u["close"] >= price_lo)      # ADJUSTED close
+& (u["close"] < price_hi)
+```
+
+`close` is the **split-adjusted** series. Adjusted prices are computed backwards
+from every corporate action that happens *afterwards*, so a stock printing $0.60
+today that reverse-splits 10-for-1 next month carries an adjusted price of $6.00
+**today**. Screening `$0.50 <= price < $2.00` on that series therefore removes
+every name that will later consolidate.
+
+And reverse splits are not random. A company consolidates because its price has
+kept falling and it needs to hold a $1.00 listing bid. So the filter was
+silently selecting:
+
+> crashed stocks that will not need a reverse split over the coming months
+
+which is a **survivorship screen built from future information**, and it removes
+precisely the worst outcomes in the population.
+
+The contamination is not marginal. Over the §65 span, **46.8% of candidate rows
+have an adjusted/unadjusted ratio above 1.5**. WOK's ratio is **1,000,000**.
+
+## Isolating it, one change at a time
+
+Re-implemented from scratch (`scripts/long_walkforward.py`, positional forward
+paths), then changing a single thing per row:
+
+| configuration | n | per trade | 95% CI | median |
+|---|---|---|---|---|
+| **§65 as published** — adjusted band, delisted dropped | 430 | **+5.32%** | [+2.12%, +8.41%] | −0.20% |
+| + exclude forward splits | 429 | +5.58% | [+2.57%, +8.70%] | −0.05% |
+| + keep delisted (exit at last print) | 466 | +4.84% | [+2.04%, +7.88%] | −0.45% |
+| **honest** — unadjusted band, the price you can actually see | **808** | **−4.00%** | **[−6.70%, −1.38%]** | **−7.13%** |
+
+The first row reproduces §65's published n=421, +5.56% to within the delisting
+and forward-split handling, which establishes that the rewrite is faithful. The
+last row changes **only which price series defines the band**. The sample nearly
+doubles and the sign flips, significantly.
+
+## The eleven-year picture
+
+Frozen §65 parameters (drop ≥40%, hold 10, target +50%, 30 slots), honest band:
+
+| span | n | per trade | 95% CI | compounded | maxDD |
+|---|---|---|---|---|---|
+| §65's own window | 802 | **−4.27%** | [−6.95%, −1.64%] | −72.6% | −76.8% |
+| full 2016–2026 | 2,157 | **−2.20%** | [−4.03%, −0.30%] | **−93.6%** | −94.0% |
+
+Per year, only **2019 and 2020** are positive — and 2020 is the COVID rebound,
+when everything oversold bounced.
+
+## The walk-forward
+
+Parameters refit on an expanding window each year, trading the next
+(`long_walkforward.py`, 45 parameter sets x 4 slot counts per fit):
+
+- **six of nine years had no cell with a positive fit at all** — the procedure
+  declined to trade 2018, 2019, 2020, 2024, 2025 and 2026;
+- the three years it did trade: **n=838, −2.17%, CI [−4.46%, +0.15%]**, median
+  −5.72%, target hit 13% (against §65's claimed 27%);
+- 1 of 3 traded years profitable;
+- dropping the best 50 trades gives −5.43%.
+
+**Verdict: not distinguishable from zero, with a negative point estimate.**
+
+## Why every audit test passed
+
+§65 ran concentration, mean-versus-median, period confirmation, next-open entry,
+liquidity floors, parameter-neighbourhood smoothness, and a survivorship check.
+All passed. §70 added a stop-loss sweep and §71 an entry-timing study, both
+internally consistent.
+
+**Every one of them ran on an already-poisoned sample.** The bias was in the
+*selection filter*, upstream of everything, so each test faithfully described a
+population that had been chosen with future information. A smooth parameter
+surface and a clean out-of-sample split are properties of the biased sample, not
+evidence against bias.
+
+The one check that would have caught it — comparing the two price series in the
+filter itself — was the check §57 and §64 had already forced twice. Both of
+those found adjusted/unadjusted mixing in a *return* calculation, and the fix
+was applied there. Nobody looked at the *filter*.
+
+## Where the project now stands
+
+| candidate | status |
+|---|---|
+| intraday veto sets (rounds 1–4) | dead — negative gross before costs |
+| gap screens (round 5) | dead — the screen selected the losing tail |
+| 441-cell hypothesis grid | dead — 0 survived BH |
+| short reverse splits (§63) | **not demonstrated** — the edge is in unborrowable names (§67) |
+| long crashed microcaps (§65) | **retracted — look-ahead bias (this section)** |
+
+**No profitable strategy has been demonstrated in this universe.** That is the
+answer to the original question, and it is now supported by eleven years rather
+than eighteen months.
+
+## Consequences for the live screener
+
+`screen_today.py` filters on `close_unadj` and is therefore **correct** — it was
+written after §64 and never inherited the bug. But the rule it screens for has
+no demonstrated edge, so the 2026-08-13 and 2026-08-14 lists are **not
+actionable**. The Phase 3 paper-trading bot is cancelled; there is nothing to
+forward-test.
+
+The ADV fix made alongside this section (trailing, excluding the signal day)
+stands on its own and is now consistent with the backtest.
+
+## 73. The lesson, stated as a rule
+
+**Adjusted prices encode the future. Never use them in a selection filter.**
+
+Adjusted series exist to make *returns* comparable across corporate actions.
+Every adjusted price before an action is computed from information that did not
+exist at the time, so any screen that conditions on an adjusted *level* —
+a price band, a market-cap band, a moving-average crossing, a 52-week-high
+distance — is conditioning on the future. Returns can use adjusted data; filters
+must use the tape.
+
+This is the fourth adjusted/unadjusted failure in this project (§57, §64, §67's
+cousin, and now §72), and the most expensive, because it survived seven
+subsequent sections of audit. The generalisation that would have prevented all
+four: **a study should assert, once and centrally, which series each column is
+allowed to touch** — and the assertion belongs in the universe builder, not in
+each analysis.
