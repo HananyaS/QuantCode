@@ -124,8 +124,22 @@ def evaluate(spec: Spec, unseal: bool = False,
         res["veto"] = (f"per-trade CI lower bound {100*est.lo:+.2f}% but the account "
                        f"compounds to {100*sim.total_return:+.1f}% -- sigma^2/2 > mu")
         return res
+    if est.lo <= 0:
+        res["veto"] = (f"per-trade CI [{100*est.lo:+.2f}%, {100*est.hi:+.2f}%] includes zero "
+                       f"-- not statistically distinguishable from nothing")
+        return res
 
-    res["metric"] = 1e4 * float(est.lo)
+    # Metric = portfolio Sharpe x 100, gated on statistical and economic vetoes.
+    #
+    # It was the LOWER CI BOUND of per-trade return until iteration 3, and that
+    # was wrong in an instructive way: it rewarded lottery distributions. The
+    # best-scoring spec had a +41.39% per-trade mean with NEGATIVE medians in
+    # six of eight years, Sharpe 0.90 and a -39.1% drawdown -- in 2020 it earned
+    # +64.95% per trade and compounded to +14.3%, because sigma^2/2 exceeded mu.
+    # A per-trade interval says the edge is real; it says nothing about whether
+    # an account can hold it. Sharpe answers the second question, and the two
+    # vetoes above keep the first one from being traded away.
+    res["metric"] = 100.0 * float(sim.sharpe)
     return res
 
 
