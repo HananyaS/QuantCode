@@ -2310,3 +2310,59 @@ shares on 08-06. The liquidity filter is backward-looking and a name can pass it
 while being effectively untradeable now. The backtest used the same filter, so
 the measured result is internally consistent; the constraint binds on execution,
 and how hard depends on account size.
+
+---
+
+# 70. Should the long carry a stop loss? No.
+
+The calibrated rule has **no stop** -- and that was never a decision.
+`build_trades` defaults to `stop=None` and the portfolio sweep varied drop,
+hold, target and slot count while leaving the stop untouched. Tested properly
+(`scripts/long_reversion_stops.py`), every stop makes it **worse, monotonically**:
+
+| stop | per trade | 95% CI | median | target hit | stopped out | compounded | Sharpe |
+|---|---|---|---|---|---|---|---|
+| **none** | **+5.56%** | [+2.43%, +8.81%] | -0.05% | **27%** | - | **+109.4%** | **3.06** |
+| -50% | +5.11% | [+2.17%, +8.41%] | -0.07% | 27% | 5% | +97.0% | 2.84 |
+| -40% | +4.43% | [+1.43%, +7.38%] | -0.46% | 26% | 12% | +81.1% | 2.39 |
+| -30% | +3.42% | [+0.58%, +6.28%] | -3.07% | 25% | 23% | +60.0% | 1.92 |
+| -25% | +3.09% | [+0.55%, +5.82%] | -5.29% | 24% | 34% | +53.2% | 1.76 |
+| -20% | +1.92% | [-0.64%, +4.36%] | -10.75% | 21% | 45% | +30.1% | 1.13 |
+| -15% | +1.97% | [-0.21%, +4.14%] | -15.45% | 19% | 57% | +34.6% | 1.35 |
+
+The mechanism is visible in the last two columns. At a -15% stop, **57% of
+trades are stopped out and the target hit rate falls from 27% to 19%** -- the
+stop is not cutting losers, it is ejecting positions that go on to double. These
+names routinely fall 30% and then recover; the drawdown *is* the entry.
+
+At -20% the confidence interval includes zero. A stop tight enough to feel
+protective destroys the strategy outright.
+
+**Downside control here is position sizing, not stops.** 1/30 per name means a
+-100% costs 3.3% of the account. The worst single trade in 421 was **-66.2%**,
+so nothing reached zero inside ten sessions.
+
+This is the mirror image of §63's short, where a hard stop was *mandatory*
+because five trades exceeded -100%. A short's loss is unbounded and a long's is
+not, so the same instrument is essential in one and destructive in the other.
+
+## First forward observation
+
+Thursday 2026-08-13's eight signals, entered at Friday's open, marked to
+Friday's close -- **1 of 10 sessions elapsed**:
+
+| | entry | Fri close | P&L |
+|---|---|---|---|
+| RETO | 1.23 | 1.28 | +4.1% |
+| TENX | 1.77 | 1.80 | +1.7% |
+| GLND | 1.30 | 1.28 | -1.5% |
+| CRIS | 1.83 | 1.80 | -1.6% |
+| MEDS | 1.53 | 1.48 | -3.3% |
+| WFF | 1.57 | 1.44 | -8.3% |
+| ACH | 1.08 | 0.95 | -12.0% |
+| LESL | 0.78 | 0.65 | -16.8% |
+
+Equal-weight basket **-4.72%**, 2 of 8 green, 0 targets hit. Exactly the shape
+the backtest describes -- most positions drift while the return waits on a
+minority reaching +50% -- and a useful reminder that a -15% stop would already
+have ejected LESL on day one of ten.
