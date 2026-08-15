@@ -2366,3 +2366,87 @@ Equal-weight basket **-4.72%**, 2 of 8 green, 0 targets hit. Exactly the shape
 the backtest describes -- most positions drift while the return waits on a
 minority reaching +50% -- and a useful reminder that a -15% stop would already
 have ejected LESL on day one of ten.
+
+---
+
+# 71. Should the entry be the signal day's close instead of the next open?
+
+## The proposal
+
+Since the strategy uses only limit orders and no premarket data, enter at the
+**signal day's close** via a market-on-close order rather than waiting for the
+next open -- and collect the overnight session instead of forfeiting it. The
+look-ahead objection is weak: an MOC placed at 15:55 acts on a price minutes
+old, not on a price from the future.
+
+The reasoning is sound, and the headline supports it. §65's own TEST 1:
+
+| entry | per trade | 95% CI | Sharpe | compounded |
+|---|---|---|---|---|
+| **close (MOC)** | **+5.89%** | [+2.66%, +8.87%] | **3.20** | **+125.6%** |
+| next open (MOO) | +5.56% | [+2.43%, +8.81%] | 3.06 | +109.4% |
+
+## What the overnight session actually pays
+
+Measured directly on the 427 signal days (`long_reversion_entry_timing.py`):
+
+| | |
+|---|---|
+| mean | +0.87% |
+| **95% CI** | **[-0.56%, +2.63%]** -- includes zero |
+| **median** | **+0.00%** |
+| standard deviation | **17.28%** |
+| gaps **up** | **43%** of the time |
+| percentiles | p1 -25.7%, p5 -12.9%, p50 +0.0%, p95 +11.2%, p99 +49.2% |
+| **drop the best 10 gaps** | **-0.97%** |
+
+The overnight move on these names is **not distinguishable from zero**. The
+median is exactly flat, it gaps *down* 57% of the time, and the entire positive
+mean comes from about ten enormous gap-ups -- drop them and it is negative. This
+is the same right-tail signature that killed the candidates in §57 and §61,
+appearing in a component rather than in a result.
+
+And the risk taken to collect it is not small: **17.28% standard deviation**, on
+every position, overnight, for an expected value that a confidence interval
+cannot separate from nothing.
+
+## What it costs to capture
+
+The close entry's advantage is **+0.33% per trade**, so it survives only up to
+**33 bps of slippage**:
+
+| MOC slippage | per trade | compounded | verdict |
+|---|---|---|---|
+| 0 bps | +5.89% | +125.6% | better than MOO |
+| 25 bps | +5.64% | +117.8% | better than MOO |
+| **50 bps** | +5.39% | +110.2% | **MOO wins** |
+| 100 bps | +4.89% | +95.8% | MOO wins |
+
+The measured round-trip cost in the $250k-$1M ADV band is **150 bps**, so a
+half-spread is ~75 bps. A market-on-close order in a 65-cent microcap does not
+fill at the print, and the realistic slippage is roughly double the entire
+advantage.
+
+## And the period split disagrees with the headline
+
+| entry | in-sample | out-of-sample |
+|---|---|---|
+| close | +4.28% **CI [-0.28%, +8.53%]** | +7.73% [+3.49%, +12.19%] |
+| open | +4.52% **CI [+0.21%, +8.98%]** | +6.76% [+2.18%, +11.46%] |
+
+In-sample, the close entry's interval **includes zero** and the open entry's
+does not. The close entry's better headline rests on its out-of-sample half.
+
+## Verdict: keep the next open
+
+Not because entering at the close is wrong in principle -- it is executable and
+it does score higher -- but because the thing it collects **is not reliably
+there** and costs more to collect than it pays. The +0.33% is noise on a
+component whose own CI spans zero, and 33 bps is inside the bid-ask spread of
+every name on the list.
+
+**A liquidity-split version is the one variant worth testing later**: TENX at
+$27M ADV would slip perhaps 10-20 bps on an MOC, where RETO at $191k/day would
+slip far more. Entering the liquid names at the close and the thin ones at the
+open might capture the difference -- but that is a rule change requiring its own
+walk-forward, not an adjustment to make live.
