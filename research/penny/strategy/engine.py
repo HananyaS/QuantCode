@@ -191,16 +191,33 @@ def _confirmation_mask(u: pd.DataFrame, kind: str) -> np.ndarray:
     raise ValueError(f"unknown confirmation {kind!r}")
 
 
+def max_lookback_span(window: int) -> float:
+    """Calendar days a genuine `window`-session lookback can span.
+
+    `window` sessions is about `1.4 x window` calendar days once weekends are
+    counted, plus slack for holidays. Anything beyond this straddles a hole in
+    the symbol's history -- the stock was halted, or it left the price band and
+    came back -- and a "5-day crash" measured across three months is not the
+    thing being tested. The first version of this search had no such guard and
+    19% of its signals were of exactly that kind.
+    """
+    return 1.6 * window + 10
+
+
 def signal_mask(u: pd.DataFrame, spec: Spec) -> np.ndarray:
     """Every filter here is checked against `screens.assert_unadjusted`."""
     ret_col = f"ret_{spec.drop_window}d_unadj"
+    span_col = f"span_{spec.drop_window}d"
     assert_unadjusted([ret_col, "close_unadj", "adv20"])
 
     m = (
-        (u["adv20"] >= spec.adv_floor).to_numpy()
+        u["in_universe"].to_numpy()
+        & (u["adv20"] >= spec.adv_floor).to_numpy()
         & (~u["any_split"]).to_numpy()
         & (~u["is_suspect_fwd_split"]).to_numpy()
         & (u[ret_col] <= -spec.drop_pct).fillna(False).to_numpy()
+        # the lookback must be real sessions, not a data hole
+        & (u[span_col] <= max_lookback_span(spec.drop_window)).fillna(False).to_numpy()
         & price_band(u, spec.price_lo, spec.price_hi)
         & _confirmation_mask(u, spec.confirm)
     )
@@ -283,8 +300,17 @@ def build_trades(u: pd.DataFrame, spec: Spec) -> pd.DataFrame:
     with np.errstate(invalid="ignore", divide="ignore"):
         gross = exit_px / entry - 1.0
 
+    # The holding window must also be real sessions. A 90-bar hold that spans
+    # two calendar years means the symbol was halted or absent for most of it,
+    # and the "exit price" is then a resumption print, not the result of a
+    # holding decision.
+    entry_dates = u["date"].to_numpy()[pos]
+    exit_dates = dts[rows, np.maximum(k, 0)]
+    span_days = (exit_dates - entry_dates) / np.timedelta64(1, "D")
+    window_ok = span_days <= (1.6 * spec.max_hold + 30)
+
     keep = (np.isfinite(entry) & (entry > 0) & (last_valid >= 0)
-            & ~split_in_window & np.isfinite(gross))
+            & ~split_in_window & np.isfinite(gross) & window_ok)
     t = pd.DataFrame({
         "symbol": u["symbol"].to_numpy()[pos][keep],
         "date": u["date"].to_numpy()[pos][keep],

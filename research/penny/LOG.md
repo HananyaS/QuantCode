@@ -2591,3 +2591,147 @@ subsequent sections of audit. The generalisation that would have prevented all
 four: **a study should assert, once and centrally, which series each column is
 allowed to touch** — and the assertion belongs in the universe builder, not in
 each analysis.
+
+---
+
+# 74. Round 9 — an automated search, a data-continuity bug, and the COVID crash
+
+## What was searched
+
+The proposal was a different structure to §65's: take stocks that **fell 50%+ in
+a week**, wait until they **start moving up**, put the **stop where the bounce
+is**, and take profit on a **retrace of the gap down**. Rather than hand-code it,
+this round built a declarative engine and searched **195 specs** over the eleven
+year panel.
+
+Three pieces of infrastructure, all of which outlive the result:
+
+* **`etl/screens.py`** — `assert_unadjusted()` raises if a *filter* references an
+  adjusted price level. §72's bug is now a thrown exception rather than a thing
+  to remember. `adjustment_tripwire()` reports what share of **selected** rows
+  have adj/unadj > 1.5.
+* **`strategy/engine.py`** — a strategy is a `Spec` dataclass, and there is one
+  implementation of selection, barriers, exits and portfolio simulation. Ties go
+  to the stop; gaps through the stop fill at the open; corporate actions are
+  excluded over lookback *and* holding window; a delisting exits at the last
+  print rather than being dropped.
+* **A sealed holdout.** Signals from 2024-01-01 are refused without `--unseal`.
+  The search optimises a metric, so a metric that can see the holdout overfits
+  it.
+
+## Three findings that survive
+
+**1. Every stop hurts.** The proposed structural stop at the bounce low fired on
+**74%** of trades and returned −2.27%. Fixed stops at −20% and −35% were no
+better. These names routinely break the bounce low and recover: the drawdown
+*is* the entry. This independently reproduces §70 on a completely different
+entry rule.
+
+**2. The metric was wrong, and changing it changed the answer.** The search
+initially maximised the **lower CI bound of per-trade return**. That selected a
+lottery: +41.4% per trade with **negative medians in six of eight years**,
+Sharpe 0.90 and a −39.1% drawdown — in 2020 it earned +65% per trade and
+compounded to **+14.3%**, because σ²/2 exceeded μ. Switched to **portfolio
+Sharpe**, gated on the per-trade CI excluding zero *and* a positive compounded
+return. §49, §56 and §65 all died of this and the search walked straight into it
+again within three iterations.
+
+**3. On a portfolio metric the confirmation and the target earn their place;
+the stop never does.** On per-trade mean, dropping the confirmation and the
+target scores *higher* (+58.5%). On Sharpe, the confirmed and targeted version
+wins. The proposal's shape was right in two of three parts.
+
+## The bug that invalidated the first answer
+
+The search produced a candidate that passed everything: dev Sharpe 1.55,
+compounded +920%, and a **sealed-holdout** result of **+36.25% per trade, CI
+[+24.54%, +49.23%], Sharpe 2.40, maxDD −11.4%, three of three years positive**.
+
+Then the individual trades were read.
+
+**MI** showed 2026-03-17 at **$0.48** and the next panel row at **$10.01** on
+2026-07-02. **GDHG**: $0.42 then $5.80. Those are not consecutive sessions.
+
+`forensic_universe.parquet` is **pre-filtered** — it keeps only rows whose
+previous close sits in $0.50–$10.00 with a computable ADV. Every `shift()` and
+every forward path computed on that frame walks over **surviving rows, not
+sessions**. A stock that falls below the $0.50 floor vanishes from the frame and
+reappears weeks later at a different price, and the time-series operations step
+silently across the hole.
+
+Measured:
+
+| | first panel | corrected panel |
+|---|---|---|
+| rows | 3,431,765 | **6,710,204** |
+| consecutive-row gaps > 10 days | **13,279** | **168** |
+| gaps > 90 days | 3,815 | 156 |
+| signals whose 5-day window spanned > 10 calendar days | **886 of 4,670 (19%)** | 0 |
+
+MI alone had **73 of 91 sessions invisible** to its forward path. A 90-bar hold
+skipped the months the stock spent at its lows and booked the recovery.
+
+**The fix is a rule, not a patch: filter at signal time; never filter the series
+a shift walks over.** Eligibility is now a boolean column (`in_universe`) on a
+continuous panel, and a signal whose lookback spans more than `1.6 x window + 10`
+calendar days is rejected outright.
+
+## What was left after the fix
+
+| | contaminated | corrected |
+|---|---|---|
+| per trade (dev) | +29.27% | +19.87% |
+| excess over date-matched control | +25.17% (7.1x) | +12.16% (**2.6x**) |
+| drop the best 50 trades | +7.09% | **−3.51%** |
+
+And the top ten trades named the real mechanism — **seven of them fall between
+2020-03-10 and 2020-03-13, and every one is an oil and gas name**: MTDR, OVV,
+SM, PR, QEP, APA, CLB. That is the bottom of the COVID crash.
+
+Leave-one-year-out is unambiguous:
+
+| removed | n | per trade | 95% CI | Sharpe |
+|---|---|---|---|---|
+| nothing | 274 | +19.87% | [+5.24%, +33.44%] | 0.74 |
+| 2016 / 2017 / 2018 / 2019 | ~250 | +19.9% to +21.5% | all exclude zero | ~0.73 |
+| 2021 / 2022 / 2023 | ~230 | +22.7% to +25.0% | all exclude zero | ~0.85 |
+| **2020** | **204** | **+1.31%** | **[−6.46%, +9.26%]** | **0.10** |
+
+And precisely:
+
+> **Removing 2020-02-15 to 2020-06-30 — 59 trades of 274, four and a half months
+> of eleven years — leaves +1.17%, CI [−6.36%, +8.79%], median −8.08%, Sharpe
+> 0.09, compounded +3.7%.**
+
+## Verdict
+
+**No strategy. The candidate was one market event.** Buying beaten-down energy
+equities at the exact bottom of the COVID crash worked; nothing else did. A rule
+that requires a once-in-a-decade dislocation to be profitable is a description of
+that dislocation, not a strategy.
+
+The holdout number of +36.25% is **void** — it was computed on the buggy panel
+and measures the gap artefact, not the rule. It is recorded here so the sequence
+is legible, not as a result.
+
+## 75. The lesson
+
+**Filter at signal time. Never filter the series a shift walks over.**
+
+Every derived quantity in a panel — a lagged close, an N-day return, a rolling
+low, a forward path — assumes its neighbours are the adjacent *sessions*. Apply
+a row filter first and that assumption silently becomes false, with no error and
+no missing values, because the frame is still perfectly well-formed. This is
+strictly worse than the §72 adjusted-price bug: that one at least left a
+detectable fingerprint in a ratio.
+
+It also cost the third data-integrity failure in a row that was caught **only by
+reading individual trades** (§57, §64, §72, now §74). The statistics never
+objected: the contaminated version had a tighter confidence interval, a higher
+Sharpe, a cleaner drawdown and a passing sealed holdout. Four separate
+bias checks — leave-one-year-out, a date-matched control, a delisting
+worst-case, and a split-exclusion audit — all passed on corrupted data.
+
+**Reading ten rows of raw tape has now overturned four conclusions that survived
+every aggregate test put to them.** It belongs in the pipeline, not in the
+post-mortem.

@@ -1,0 +1,4 @@
+{"name":"crash50_hold60_plain","price_lo":0.50,"price_hi":10.00,"adv_floor":250000,
+ "drop_pct":0.50,"drop_window":5,"confirm":"none","min_dollar_vol":0.0,
+ "max_price_ratio":0.0,"entry_at":"next_open","target_mode":"fixed_pct",
+ "target":99.0,"stop_mode":"none","stop":0.15,"max_hold":60,"slots":30}
