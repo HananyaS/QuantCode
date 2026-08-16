@@ -2735,3 +2735,112 @@ worst-case, and a split-exclusion audit — all passed on corrupted data.
 **Reading ten rows of raw tape has now overturned four conclusions that survived
 every aggregate test put to them.** It belongs in the pipeline, not in the
 post-mortem.
+
+---
+
+# 76. Sector conditioning — the population really is two populations, and it still isn't a strategy
+
+## The proposal
+
+Use a sector classifier as a pre-model: a stock down 50% while its **sector is
+flat** fell for its own reasons (a failed trial, a fraud); one down 50% while its
+**sector fell too** fell because a factor moved. Nine rounds pooled the two and
+reported the average, which describes neither. §74's ten largest trades were
+seven oil and gas names on two consecutive days — the systematic case, presented
+as the general one.
+
+Sector was not in any cached file, but EDGAR publishes an SIC code in the same
+`submissions` payload `etl/edgar.py` already fetches. One pass over the 2,879
+known CIKs gave **98.9% coverage** (2,847 symbols) at no new data source.
+
+## The split is real, and it is enormous
+
+Round 9's arm, split on the sector's own median 5-day return (computed
+point-in-time from the same session's cross-section, leave-one-out so a thin
+sector is not compared against a median the stock itself set):
+
+| arm | n | per trade | 95% CI | median | Sharpe |
+|---|---|---|---|---|---|
+| **systematic** — sector ≤ −10% | 57 | **+91.24%** | **[+68.36%, +107.50%]** | **+91.22%** | 1.83 |
+| pooled (§74's arm) | 274 | +19.87% | [+5.24%, +33.44%] | +1.50% | 0.74 |
+| **idiosyncratic** — sector ≥ −5% | 183 | **+1.38%** | **[−6.26%, +9.75%]** | −7.67% | 0.10 |
+
+A **66×** separation, and the systematic arm's median ≈ its mean, so it is not
+tail-driven. The hypothesis was correct: these are two different populations.
+
+## But the systematic arm was one event, again
+
+| sector threshold | n | inside COVID | outside |
+|---|---|---|---|
+| ≤ −10% | 57 | **52** | 5 |
+| ≤ −15% | 41 | **41** | **0** |
+
+The conjunction was mis-specified: demanding a **−50% individual** crash inside a
+sector down only 10% is close to a contradiction. Relaxing the individual
+requirement produced a genuinely testable population — and, excluding COVID
+entirely:
+
+| individual drop | sector | n (ex-COVID) | per trade | 95% CI | median |
+|---|---|---|---|---|---|
+| ≥20% | ≤ −10% | **286** | **+8.41%** | **[+4.06%, +12.98%]** | **+18.75%** |
+| ≥20% | ≤ −5% | 779 | +3.04% | [−0.70%, +6.16%] | +17.90% |
+
+Left-tailed, Sharpe 0.80, maxDD −8.2%, and the sector condition is visibly doing
+the work — at −5% the interval covers zero, at −10% it does not.
+
+Then the same shape as always:
+
+- **232 of 286 trades fall in 2022.** Without 2022: n=54, +7.49%, **CI [−4.34%,
+  +19.73%]**.
+- All 286 trades occur on **48 distinct days across eight years** — about six
+  days a year. Four of the twelve largest share one date, 2022-06-14.
+
+## The test that settles it
+
+If a sector-wide crash is the signal, the honest question is whether picking the
+*crashed* names beats picking *anything* on those same days. Paired by date, so
+the day effect cancels:
+
+| control | control return | paired difference | |
+|---|---|---|---|
+| any liquid stock, same day | +6.69% [+2.30%, +14.74%] | **−1.06%** [−12.09%, +9.77%] | not distinguishable |
+| **same sector**, same day | +7.01% [+2.49%, +14.03%] | **−1.96%** [−14.39%, +9.70%] | not distinguishable |
+
+**The stock selection adds nothing — and the point estimate is negative.** On a
+day when a sector is down 10%, buying anything returns about +6.7%; buying the
+specific names that crashed hardest returns about the same. The unpaired "+2.19%
+excess" was a day-mix artefact that the pairing removes.
+
+## Verdict
+
+**Sector conditioning is a real discovery about the data and not a strategy.** It
+correctly identifies that the population is two populations, and it correctly
+isolates the one that moves. But what it isolates is a **timing** signal —
+sector-wide dislocations are followed by broad rebounds — with **no selection**
+content whatsoever.
+
+And a timing signal here has the sample size of the events themselves: sector
+crashes deep enough to matter occurred on 48 tradeable days in eleven years,
+concentrated in 2020 and 2022. That is the n≈4 regime problem arriving through
+the sector door rather than the front one. The rebound is real; there is simply
+no way to establish it is repeatable from four or five instances, and nothing in
+the stock-level data adds to it.
+
+## 77. What this rules in and out
+
+**Ruled out, now with a mechanism rather than just a null:** the crash-and-bounce
+family, in every parameterisation tried across rounds 8, 9 and 10. When it works,
+it works because the whole market or sector is rebounding, and then it does not
+beat buying at random on the same day.
+
+**Ruled in as method:** splitting a population beats thresholding one. The
+idiosyncratic/systematic split produced the single largest effect separation in
+the project (66×) on the first attempt. The lesson is not that sector is the
+right variable — it is that nine rounds of *univariate thresholds on a pooled
+population* were asking a question that could not have a clean answer.
+
+**The standing check that keeps paying:** a date-matched, paired control. §53
+recorded it as mandatory after equity drift was mistaken for alpha; it has now
+killed two further candidates that survived leave-one-year-out, concentration
+tests and confidence intervals. Any result whose trades cluster on few days is
+a day effect until a paired control says otherwise.

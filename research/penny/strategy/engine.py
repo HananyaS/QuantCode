@@ -78,6 +78,14 @@ class Spec:
     confirm: str = "green_day"
     min_dollar_vol: float = 0.0     # signal-day dollar volume floor (0 = off)
     max_price_ratio: float = 0.0    # 0 = off; else require close/low_window <= x
+    # Sector conditioning. `sector_max` requires the stock's SECTOR to have
+    # fallen at least this much too, which separates a systematic decline from
+    # an idiosyncratic one. Nine rounds pooled the two: a stock down 50% while
+    # its sector is flat (failed trial, fraud) and one down 50% alongside its
+    # peers (an oil price moved) are different populations that were reported
+    # as one. 0.0 disables the condition.
+    sector_max: float = 0.0         # e.g. -0.10 = sector median 5d <= -10%
+    require_sector: bool = False    # require a usable sector cross-section
     # timing
     entry_at: str = "next_open"     # next_open | close
     # exits
@@ -221,6 +229,16 @@ def signal_mask(u: pd.DataFrame, spec: Spec) -> np.ndarray:
         & price_band(u, spec.price_lo, spec.price_hi)
         & _confirmation_mask(u, spec.confirm)
     )
+    if spec.sector_max < 0.0 or spec.require_sector:
+        if "sec_med" not in u.columns:
+            raise KeyError(
+                "spec conditions on sector but the panel has no `sec_med`; "
+                "attach it with scripts/sector_split.attach_sector_relative()")
+        m &= u["sec_ok"].fillna(False).to_numpy()
+        if spec.sector_max < 0.0:
+            # the sector's own median return is a cross-sectional quantity
+            # computed from the SAME session -- no future information
+            m &= (u["sec_med"] <= spec.sector_max).fillna(False).to_numpy()
     if spec.min_dollar_vol > 0:
         m &= (u["close_unadj"] * u["volume"] >= spec.min_dollar_vol).fillna(False).to_numpy()
     if spec.max_price_ratio > 0:
