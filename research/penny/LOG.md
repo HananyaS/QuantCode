@@ -2844,3 +2844,126 @@ recorded it as mandatory after equity drift was mistaken for alpha; it has now
 killed two further candidates that survived leave-one-year-out, concentration
 tests and confidence intervals. Any result whose trades cluster on few days is
 a day effect until a paired control says otherwise.
+
+---
+
+# 78. Round 11 — the first validated alpha: a cross-sectional veto
+
+## Why ten rounds could not have found this
+
+Rounds 1–10 all estimated the same object — the unconditional mean of a screened
+set. Decomposing the forward return as `R = mu_t + lambda_{t,g} + eta`, a screen
+that fires on few days puts nearly all of its variance into `mu_t`. §76 measured
+it: the sector arm placed 286 trades on **48 days** and the paired control
+returned −1.06% with a confidence interval **22 points wide**. "No effect" and
+"an effect too small to see" were indistinguishable. Every prior round shares
+this defect.
+
+Demeaning **within the day** removes `mu_t` algebraically — no control group, no
+matching. Amendment 1 fixed cells as days rather than day×sector, because
+day×sector cells have median size 1–2. That single change took the design from
+**48 clusters to 1,834**.
+
+## The cross-section has real structure
+
+58,016 candidates, 1,834 cells, development only. The random control returns
+IC **−0.0016, CI [−0.0140, +0.0109]** — the estimator is calibrated. Then:
+
+| feature | IC | t | reading |
+|---|---|---|---|
+| realised volatility | **−0.0845** | **−12.0** | low-vol wins — the MAX effect (Bali–Cakici–Whitelaw 2011) |
+| prior 50%+ spikes | −0.0748 | −9.8 | lottery names underperform |
+| distance from 20-day low | −0.0565 | −8.2 | short-horizon reversal (Jegadeesh 1990, Lehmann 1990) |
+| dollar-volume shock | +0.0545 | +8.0 | attention / capitulation (Barber–Odean 2008) |
+| log ADV | +0.0383 | +5.4 | liquidity conditioning (Avramov–Chordia–Goyal 2006) |
+
+Every sign matches the literature the formulation named in advance.
+
+**The random control's long-short net of −1.06% is the cost floor** at gross
+exposure 1, so features must be read against that rather than zero. The best
+single gross spread is about +0.95% against a 1.06% round trip: real signal,
+eaten by cost.
+
+## The signal is monotone but left-tailed
+
+Combining seven features (signs fitted on development **before 2020**, reported
+on development **from 2020**) lifts composite IC from 0.067 at h=5 to **0.133**
+at h=60 with ADV >= $5M. But the tradable form was not the obvious one:
+
+| construction | excess over the cell average | 95% CI |
+|---|---|---|
+| long the top decile | −1.18% | [−3.20%, +0.97%] |
+| long the top decile, **random feature** | +0.77% | [−1.73%, +3.41%] |
+| **reverse the signs** (long the bottom) | **−5.63%** | [−7.86%, −3.27%] |
+
+The top decile does not beat the cell average, and neither does a random
+feature — the apparent "+5.22% long-only" was entirely `mu_t`. But reversing the
+signs is **strongly** negative. The relationship is monotone and concentrated in
+the **left** tail: the composite identifies losers powerfully and winners not at
+all, which is exactly how the MAX effect is documented.
+
+**So the tradable form is a veto** — which is what round 0 set out to find.
+
+## The veto
+
+> Population: eligible symbol-days that fell >=15% over five sessions, $0.50–$10,
+> ADV >= $250k, in a day-cell of at least five names. Score each name by the
+> composite, **drop the worst 25% within the day**, equal-weight the rest, hold
+> 60 sessions, enter at the next open, one-sided measured cost.
+
+| | development (>=2020) | **sealed holdout 2024–2026** |
+|---|---|---|
+| drop worst 10% | +0.67% [+0.43%, +0.90%] | **+1.53%** [+1.27%, +1.78%] |
+| **drop worst 25%** | **+1.07%** [+0.56%, +1.56%] | **+2.43%** [+1.91%, +2.91%] |
+| random control | −0.11% [−0.33%, +0.11%] | −0.06% [−0.33%, +0.19%] |
+
+Every leave-one-year-out interval excludes zero. Excluding the COVID window it
+**improves** (+0.72% and +1.24%). 62.8% of cells are positive.
+
+### As a portfolio
+
+| | base (all crashed names) | **veto (drop worst 25%)** |
+|---|---|---|
+| dev >=2020, per 60d | +6.40% | **+7.47%** |
+| dev annualised / Sharpe | +10.23% / 1.35 | **+14.93% / 1.92** |
+| **holdout, per 60d** | **+0.62%** | **+3.05%** |
+| **holdout annualised / Sharpe** | **−4.12% / −0.88** | **+5.94% / 1.21** |
+
+| holdout year | base | veto | excess |
+|---|---|---|---|
+| 2024 | −0.40% | **+2.18%** | +2.58% [+1.69%, +3.40%] |
+| 2025 | +3.56% | **+6.19%** | +2.63% [+1.81%, +3.45%] |
+| 2026 | −2.60% | −0.77% | +1.83% [+0.94%, +2.65%] |
+
+**The base population LOSES money on the holdout (−4.12% annualised). The veto
+turns it into +5.94%.** The excess is positive and significant in all three
+holdout years, and it grew while the beta vanished — the strongest evidence
+available that it is independent of the market effect.
+
+## Honest limits
+
+1. **The magnitude is modest.** +5.94% annualised at Sharpe 1.21 — not the
+   headline numbers earlier rounds produced and then retracted.
+2. **It is a veto, not a selector.** It cannot pick winners; it removes losers.
+   The long leg still holds ~58 names and inherits whatever the population does.
+3. **The base is negative on the holdout**, so the whole return is the veto. A
+   period where the veto stops working is a losing period outright — 2026 was
+   still −0.77% even after vetoing.
+4. **Execution is untested** at ~58 simultaneous microcap positions with
+   60-session rotation; the one-sided measured schedule is assumed, not verified
+   at that breadth.
+5. Signs were fitted once on pre-2020 data and never refitted. That is the right
+   discipline, and it also means no adaptation has been tested.
+
+# 79. Why this one is different
+
+Every retracted result in this project shared a signature: a large headline, a
+tight interval, and a sample concentrated in one event or corrupted upstream.
+This one has the opposite signature — **a small headline, intervals that survive
+every split, a random control that behaves, and a holdout that came in stronger
+than development while the market effect went the other way.**
+
+The methodological lesson generalises past this project: **when a screen fires on
+few days, the day effect is the estimate.** Demeaning within the day is not a
+refinement of the earlier designs; it is the difference between measuring the
+idiosyncratic term and measuring the market.
