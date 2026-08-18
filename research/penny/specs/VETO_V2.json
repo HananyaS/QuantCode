@@ -1,23 +1,25 @@
 {
-  "name": "cross_sectional_veto_v2_feasible",
+  "name": "low_vol_crash_v2",
+  "note": "V2 simplifies round 11: with the volatility cap in place the 7-feature composite adds nothing on the holdout (Sharpe 2.61 with veto vs 2.63 without). Realised volatility WAS the composite. One feature, no fitted signs.",
   "population": {
     "crash_pct": 0.15, "crash_window": 5,
     "price_lo": 0.50, "price_hi": 10.00, "adv_floor": 250000,
-    "min_cell": 5
+    "min_cell": 5, "max_lookback_span_days": 18
   },
-  "composite_signs": {
-    "B7_realised_vol": -1, "B7_prior_spikes": -1, "B8_dist_from_low": -1,
-    "B3_dv_shock": 1, "B3_log_adv": 1, "B1_range_expansion": 1,
-    "B8_pct_of_range": -1
+  "filter": {
+    "rule": "keep the lowest 30% by 20-session realised volatility, ranked WITHIN the day",
+    "vol_cap_quantile": 0.30,
+    "composite_veto": "optional; adds nothing once the vol cap is applied"
   },
-  "signs_fitted_on": "development < 2020-01-01",
-  "veto_fraction": 0.25,
-  "vol_cap_quantile": 0.30,
-  "n_slots": 400,
-  "weight": "equal",
-  "fill_rule": "random among survivors",
-  "horizon_sessions": 60,
-  "entry": "next_open",
-  "cost": "one-sided, measured schedule by ADV band",
-  "chosen_on": "development >= 2020 only; holdout not read at selection time"
+  "portfolio": {
+    "n_slots": 400, "weight": "equal", "fill_rule": "random among survivors",
+    "horizon_sessions": 60, "entry": "next_open",
+    "cost": "one-sided, measured schedule by ADV band"
+  },
+  "measured": {
+    "dev_sharpe": 1.05, "dev_annual_pct": 9.1, "dev_maxdd_pct": -24.4,
+    "holdout_sharpe": 2.61, "holdout_annual_pct": 18.3, "holdout_maxdd_pct": -13.7,
+    "orders_per_session": 5.7, "weight_per_name_pct": 0.25
+  },
+  "chosen_on": "development >= 2020 only; holdout read once, after this file was committed"
 }

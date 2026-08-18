@@ -2967,3 +2967,120 @@ The methodological lesson generalises past this project: **when a screen fires o
 few days, the day effect is the estimate.** Demeaning within the day is not a
 refinement of the earlier designs; it is the difference between measuring the
 idiosyncratic term and measuring the market.
+
+---
+
+# 80. Round 12 — making it feasible, and the simplification that fell out
+
+## The problem
+
+Round 11's veto was validated and unimplementable: **787 concurrent positions**,
+42 new orders a session, **0.040% of capital per name** — $40 on a $100k account.
+Amendment 2 fixed the constraint and the identity
+
+    N = (H / tau) * K * (1 - delta)
+
+## Four findings, in the order they closed off options
+
+**1. Calendar cohorts are the wrong lever.** Entering every tau-th session
+discards 80–95% of the signal *and* collapses the sample from 973 cohorts to 47,
+so the veto stops being measurable (intervals 14 points wide). Duplicates also
+mean `N` falls far more slowly than `H/tau` predicts — at H=60, going tau 1→5
+took N_p90 from 707 to 487, not to 141. **2 of 84 configurations admissible**,
+best Sharpe 0.70.
+
+**2. The horizon lever is closed.** The veto excess is a *threshold*, not an
+accrual:
+
+| H | 10 | 20 | 30 | 40 | **60** | 90 | 120 |
+|---|---|---|---|---|---|---|---|
+| excess | −0.09% | −0.42% | +0.07% | +0.32% | **+1.07%** | +0.97% | +1.54% |
+| CI excludes 0 | no | no | no | no | **yes** | yes | yes |
+
+H must be ≥60, which puts a floor under the position count.
+
+**3. An accounting bug, found and fixed.** `slots.py` booked `r/N` as a return
+contribution on the exit day and compounded the mean of that series. That is
+only valid for small `r`, and these are 60-session microcap returns with sigma
+near 70% — it disagreed with the §78 method by a **factor of two**. Replaced
+with a true equity simulation in currency: a slot entered with `equity/N`
+returns `capital*(1+r)` to cash on exit. Every number below uses that.
+
+**4. Breadth is irreducible, and the arithmetic says why.** The edge is +1.07%
+per 60 sessions against single-name sigma near 70%, so a portfolio of `N` names
+estimates it with `SE = sigma/sqrt(N)`: at N=30 the standard error is ~13%,
+five times the signal. Measured breadth curve agrees exactly — **the veto's
+Sharpe contribution is negative or nil below 150 slots and turns positive only
+at 250–400.**
+
+## The lever that was missing was sigma, not N
+
+Sharpe is mu/sigma and nothing had touched the denominator. Keeping only names
+below the **30th percentile of 20-day realised volatility** cuts drawdown by a
+third and lifts Sharpe at every breadth:
+
+| slots | vol cap | dev Sharpe | dev maxDD |
+|---|---|---|---|
+| 250 | none | 0.72 | −43.8% |
+| 250 | 0.30 | 0.67 | −34.1% |
+| 400 | none | 0.86 | −35.2% |
+| **400** | **0.30** | **1.05** | **−24.4%** |
+| 800 | 0.50 | 1.71 | −16.2% |
+
+## V2, chosen on development and then held out
+
+> Crashed microcaps (≥15% over five sessions, $0.50–$10, ADV ≥$250k). Keep the
+> **lowest 30% by 20-day realised volatility** within the day. 400 slots, equal
+> weight, enter at the next open, hold 60 sessions.
+
+| | round 11 | **V2** |
+|---|---|---|
+| concurrent positions | 787 | **400** |
+| new orders per session | 42 | **5.7** |
+| weight per name | 0.040% | **0.25%** |
+| dev Sharpe / maxDD | — | 1.05 / −24.4% |
+| **holdout Sharpe** | — | **2.61** |
+| **holdout annual** | — | **+18.3%** |
+| **holdout maxDD** | — | **−13.7%** |
+
+## The simplification: the composite *was* the volatility effect
+
+On the holdout, with the volatility cap in place, the seven-feature composite
+adds **nothing**:
+
+| 400 slots, H=60 | holdout Sharpe |
+|---|---|
+| vol cap 0.30 **+ veto** | 2.61 |
+| vol cap 0.30, **no veto** | **2.63** |
+| no vol cap, + veto | 1.66 |
+| no vol cap, no veto | 0.76 |
+
+The veto and the volatility cap are **substitutes**. That is not a surprise in
+hindsight — realised volatility was the composite's strongest component by a
+wide margin (IC −0.0845, t = −12.0, against +0.038 for the next best). The
+composite was a seven-feature wrapper around one effect.
+
+**Engineering consequence:** the strategy needs **one feature**, not seven, and
+**no fitted signs at all** — which removes the entire sign-fitting leakage
+surface along with six features of implementation.
+
+**Research consequence:** the round-11 result stands, but its interpretation
+changes. What was validated is not "a composite veto" — it is the **low-volatility
+effect inside crashed microcaps**, which is Bali–Cakici–Whitelaw's MAX finding
+holding in the one corner of the market where it should be strongest.
+
+## Honest limits
+
+1. **400 positions is fewer, not few.** At 0.25% per name a $2,000 minimum
+   position implies an **$800k account**. Order flow is the easy part (6 a day);
+   capital is the constraint.
+2. **The holdout is much better than development** (2.61 vs 1.05). The
+   consistent direction across §78 and here is that 2024–2026 suited this
+   strategy; that is a period property, not a guarantee.
+3. **This is the second valid holdout read**, declared in Amendment 2 before it
+   was taken. It tested portfolio construction on an already-validated signal —
+   but it is a second read and the multiple-comparison cost is real.
+4. **Execution at 400 simultaneous microcap positions remains unmeasured.** The
+   one-sided cost schedule is assumed at that breadth.
+5. The volatility cap quantile (0.30) was chosen on development from three
+   values. Not a large search, but not zero either.
