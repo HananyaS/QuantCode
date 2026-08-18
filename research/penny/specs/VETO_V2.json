@@ -1,0 +1,23 @@
+{
+  "name": "cross_sectional_veto_v2_feasible",
+  "population": {
+    "crash_pct": 0.15, "crash_window": 5,
+    "price_lo": 0.50, "price_hi": 10.00, "adv_floor": 250000,
+    "min_cell": 5
+  },
+  "composite_signs": {
+    "B7_realised_vol": -1, "B7_prior_spikes": -1, "B8_dist_from_low": -1,
+    "B3_dv_shock": 1, "B3_log_adv": 1, "B1_range_expansion": 1,
+    "B8_pct_of_range": -1
+  },
+  "signs_fitted_on": "development < 2020-01-01",
+  "veto_fraction": 0.25,
+  "vol_cap_quantile": 0.30,
+  "n_slots": 400,
+  "weight": "equal",
+  "fill_rule": "random among survivors",
+  "horizon_sessions": 60,
+  "entry": "next_open",
+  "cost": "one-sided, measured schedule by ADV band",
+  "chosen_on": "development >= 2020 only; holdout not read at selection time"
+}

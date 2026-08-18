@@ -192,3 +192,68 @@ in a day-cell of at least 5 names. 58,943 candidates on the development period.
 open, net of the measured cost schedule — no barriers. Exit engineering is a
 separate question and would confound signal quality with it. Barriers return in
 §5 only if a block survives.
+
+---
+
+## Amendment 2 — 2026-08-18, the feasibility constraint
+
+Round 11's veto is validated but unimplementable: **787 concurrent positions**
+(p90 1,029, max 1,186), 42 new orders per session, and 0.040% of capital per
+name — $40 on a $100k account. The edge and the arithmetic do not meet.
+
+### The position-count identity
+
+With candidate arrival rate `lambda` names per session, entry cadence `tau`
+sessions between cohorts, holding period `H`, per-cohort size `K`, the number of
+live cohorts is `H/tau` and
+
+$$N_{\text{pos}} \;=\; \frac{H}{\tau}\,K\,(1-\delta),\qquad
+w \;=\; \frac{1}{N_{\text{pos}}}$$
+
+with `delta` the duplicate rate (a symbol held by two live cohorts is one
+holding). Round 11 sits at `tau=1, H=60, K=42`, giving `N ≈ 787` after
+duplicates.
+
+Three levers, and only three:
+
+| lever | effect on `N` | effect on the edge |
+|---|---|---|
+| **cadence** `tau` | divides by `tau` | none on the signal; fewer, larger cohorts |
+| **cohort size** `K` | multiplies | raises idiosyncratic variance as `1/K` |
+| **horizon** `H` | multiplies | the excess is horizon-dependent — must be measured |
+
+### Why capping `K` is legitimate and not a second selection
+
+§78 established the signal is **monotone but left-tailed**: the top decile does
+not beat the cell average (−1.18%, CI spanning zero) while reversing the signs
+loses 5.6%. So inside the surviving 75% the expected return is **flat in the
+score**. Sampling `K` survivors is therefore unbiased for the cohort mean:
+
+$$\mathbb{E}\!\left[\frac1K\sum_{i\in S_K} R_i\right]
+= \mathbb{E}\!\left[\frac1{|S|}\sum_{i\in S} R_i\right],
+\qquad
+\operatorname{Var} = \frac{\sigma^2_\eta}{K} + \sigma^2_{\text{common}}$$
+
+Only the variance moves. **Both selection rules are tested** — random-`K` and
+top-`K` by composite — precisely because "flat in the score" is an empirical
+claim from §78 that must hold again here, not an assumption.
+
+### The feasibility constraint, fixed now
+
+A configuration is **admissible** only if, on the development period:
+
+1. `N_pos` at the 90th percentile **≤ 60**;
+2. position weight `w ≥ 1/60`, i.e. **≥ $2,000 per name on a $120k account**;
+3. new orders per entry day **≤ 25**;
+4. the veto excess over the same-cohort no-veto base keeps a CI excluding zero.
+
+### Leakage rules for this amendment
+
+* Composite **signs stay frozen** at the pre-2020 fit. Nothing is refitted.
+* Cadence, `K`, `H` and the selection rule are chosen on **development only**.
+* The holdout is read **once** for the single chosen configuration. This is the
+  second valid holdout read of the project; it tests portfolio *construction*
+  on an already-validated signal, and that is recorded here rather than
+  discovered later.
+* Entry cohorts are formed on a **fixed calendar grid** (every `tau`-th session
+  from the first), never chosen by which days look good.
