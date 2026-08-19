@@ -1,0 +1,31 @@
+{
+  "name": "low_vol_crash_retail_final",
+  "population": {
+    "crash_pct": 0.15, "crash_window": 5,
+    "price_lo": 0.50, "price_hi": 10.00, "adv_floor": 250000,
+    "min_cell": 5, "max_lookback_span_days": 18
+  },
+  "filter": {
+    "vol_cap_quantile": 0.50,
+    "composite_veto_fraction": 0.25,
+    "note": "both ranked WITHIN the day; composite signs frozen at the pre-2020 fit"
+  },
+  "portfolio": {
+    "n_slots": 60,
+    "stagger": "enter at most ceil(N/H)=1 name per session",
+    "weight": "equal (1.67% per name)",
+    "fill_rule": "random among survivors",
+    "horizon_sessions": 60,
+    "profit_target": 1.00,
+    "stop": "none",
+    "entry": "next_open",
+    "cost": "SIZE-AWARE full round trip: 2*half_spread*(1+max(order/inside-1,0)), fitted by ADV decile"
+  },
+  "sizing_rule": "N_min = max(60, account / 1700). Below 60 the estimate is too noisy; above account/inside-quote the orders walk the book.",
+  "measured_50k_account": {
+    "dev_sharpe": 1.36, "holdout_sharpe": 1.39,
+    "holdout_annual_pct": 15.8, "holdout_maxdd_pct": -21.6,
+    "orders_per_session": 1.0, "usd_per_name": 833, "cost_bps": 75
+  },
+  "note": "Holdout Sharpe rises monotonically above N=60 (1.39 -> 2.31 at 150 -> 2.66 at 400). Anyone who can automate should hold MORE. 60 is a constraint satisfied, not an optimum."
+}

@@ -3174,3 +3174,104 @@ rounds 11–13 is real and is recorded here rather than discovered later.
 
 Breadth buys precision. The retail end of that frontier is now reachable; it is
 simply a noisier place to stand.
+
+---
+
+# 84. Round 14 — the cost model was backwards, and it changes the answer
+
+## The question that broke it open
+
+"Does the $2,000 per position really matter?"
+
+It was my assumption, never a measurement, and it was **inverted**. Two errors
+were hiding behind it.
+
+**Error 1 — the round trip was charged at half.** `COST_BPS` is documented as a
+*round trip*, and every slot simulation charged `0.5 * cost`. A long-only
+strategy that buys and later sells pays **both** sides.
+
+**Error 2 — cost depends on dollar size, and these strategies do not trade
+$2,000.** The measured NBBO gives a median inside-quote notional of **$1,900**,
+and round 4's model is
+
+$$\text{round trip} = 2\,h\left(1 + \left(\tfrac{\text{order}}{\text{inside}}-1\right)^{+}\right)$$
+
+so cost is **flat below the inside quote and linear above it**:
+
+| position | $100 | $250 | $1,000 | $2,000 | $5,000 | $25,000 |
+|---|---|---|---|---|---|---|
+| round trip | 76 bps | 76 | 83 | 100 | 199 | **873** |
+
+The two errors nearly cancel at $250 a name (75 charged, 76 true) and do not at
+$3,333 (75 charged, 144 true). **The flat schedule flattered precisely the
+low-position-count configurations** — the ones the feasibility argument was
+built on.
+
+## The consequence is the opposite of the intuition
+
+**More positions is cheaper.** A fixed account split more ways puts each order
+further inside the quote:
+
+| | 30 positions | 400 positions |
+|---|---|---|
+| $50k account | $1,667/name, **75 bps** | $125/name, **75 bps** |
+| $100k account | $3,333/name, **144 bps** | $250/name, **76 bps** |
+
+The "$800k account needed for 400 positions" in §80 was wrong in direction as
+well as magnitude. **Position count was never a capital constraint.** It is an
+operational one — how many line items a person will actually track.
+
+## Re-run with size-aware, full round-trip cost
+
+`strategy/cost_model.py` fits median half-spread and inside-quote notional by
+ADV decile from the 9,794 measured symbol-days, then charges both sides at the
+actual position size. $50,000 account, +100% target, vol cap 0.50:
+
+| slots | $/name | cost | **dev** Sharpe | **holdout** Sharpe | holdout annual | maxDD | orders/day |
+|---|---|---|---|---|---|---|---|
+| 15 | $3,333 | 143 bps | 0.52 | 1.21 | +30.2% | −20.6% | 1.0 |
+| 30 | $1,667 | 75 bps | 1.45 | **0.87** | +13.9% | −24.0% | 1.0 |
+| **60** | **$833** | **75 bps** | **1.36** | **1.39** | **+15.8%** | **−21.6%** | **1.0** |
+| 150 | $333 | 75 bps | 1.52 | 2.31 | +18.1% | −14.5% | 3.0 |
+| 400 | $125 | 75 bps | 1.77 | 2.66 | +13.4% | −14.2% | 7.0 |
+
+**N=15 is genuinely bad**, and at a $25k account (where $1,667 a name still fits
+inside the quote, 75 bps) it is *still* bad — Sharpe 0.66. So the floor at 15 is
+a **breadth** floor, not only a cost one, exactly as the variance decomposition
+in §82 predicted.
+
+## The recommendation changes from 30 to 60
+
+**N=60 costs the same operational effort as N=30 — one order per session — and
+is the only setting that is stable across both periods.**
+
+| | dev | holdout |
+|---|---|---|
+| N=30 | 1.45 | **0.87** |
+| **N=60** | **1.36** | **1.39** |
+| N=150 | 1.52 | 2.31 |
+
+N=30's dev figure was the best of the low-N row and did not survive. N=60 did.
+That is what selecting on a development period and then testing is for.
+
+## The rule this yields
+
+$$N_{\min} \;=\; \max\!\left(\underbrace{60}_{\text{breadth floor}},\;
+\frac{\text{account}}{\text{inside-quote notional}\;(\approx \$1{,}700)}\right)$$
+
+Below the breadth floor the estimate is too noisy; above `account/inside` the
+orders walk the book. For accounts up to about **$100,000, sixty positions
+satisfies both** — and costs one trade a day.
+
+## Honest limits
+
+1. **This is the fourth holdout read.** It corrects a cost model rather than
+   selecting a new strategy, but it is a fourth look and the accumulated
+   selection is real.
+2. The size-aware model is fitted from 9,794 measured symbol-days and applied by
+   ADV decile. It is a model, not a per-name quote.
+3. Sixty microcap positions entered one a day and held three months is still
+   real administrative work — sixty line items, sixty exits to schedule.
+4. Holdout Sharpe rises monotonically with N above 60 (1.39 → 2.31 → 2.66).
+   **Anyone who can automate should hold more, not fewer.** The retail answer is
+   a constraint being satisfied, not an optimum being found.
