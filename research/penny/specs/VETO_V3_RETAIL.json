@@ -1,12 +1,16 @@
 {
   "name": "low_vol_crash_v3_retail",
   "population": {
-    "crash_pct": 0.15, "crash_window": 5,
-    "price_lo": 0.50, "price_hi": 10.00, "adv_floor": 250000,
-    "min_cell": 5, "max_lookback_span_days": 18
+    "crash_pct": 0.15,
+    "crash_window": 5,
+    "price_lo": 0.5,
+    "price_hi": 10.0,
+    "adv_floor": 250000,
+    "min_cell": 5,
+    "max_lookback_span_days": 18
   },
   "filter": {
-    "vol_cap_quantile": 0.50,
+    "vol_cap_quantile": 0.5,
     "composite_veto_fraction": 0.25,
     "note": "vol cap ranked WITHIN the day; composite signs frozen at the pre-2020 fit"
   },
@@ -16,14 +20,28 @@
     "weight": "equal (3.33% per name)",
     "fill_rule": "random among survivors",
     "horizon_sessions": 60,
-    "profit_target": 1.00,
+    "profit_target": 1.0,
     "stop": "none -- every stop tested reduces both mean and IR",
     "entry": "next_open",
     "cost": "one-sided, measured schedule by ADV band"
   },
   "dev_measured": {
-    "sharpe": 1.54, "sharpe_seed_sd": 0.09, "annual_pct": 28.7,
-    "maxdd_pct": -30.7, "orders_per_session": 0.51, "weight_per_name_pct": 3.33
+    "sharpe": 1.54,
+    "sharpe_seed_sd": 0.09,
+    "annual_pct": 28.7,
+    "maxdd_pct": -30.7,
+    "orders_per_session": 0.51,
+    "weight_per_name_pct": 3.33
   },
-  "chosen_on": "development >= 2020 only; holdout not read at selection time"
+  "chosen_on": "development >= 2020 only; holdout not read at selection time",
+  "holdout_measured": {
+    "sharpe": 0.99,
+    "sharpe_seed_sd": 0.75,
+    "sharpe_se_5_seeds": 0.34,
+    "annual_pct": 15.9,
+    "maxdd_pct": -23.5,
+    "orders_per_session": 0.51,
+    "weight_per_name_pct": 3.33,
+    "note": "third valid holdout read of the project. At 30 positions the seed-to-seed dispersion (sd 0.75) is 8x the development figure (0.09): which names you draw is a large part of the outcome, and a live trader gets one draw. The no-veto variant scored 1.31, so the composite still adds nothing once the vol cap is applied."
+  }
 }

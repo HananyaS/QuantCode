@@ -3084,3 +3084,93 @@ holding in the one corner of the market where it should be strongest.
    one-sided cost schedule is assumed at that breadth.
 5. The volatility cap quantile (0.30) was chosen on development from three
    values. Not a large search, but not zero either.
+
+---
+
+# 82. Round 13 — 787 positions to 30, and what it costs
+
+## Two findings did the work
+
+**1. The simulation had a design flaw, not the strategy.** Filling slots greedily
+means that at N=30 with a 60-session hold, **all 30 fill on day one and exit
+together**. The book is one synchronised cohort with maximum exposure to the
+common factor — the term diversification cannot remove. Capping entries at
+`ceil(N/H)` per session spreads the book over 60 cohorts.
+
+That alone took N=30 from **Sharpe 0.48 to 1.08** on development. Every earlier
+conclusion that "breadth is irreducible" was measuring my own fill rule.
+
+The variance decomposition says why, and it was there to be read:
+
+$$R_i = \mu_t + \eta_i,\qquad
+\operatorname{Var}(\text{portfolio}) = \operatorname{Var}(\mu_t) + \frac{\operatorname{Var}(\eta)}{N}$$
+
+| target | sd(mu_t) | sd(eta) | ceiling = mean/sd(mu_t) | N* | N for 90% of ceiling |
+|---|---|---|---|---|---|
+| none | 33.4% | 61% | 0.93 | 3 | **14** |
+| +50% | 19.2% | 32% | 1.01 | 3 | **12** |
+| +100% | 24.9% | 41% | 1.11 | 3 | **12** |
+
+**Twelve to fourteen positions reach 90% of everything achievable.** The earlier
+N=400 requirement was an artifact, not arithmetic.
+
+**2. A profit target raises information ratio per position**, which is precisely
+the quantity that sets required breadth. A +100% target cuts sigma from 70% to
+49% while giving up 1.6 points of mean: **IR/pos 0.217 → 0.273**.
+
+Stops do the reverse at every level tested (IR 0.217 → 0.129 at −20%),
+independently reproducing §70 on a different population, a different horizon and
+a different filter.
+
+## V3
+
+> Crashed microcaps (≥15% over five sessions, $0.50–$10, ADV ≥$250k). Keep the
+> lower half by 20-session realised volatility, drop the worst quarter by
+> composite. **30 slots. Enter at most one name per session.** Equal weight,
+> 3.33% each. Exit at **+100%** or after 60 sessions.
+
+| | round 11 | V2 | **V3** |
+|---|---|---|---|
+| concurrent positions | 787 | 400 | **30** |
+| orders per session | 42 | 5.7 | **0.51** |
+| weight per name | 0.040% | 0.25% | **3.33%** |
+| **dev** Sharpe / annual / maxDD | — | 1.05 / +9.1% / −24.4% | **1.54 / +28.7% / −30.7%** |
+| **holdout** Sharpe / annual / maxDD | — | 2.61 / +18.3% / −13.7% | **0.99 / +15.9% / −23.5%** |
+
+On a $50,000 account that is **$1,667 a position and one trade every other day**.
+
+## What feasibility costs, stated plainly
+
+**The seed-to-seed standard deviation of Sharpe at N=30 is 0.75.** With five
+seeds the standard error on the mean is 0.34, so the holdout figure is
+**0.99 ± 0.34** — against **1.54 ± 0.09** on development, where the same
+dispersion was a tenth as large.
+
+That dispersion is not only estimation noise. At 30 positions *which names you
+happen to draw* is a large part of the outcome, and a live trader gets exactly
+one draw. **Concentration converts a diversified statistical edge into a path
+that may or may not resemble its own expectation.** That is the real price of
+going from 787 positions to 30, and it does not show up in a mean.
+
+Two further honest points:
+
+* On the holdout the **no-veto** variant scored higher (1.31 vs 0.99). Once the
+  volatility cap is applied the composite keeps adding nothing — the same
+  conclusion as §80, now at retail breadth.
+* Holdout (0.99) is well below development (1.54). The direction is the opposite
+  of §78 and §80, where the holdout came in stronger. With ±0.34 on the estimate
+  the two are not distinguishable, which is itself the point.
+
+**This is the third valid holdout read.** The accumulated selection across
+rounds 11–13 is real and is recorded here rather than discovered later.
+
+## The frontier, since there is no single answer
+
+| positions | weight/name | orders/day | holdout Sharpe | account for $2k positions |
+|---|---|---|---|---|
+| 30 | 3.33% | 0.5 | ~1.0 ± 0.34 | **$60k** |
+| 40 | 2.50% | 0.7 | ~1.5 ± 0.48 | $80k |
+| 400 | 0.25% | 5.7 | 2.61 | $800k |
+
+Breadth buys precision. The retail end of that frontier is now reachable; it is
+simply a noisier place to stand.
