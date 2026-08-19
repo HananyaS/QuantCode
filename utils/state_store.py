@@ -151,6 +151,27 @@ class StateStore:
             "recorded_at": recorded_at,
         }
 
+    def has_snapshot_on(self, run_date: str) -> bool:
+        """True iff a completed run already recorded this session.
+
+        This -- not `has_orders_on` -- is the reliable "today's run already
+        happened" marker. Every completed real run writes a snapshot: the
+        ExecutionAgent when it places orders, and live_run.py's
+        once-per-session guard when it finds the session already executed.
+        Orders alone can't serve as that marker, because a legitimate
+        no-change day submits none and would be indistinguishable from a
+        run that never happened at all.
+
+        The scheduled workflow's preflight keys on this to make the backup
+        cron firing a silent no-op when the primary already succeeded, and
+        a genuine retry when it didn't.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM account_snapshots WHERE run_date = ? LIMIT 1", (run_date,)
+            ).fetchone()
+        return row is not None
+
     def snapshots(self) -> pd.DataFrame:
         with self._connect() as conn:
             df = pd.read_sql_query(

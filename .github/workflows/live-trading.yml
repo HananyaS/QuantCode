@@ -1,15 +1,20 @@
 name: Live Paper Trading (Kelly & Linear)
 
-# Runs both strategies once per weekday on GitHub's hosted runners, so
+# Runs both strategies once per TRADING DAY on GitHub's hosted runners, so
 # trading doesn't depend on a laptop being open. Decisions use the most
 # recently completed daily bar (QQQ/QLD/TQQQ fetched fresh from Alpaca's
 # data API every run, ^VIX from yfinance -- see live_run.py); orders are
 # submitted during regular market hours so they fill immediately rather
 # than queuing after-hours.
 #
-# The schedule trigger below runs the REAL pipeline (submits real, though
-# paper, orders) -- only a manual workflow_dispatch run respects the
-# dry_run input. There is no dry-run gate on the schedule itself.
+# "Once per trading day" is enforced by the Preflight step below, not by
+# the cron schedule -- cron alone cannot express it. Every step in this
+# job, INCLUDING the notification, is gated on Preflight's decision, so a
+# firing that has nothing to do does nothing and says nothing.
+#
+# The schedule trigger runs the REAL pipeline (submits real, though paper,
+# orders) -- only a manual workflow_dispatch run respects the dry_run
+# input. There is no dry-run gate on the schedule itself.
 #
 # State (data/live_state_kelly.db, data/live_state_linear.db) is normally
 # gitignored -- runners are ephemeral, so this workflow force-commits those
@@ -28,10 +33,13 @@ on:
     #     (summer) -- always after the 9:30am open, past the noisy
     #     opening range, and early enough that even a badly delayed fire
     #     still lands mid-morning;
-    #   * backup at 15:45 UTC one hour later. live_run.py's
-    #     once-per-session guard makes it a free retry: it only acts if
-    #     the primary never ran or failed before submitting orders --
-    #     otherwise both strategies no-op ("Orders already submitted").
+    #   * backup at 15:45 UTC one hour later, purely a safety net for a
+    #     primary that never fired or died before submitting orders.
+    # The backup costs nothing when it isn't needed: Preflight sees the
+    # primary's completed session in the ledgers and stands the whole job
+    # down in ~2s, with no notification. Delete the second cron line below
+    # if you'd rather have no second firing at all -- at the price of
+    # losing the day whenever GitHub drops or badly delays the primary.
     # GitHub cron is UTC-only and doesn't shift with US DST, so the local
     # firing time drifts by an hour across the year (accounted above).
     - cron: "45 14 * * 1-5"
@@ -64,8 +72,30 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Preflight -- should this firing trade, and should it speak?
+        # Decides `trade` and `notify` for everything below. Cron fires
+        # twice a weekday and knows nothing about the NYSE calendar, so
+        # without this the job pushed a notification on every no-op firing:
+        # two per normal trading day (the second meaningless), and two on
+        # every market holiday (both meaningless). See
+        # scripts/preflight_check.py for the full decision table.
+        #
+        # Silent no-op when: not an NYSE session, or today's session
+        # already completed for BOTH strategies.
+        # Runs + notifies when: first firing of an open session, or a
+        # manual dispatch.
+        # Skips but DOES notify when: the session never ran and the market
+        # has already closed -- a missed day is worth hearing about.
+        id: preflight
+        env:
+          ALPACA_API_KEY_KELLY: ${{ secrets.ALPACA_API_KEY_KELLY }}
+          ALPACA_SECRET_KEY_KELLY: ${{ secrets.ALPACA_SECRET_KEY_KELLY }}
+          MANUAL_FLAG: ${{ github.event_name == 'workflow_dispatch' && '--manual' || '' }}
+        run: python scripts/preflight_check.py $MANUAL_FLAG
+
       - name: Kelly strategy
         id: kelly
+        if: ${{ steps.preflight.outputs.trade == 'true' }}
         env:
           ALPACA_API_KEY_KELLY: ${{ secrets.ALPACA_API_KEY_KELLY }}
           ALPACA_SECRET_KEY_KELLY: ${{ secrets.ALPACA_SECRET_KEY_KELLY }}
@@ -79,7 +109,7 @@ jobs:
         # respects an actual workflow cancellation. The job still reports
         # failure overall if either step failed.
         id: linear
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.preflight.outputs.trade == 'true' }}
         env:
           ALPACA_API_KEY_LINEAR: ${{ secrets.ALPACA_API_KEY_LINEAR }}
           ALPACA_SECRET_KEY_LINEAR: ${{ secrets.ALPACA_SECRET_KEY_LINEAR }}
@@ -91,11 +121,14 @@ jobs:
         # from the updated ledgers. Skipped on dry runs -- the ledgers
         # didn't change, and regenerating would commit a timestamp-only
         # diff every preview.
-        if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        if: ${{ !cancelled() && steps.preflight.outputs.trade == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         run: python scripts/generate_live_report.py
 
       - name: Persist live state
-        if: always()
+        # always() so a partially-failed run still commits whatever the
+        # ledger did record -- but only when we actually traded. A stood-
+        # down firing has nothing to persist and skips the git work.
+        if: ${{ always() && steps.preflight.outputs.trade == 'true' }}
         # The push can race anything that advanced origin/main since this
         # job's checkout (a code push during the run, a concurrent manual
         # run's state commit) -- a plain `git push` would fail and today's
@@ -128,11 +161,19 @@ jobs:
         # secret: ntfy.sh topics are open to anyone who knows the name, so
         # an unguessable name IS the access control. Subscribe to it in
         # the ntfy app / ntfy.sh web page to receive these.
-        if: always()
+        #
+        # Gated on Preflight so this fires at most ONCE per trading day.
+        # The `failure()` arm is the exception that must stay: if Preflight
+        # itself blew up it never set an output, and a broken preflight is
+        # exactly the thing you need to be told about.
+        if: ${{ always() && (steps.preflight.outputs.notify == 'true' || failure()) }}
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           KELLY_OUTCOME: ${{ steps.kelly.outcome }}
           LINEAR_OUTCOME: ${{ steps.linear.outcome }}
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          PREFLIGHT_REASON: ${{ steps.preflight.outputs.reason }}
+          PREFLIGHT_TRADED: ${{ steps.preflight.outputs.trade }}
           RUN_KIND: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'dry run' || 'live run' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -140,15 +181,31 @@ jobs:
             echo "NTFY_TOPIC secret not set -- skipping notification."
             exit 0
           fi
-          SUMMARY=$(python scripts/generate_live_report.py --summary 2>/dev/null || echo "(summary unavailable)")
-          if [ "$KELLY_OUTCOME" = "success" ] && [ "$LINEAR_OUTCOME" = "success" ]; then
+          if [ "$PREFLIGHT_OUTCOME" != "success" ]; then
+            # Reached via the failure() arm: preflight errored, or something
+            # before it (checkout, pip install) did, so it never ran. Either
+            # way today's session has not traded and nothing else will.
+            TITLE="QuantCode $RUN_KIND FAILED to start (preflight=$PREFLIGHT_OUTCOME)"
+            TAGS="rotating_light"
+            PRIORITY="high"
+            SUMMARY="The run failed before either strategy could execute, so today's session has NOT traded. Check the Actions logs."
+          elif [ "$PREFLIGHT_TRADED" != "true" ]; then
+            # Skipped on purpose, and the reason was judged worth telling
+            # you about (today's only notifying skip: a missed session).
+            TITLE="QuantCode $RUN_KIND SKIPPED"
+            TAGS="warning"
+            PRIORITY="high"
+            SUMMARY="$PREFLIGHT_REASON"
+          elif [ "$KELLY_OUTCOME" = "success" ] && [ "$LINEAR_OUTCOME" = "success" ]; then
             TITLE="QuantCode $RUN_KIND succeeded"
             TAGS="white_check_mark,chart_with_upwards_trend"
             PRIORITY="default"
+            SUMMARY=$(python scripts/generate_live_report.py --summary 2>/dev/null || echo "(summary unavailable)")
           else
             TITLE="QuantCode $RUN_KIND FAILED (kelly=$KELLY_OUTCOME linear=$LINEAR_OUTCOME)"
             TAGS="rotating_light"
             PRIORITY="high"
+            SUMMARY=$(python scripts/generate_live_report.py --summary 2>/dev/null || echo "(summary unavailable)")
           fi
           for attempt in 1 2 3; do
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
