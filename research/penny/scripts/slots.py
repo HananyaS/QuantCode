@@ -64,6 +64,7 @@ class SlotConfig:
     n_slots: int
     H: int
     rule: str          # "top" | "random" | "noveto" (control: fill from ALL candidates)
+    stagger: bool = True   # cap entries at ceil(N/H) per session
 
 
 def run_slots(df: pd.DataFrame, cfg: SlotConfig, seed: int = 0) -> Optional[Dict]:
@@ -94,8 +95,21 @@ def run_slots(df: pd.DataFrame, cfg: SlotConfig, seed: int = 0) -> Optional[Dict
                 cash += p[3] * (1.0 + p[2])
                 open_slots[s] = None
 
-        # 2. fill free slots from today's survivors
+        # 2. fill free slots -- but STAGGERED.
+        #
+        # Filling greedily is a trap at small N. With 30 slots and a 60-session
+        # hold, all 30 fill on day one and exit together: the book becomes a
+        # single synchronised cohort with maximum exposure to the common factor,
+        # which is exactly the term diversification cannot remove. The variance
+        # decomposition puts sd(mu_t) at 25-33% against sd(eta) of 41-61%, so a
+        # synchronised book throws away most of the achievable Sharpe.
+        #
+        # Capping entries at ceil(N/H) per session spreads the book evenly over
+        # H cohorts, so the common factor is averaged across H different entry
+        # days instead of one.
         free = [s for s in range(cfg.n_slots) if open_slots[s] is None]
+        if cfg.stagger:
+            free = free[:max(1, int(np.ceil(cfg.n_slots / cfg.H)))]
         g = by_day.get(d)
         if free and g is not None and len(g) >= MIN_CELL:
             if cfg.rule == "noveto":

@@ -52,6 +52,7 @@ SIGNS = {k: float(v) for k, v in SPEC["composite_signs"].items()}
 VETO_FRAC = SPEC["veto_fraction"]
 DEV_START = pd.Timestamp("2020-01-01")
 SLOTS = [30, 60, 100]
+TARGETS = [0.0]
 
 
 @dataclass
@@ -61,6 +62,7 @@ class RiskConfig:
     vol_cap: float       # keep names below this quantile of realised vol (1.0 = off)
     weight: str          # "equal" | "invvol"
     veto: bool
+    target: float = 0.0  # profit target as a fraction; 0 = hold to the time stop
 
 
 def run(df: pd.DataFrame, cfg: RiskConfig, seed: int = 0) -> Optional[Dict]:
@@ -82,6 +84,9 @@ def run(df: pd.DataFrame, cfg: RiskConfig, seed: int = 0) -> Optional[Dict]:
                 open_slots[s] = None
 
         free = [s for s in range(cfg.n_slots) if open_slots[s] is None]
+        # staggered entry -- see slots.py for why a greedy fill collapses the
+        # book into one synchronised cohort at small N
+        free = free[:max(1, int(np.ceil(cfg.n_slots / cfg.H)))]
         g = by_day.get(d)
         if free and g is not None and len(g) >= MIN_CELL:
             pool = g
@@ -110,7 +115,8 @@ def run(df: pd.DataFrame, cfg: RiskConfig, seed: int = 0) -> Optional[Dict]:
                     size = min(eq_now * float(wi), cash)
                     if size <= 1e-12:
                         break
-                    net = float(row["R"] - 0.5 * row["cost"])
+                    col = f"R_t{int(100*cfg.target)}" if cfg.target else "R"
+                    net = float(row[col] - 0.5 * row["cost"])
                     cash -= size
                     open_slots[s] = (min(i + cfg.H, len(sess) - 1),
                                      row["symbol"], net, size)
@@ -133,35 +139,73 @@ def run(df: pd.DataFrame, cfg: RiskConfig, seed: int = 0) -> Optional[Dict]:
             "median_vol": float(np.median(vols))}
 
 
+def attach_target_returns(df: pd.DataFrame, H: int, targets: List[float]) -> pd.DataFrame:
+    """Add `R_t{pct}` columns: the same trade exited early at a profit target.
+
+    The variance decomposition put sd(mu_t) at 25-33% against sd(eta) of 41-61%,
+    and showed a +100% target cuts total sigma from 70% to 49% while giving up
+    only 1.6 points of mean -- so the target raises information ratio per
+    position, which is the quantity that sets the required breadth.
+    """
+    if not targets:
+        return df
+    from research.penny.etl import bars as _b
+    from research.penny.strategy.cross_section import _paths, candidate_mask
+    u = pd.read_parquet(_b.DATA_ROOT / "panel_strategy.parquet")
+    key = pd.MultiIndex.from_arrays([u["symbol"], u["date"]])
+    want = pd.MultiIndex.from_arrays([df["symbol"], df["date"]])
+    pos = np.flatnonzero(key.isin(want))
+    p = _paths(u, pos, H + 1)
+    entry = p["open_unadj"][:, 0]
+    hi, cl, val = p["high_unadj"][:, 1:], p["close_unadj"][:, 1:], p["valid"][:, 1:]
+    lastv = np.where(val.any(axis=1), val.shape[1] - 1 - val[:, ::-1].argmax(axis=1), -1)
+    rows = np.arange(len(pos))
+    out = pd.DataFrame({"symbol": u["symbol"].to_numpy()[pos],
+                        "date": u["date"].to_numpy()[pos]})
+    for t in targets:
+        with np.errstate(invalid="ignore"):
+            ht = val & (hi >= entry[:, None] * (1 + t))
+        at = ht.any(axis=1)
+        k = np.where(at, ht.argmax(axis=1), lastv)
+        px = np.where(at, entry * (1 + t), cl[rows, np.maximum(k, 0)])
+        out[f"R_t{int(100*t)}"] = px / entry - 1.0
+    return df.merge(out, on=["symbol", "date"], how="left")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--period", default="dev", choices=("dev", "holdout"))
     ap.add_argument("--seeds", type=int, default=5)
     ap.add_argument("--slots", default="30,60,100")
+    ap.add_argument("--targets", default="0")
     ap.add_argument("--out", default=str(bars.DATA_ROOT / "risk_shaped.json"))
     args = ap.parse_args(argv)
 
     H = 60
     global SLOTS
     SLOTS = [int(x) for x in args.slots.split(",")]
+    global TARGETS
+    TARGETS = [float(x) for x in args.targets.split(",")]
     df = add_composite(frame(H, SPEC["population"]["crash_pct"], args.period),
                        SIGNS, "COMPOSITE")
     if args.period == "dev":
         df = df[df["date"] >= DEV_START]
+    df = attach_target_returns(df, H, [t for t in TARGETS if t > 0])
 
     rows: List[Dict] = []
     for n in SLOTS:
         for cap in (1.0, 0.50, 0.30):
             for wt in ("equal", "invvol"):
                 for veto in (True, False):
-                    runs = [run(df, RiskConfig(n, H, cap, wt, veto), seed=s)
+                  for tgt in TARGETS:
+                    runs = [run(df, RiskConfig(n, H, cap, wt, veto, tgt), seed=s)
                             for s in range(args.seeds)]
                     runs = [x for x in runs if x]
                     if not runs:
                         continue
                     r = pd.DataFrame(runs)
                     rows.append({"n_slots": n, "vol_cap": cap, "weight": wt,
-                                 "veto": veto,
+                                 "veto": veto, "target": tgt,
                                  "ann": float(r["ann"].mean()),
                                  "sharpe": float(r["sharpe"].mean()),
                                  "sharpe_sd": float(r["sharpe"].std()),
@@ -176,11 +220,11 @@ def main(argv=None) -> int:
           f"random fills, signs frozen")
     print("vol_cap = keep names below this quantile of realised vol; 1.00 = no cap")
     print("=" * 118)
-    print(f"  {'slots':>6}{'volcap':>8}{'weight':>9}{'veto':>6}{'ord/day':>9}"
+    print(f"  {'slots':>6}{'volcap':>8}{'tgt':>6}{'weight':>9}{'veto':>6}{'ord/day':>9}"
           f"{'med vol':>9}{'annual':>10}{'Sharpe':>8}{'+/-':>6}{'maxDD':>9}")
     for _, r in res.sort_values(["n_slots", "vol_cap", "weight"]).iterrows():
         star = "  <<<" if r.sharpe > 1.2 and r.maxdd > -35 else ""
-        print(f"  {int(r.n_slots):>6}{r.vol_cap:>8.2f}{r['weight']:>9}"
+        print(f"  {int(r.n_slots):>6}{r.vol_cap:>8.2f}{100*r['target']:>5.0f}%{r['weight']:>9}"
               f"{str(bool(r.veto)):>6}{r.orders:>9.2f}{r.med_vol:>9.3f}"
               f"{r['ann']:>+9.1f}%{r.sharpe:>8.2f}{r.sharpe_sd:>6.2f}{r.maxdd:>8.1f}%{star}")
     print("=" * 118)
