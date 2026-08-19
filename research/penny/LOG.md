@@ -3275,3 +3275,30 @@ satisfies both** — and costs one trade a day.
 4. Holdout Sharpe rises monotonically with N above 60 (1.39 → 2.31 → 2.66).
    **Anyone who can automate should hold more, not fewer.** The retail answer is
    a constraint being satisfied, not an optimum being found.
+
+### §84 addendum — the sizing rule, confirmed at three account sizes
+
+The background sweep finished after §84 was written. It validates
+`N_min = max(60, account / 1700)` empirically rather than by assertion.
+Development, +100% target, vol cap 0.50, size-aware full round trip:
+
+| account | N=15 | N=30 | **N=60** | N=150 |
+|---|---|---|---|---|
+| **$25k** | $1,667 / 75bps / **0.66** | $833 / 75bps / 1.47 | $417 / 75bps / **1.36** | $167 / 75bps / 1.52 |
+| **$50k** | $3,333 / 143bps / **0.52** | $1,667 / 75bps / 1.45 | $833 / 75bps / **1.36** | $333 / 75bps / 1.52 |
+| **$100k** | $6,667 / 285bps / **0.21** | $3,333 / 143bps / 1.28 | $1,667 / 75bps / **1.33** | $667 / 75bps / 1.52 |
+
+Two boundaries are visible and they are different things:
+
+* **The cost boundary bites when position size passes the inside quote
+  (~$1,700).** N=15 pays 75 bps at $25k, 143 at $50k, **285 at $100k**, and
+  Sharpe falls 0.66 → 0.52 → 0.21 with it. N=30 crosses the same boundary
+  between $50k and $100k (75 → 143 bps, 1.45 → 1.28).
+* **The breadth boundary is fixed and account-independent.** N=15 is poor even
+  at $25k where its orders still fit inside the quote — 0.66 against 1.36 at
+  N=60. No account size rescues it.
+
+**N=60 is the only setting that pays 75 bps at every account size tested**
+($417 to $1,667 a name, all inside the quote) while sitting above the breadth
+floor. That is why the rule takes a maximum of the two terms rather than either
+alone.
