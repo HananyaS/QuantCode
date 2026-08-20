@@ -8,13 +8,35 @@ name: Live Paper Trading (Kelly & Linear)
 # than queuing after-hours.
 #
 # "Once per trading day" is enforced by the Preflight step below, not by
-# the cron schedule -- cron alone cannot express it. Every step in this
-# job, INCLUDING the notification, is gated on Preflight's decision, so a
+# the trigger -- no scheduler can express it. Every step in this job,
+# INCLUDING the notification, is gated on Preflight's decision, so a
 # firing that has nothing to do does nothing and says nothing.
 #
-# The schedule trigger runs the REAL pipeline (submits real, though paper,
-# orders) -- only a manual workflow_dispatch run respects the dry_run
-# input. There is no dry-run gate on the schedule itself.
+# TRIGGERS -- punctual primary outside GitHub, cron watchdog inside
+# -----------------------------------------------------------------
+# GitHub cron is best-effort, and measured over this repo's own first 33
+# scheduled firings (2026-07-28 -> 08-19) it was late EVERY time: median
+# 54min, p90 102min, worst 135min. A daily-bar strategy whose backtest
+# earns close(t-1)->close(t) wants its fills at a consistent time; "some
+# time between 11:03 and 13:00 ET, different every day" is tracking error
+# nobody pays us for. So the punctual trigger lives OUTSIDE GitHub:
+#
+#   * PRIMARY -- an external scheduler (cron-job.org, 09:45 Mon-Fri,
+#     timezone America/New_York) POSTs to this workflow's /dispatches
+#     endpoint with {"ref":"main","inputs":{"source":"scheduler"}}. API
+#     dispatches don't go through the cron batch queue, so they start in
+#     seconds; and a timezone-aware scheduler removes the hour of DST
+#     drift that GitHub's UTC-only cron cannot express.
+#
+#   * WATCHDOG -- the two crons below, unchanged. When the external
+#     trigger did its job they find the session already complete and
+#     stand down silently (~2s, no push). When it did NOT, they still
+#     trade, and the notification is tagged "via cron fallback" -- so a
+#     dead external trigger announces itself instead of quietly costing
+#     trading days.
+#
+# Rollback is just disabling the external job: the crons on their own are
+# exactly the old behaviour.
 #
 # State (data/live_state_kelly.db, data/live_state_linear.db) is normally
 # gitignored -- runners are ephemeral, so this workflow force-commits those
@@ -23,25 +45,14 @@ name: Live Paper Trading (Kelly & Linear)
 # everything else (market data, decisions) is recomputed fresh each time.
 on:
   schedule:
-    # Two firings per weekday, primary + backup. GitHub Actions cron is
-    # best-effort, not punctual -- delays of 15min to 2h+ are normal and
-    # documented, worst at minute :00 of the hour (the most congested
-    # slot; observed live: the first-ever 15:00 firing arrived at 16:40).
-    # Mitigations here:
-    #   * off-peak minute (:45) -- materially smaller queue delays;
-    #   * primary at 14:45 UTC = 9:45am EST (winter) / 10:45am EDT
-    #     (summer) -- always after the 9:30am open, past the noisy
-    #     opening range, and early enough that even a badly delayed fire
-    #     still lands mid-morning;
-    #   * backup at 15:45 UTC one hour later, purely a safety net for a
-    #     primary that never fired or died before submitting orders.
-    # The backup costs nothing when it isn't needed: Preflight sees the
-    # primary's completed session in the ledgers and stands the whole job
-    # down in ~2s, with no notification. Delete the second cron line below
-    # if you'd rather have no second firing at all -- at the price of
-    # losing the day whenever GitHub drops or badly delays the primary.
-    # GitHub cron is UTC-only and doesn't shift with US DST, so the local
-    # firing time drifts by an hour across the year (accounted above).
+    # Watchdog only -- the punctual primary is the external dispatch above.
+    # Kept at the off-peak :45 minute (materially smaller queue delays than
+    # :00) and spaced an hour apart so that if the external trigger is dead,
+    # a badly-delayed firing still lands while the market is open and can
+    # save the day. Both stand down silently when they aren't needed.
+    # GitHub cron is UTC-only and doesn't shift with US DST, so these drift
+    # an hour across the year -- fine for a watchdog, and exactly why the
+    # punctual trigger is not one of these lines.
     - cron: "45 14 * * 1-5"
     - cron: "45 15 * * 1-5"
   workflow_dispatch:
@@ -50,6 +61,17 @@ on:
         description: "Preview only -- no orders submitted, no state written"
         type: boolean
         default: true
+      source:
+        # Who pressed the button. 'human' is a person at the Actions UI:
+        # always execute, always report back, and honour dry_run. The
+        # external scheduler passes 'scheduler', which must behave EXACTLY
+        # like a cron firing instead -- guarded by Preflight, silent when
+        # there is nothing to do -- otherwise it would bypass the
+        # once-per-session rule and bring the duplicate pushes back.
+        description: "Who triggered this run"
+        type: choice
+        options: [human, scheduler]
+        default: human
 
 permissions:
   contents: write
@@ -90,16 +112,25 @@ jobs:
         env:
           ALPACA_API_KEY_KELLY: ${{ secrets.ALPACA_API_KEY_KELLY }}
           ALPACA_SECRET_KEY_KELLY: ${{ secrets.ALPACA_SECRET_KEY_KELLY }}
-          MANUAL_FLAG: ${{ github.event_name == 'workflow_dispatch' && '--manual' || '' }}
+          # --manual is for a HUMAN at the button only. A scheduler-sourced
+          # dispatch deliberately falls through to the guarded path, so the
+          # once-per-session rule still holds and the watchdog crons behind
+          # it still stand down silently.
+          MANUAL_FLAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.source == 'human') && '--manual' || '' }}
         run: python scripts/preflight_check.py $MANUAL_FLAG
 
       - name: Kelly strategy
+        # dry_run is a HUMAN preview affordance and is deliberately ignored
+        # for scheduler-sourced runs. It defaults to true, so keying the flag
+        # on the input alone would let a scheduler payload that omitted
+        # dry_run leave the bot previewing forever -- silently never trading,
+        # while every run still reported success. A scheduler run always trades.
         id: kelly
         if: ${{ steps.preflight.outputs.trade == 'true' }}
         env:
           ALPACA_API_KEY_KELLY: ${{ secrets.ALPACA_API_KEY_KELLY }}
           ALPACA_SECRET_KEY_KELLY: ${{ secrets.ALPACA_SECRET_KEY_KELLY }}
-          DRY_RUN_FLAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+          DRY_RUN_FLAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.source == 'human' && inputs.dry_run) && '--dry-run' || '' }}
         run: python scripts/live_run.py --strategy kelly $DRY_RUN_FLAG
 
       - name: Linear strategy
@@ -113,7 +144,7 @@ jobs:
         env:
           ALPACA_API_KEY_LINEAR: ${{ secrets.ALPACA_API_KEY_LINEAR }}
           ALPACA_SECRET_KEY_LINEAR: ${{ secrets.ALPACA_SECRET_KEY_LINEAR }}
-          DRY_RUN_FLAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+          DRY_RUN_FLAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.source == 'human' && inputs.dry_run) && '--dry-run' || '' }}
         run: python scripts/live_run.py --strategy linear $DRY_RUN_FLAG
 
       - name: Regenerate dashboard
@@ -121,7 +152,7 @@ jobs:
         # from the updated ledgers. Skipped on dry runs -- the ledgers
         # didn't change, and regenerating would commit a timestamp-only
         # diff every preview.
-        if: ${{ !cancelled() && steps.preflight.outputs.trade == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        if: ${{ !cancelled() && steps.preflight.outputs.trade == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.source == 'human' && inputs.dry_run) }}
         run: python scripts/generate_live_report.py
 
       - name: Persist live state
@@ -174,12 +205,22 @@ jobs:
           PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
           PREFLIGHT_REASON: ${{ steps.preflight.outputs.reason }}
           PREFLIGHT_TRADED: ${{ steps.preflight.outputs.trade }}
-          RUN_KIND: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'dry run' || 'live run' }}
+          RUN_KIND: ${{ (github.event_name == 'workflow_dispatch' && inputs.source == 'human' && inputs.dry_run) && 'dry run' || 'live run' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TRIGGER: ${{ github.event_name }}
         run: |
           if [ -z "$NTFY_TOPIC" ]; then
             echo "NTFY_TOPIC secret not set -- skipping notification."
             exit 0
+          fi
+          # A run that TRADED but arrived via `schedule` means the punctual
+          # external trigger never fired and a watchdog cron picked up the
+          # slack. The day was saved, but the primary path is broken -- say
+          # so, or a dead trigger looks exactly like a healthy day and we
+          # quietly go back to random mid-morning fills.
+          FALLBACK=""
+          if [ "$TRIGGER" = "schedule" ] && [ "$PREFLIGHT_TRADED" = "true" ]; then
+            FALLBACK=" (via cron fallback -- external trigger did not fire)"
           fi
           if [ "$PREFLIGHT_OUTCOME" != "success" ]; then
             # Reached via the failure() arm: preflight errored, or something
@@ -197,12 +238,12 @@ jobs:
             PRIORITY="high"
             SUMMARY="$PREFLIGHT_REASON"
           elif [ "$KELLY_OUTCOME" = "success" ] && [ "$LINEAR_OUTCOME" = "success" ]; then
-            TITLE="QuantCode $RUN_KIND succeeded"
+            TITLE="QuantCode $RUN_KIND succeeded$FALLBACK"
             TAGS="white_check_mark,chart_with_upwards_trend"
             PRIORITY="default"
             SUMMARY=$(python scripts/generate_live_report.py --summary 2>/dev/null || echo "(summary unavailable)")
           else
-            TITLE="QuantCode $RUN_KIND FAILED (kelly=$KELLY_OUTCOME linear=$LINEAR_OUTCOME)"
+            TITLE="QuantCode $RUN_KIND FAILED (kelly=$KELLY_OUTCOME linear=$LINEAR_OUTCOME)$FALLBACK"
             TAGS="rotating_light"
             PRIORITY="high"
             SUMMARY=$(python scripts/generate_live_report.py --summary 2>/dev/null || echo "(summary unavailable)")
