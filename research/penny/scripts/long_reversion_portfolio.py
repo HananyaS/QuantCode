@@ -48,6 +48,15 @@ Event-driven, capital-constrained, and therefore incapable of double-counting:
 * days with no position are flat and are counted, never dropped.
 
     python research/penny/scripts/long_reversion_portfolio.py
+
+.. deprecated:: round 15
+   **Do not use this simulator for new results.** It charges the cost
+   inconsistently -- `R` from `cross_section.forward_return` already carries a
+   full round trip and this loop subtracts another `0.5 * cost` on top (1.5x),
+   while a `R_t*` target column is gross and ends up charged 0.5x. It also
+   schedules exits on candidate-days rather than market sessions and discards
+   the daily equity curve it computes. Use `research/penny/strategy/book.py`,
+   which fixes all three and is unit-tested. See LOG 85.
 """
 from __future__ import annotations
 

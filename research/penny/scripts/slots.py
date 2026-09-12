@@ -30,6 +30,15 @@ Leakage discipline (Amendment 2)
 Composite signs stay frozen at the pre-2020 fit. N, H and the fill rule are
 chosen on development only. Slots are filled from information available that
 session; a name entered on day t is priced from day t+1's open.
+
+.. deprecated:: round 15
+   **Do not use this simulator for new results.** It charges the cost
+   inconsistently -- `R` from `cross_section.forward_return` already carries a
+   full round trip and this loop subtracts another `0.5 * cost` on top (1.5x),
+   while a `R_t*` target column is gross and ends up charged 0.5x. It also
+   schedules exits on candidate-days rather than market sessions and discards
+   the daily equity curve it computes. Use `research/penny/strategy/book.py`,
+   which fixes all three and is unit-tested. See LOG 85.
 """
 from __future__ import annotations
 

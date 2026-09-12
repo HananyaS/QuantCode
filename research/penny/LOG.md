@@ -3302,3 +3302,1284 @@ Two boundaries are visible and they are different things:
 ($417 to $1,667 a name, all inside the quote) while sitting above the breadth
 floor. That is why the rule takes a maximum of the two terms rather than either
 alone.
+
+---
+
+# 85. Round 15, Part I — the baseline was not reproducible, and it was mis-costed
+
+## Why this came first
+
+The goal for this round was to attack the position count and to build a proper
+evaluation battery before doing so. Exploring the code to wire the battery in
+turned up something that outranked both.
+
+**The round-14 table is not reproducible from committed code.** `bf2ccd4` ("the
+cost model was backwards — 60 positions, one trade a day") touched exactly three
+files: `LOG.md`, `specs/FINAL_RETAIL.json` and `strategy/cost_model.py`.
+`fdc7d26`, the §84 addendum carrying the $25k/$50k/$100k table, touched `LOG.md`
+alone. No simulation script was added or modified, and **`cost_model.py` is
+imported by nothing in the repo**. The newest artefact in `data/research_penny/`
+from that work predates the round-14 commits by a day.
+
+So the N=15/30/60/150/400 table — the basis of the current recommendation — came
+from an uncommitted, in-session variant of `scripts/risk_shaped.py:run`.
+
+## The cost defect, verified
+
+`cross_section.forward_return` returns a value **already net of one full round
+trip**:
+
+```python
+r = cl[rows, ...] / entry - 1.0 - u["cost"].to_numpy()[pos]   # cross_section.py:88
+```
+
+`risk_shaped.attach_target_returns` returns a **gross** value:
+
+```python
+out[f"R_t{int(100*t)}"] = px / entry - 1.0                    # risk_shaped.py:171
+```
+
+Every simulator then subtracts the same half a round trip from whichever column
+it was handed:
+
+```python
+net = float(row[col] - 0.5 * row["cost"])   # slots.py:135, risk_shaped.py:119,
+                                            # veto_holdout.py:72
+```
+
+**The time-stop arm was charged 1.5 round trips and the profit-target arm 0.5** —
+a threefold difference between two arms of the same sweep, in the direction that
+favours the target. §84's premise ("every slot simulation charged `0.5 * cost`")
+is correct for the target arm it was written about and backwards for the other.
+
+This matters beyond arithmetic. §82 compares "no target" against "+100% target"
+and concludes the target raises information ratio per position. Those two arms
+were charged three times apart from each other.
+
+## What replaced it
+
+`research/penny/strategy/book.py` — one simulator, replacing three that
+disagreed about position sizing, entry staggering, exit scheduling and cost.
+Four defects fixed, each unit-tested in `tests/test_penny_book.py`:
+
+1. **Cost charged exactly once.** The book works in gross return space and
+   applies one size-aware round trip from `cost_model.round_trip_bps` at the
+   position size actually traded. The sharpest statement of the fix is a test:
+   undoing the embedded charge and re-applying one *flat* round trip must land
+   back on `R` itself.
+2. **Exits scheduled on the market calendar**, not on candidate days. The old
+   loops index `sess = np.sort(df["date"].unique())`, which holds only days with
+   at least `MIN_CELL` candidates — so a 60-session hold was 60 *candidate* days
+   and the equity path ran on a clock that speeds up when candidates are scarce.
+3. **A real no-selection control.** `slots.py`'s "noveto" arm skips the veto trim
+   but still fills with `nlargest(..., "COMPOSITE")`, so `breadth_curve.py`
+   compares veto+random fill against noveto+**top-score** fill — two changes at
+   once. `fill` and `veto_frac` are now independent knobs. (`risk_shaped.py`'s
+   `veto` flag did this correctly, so §80/§82's version of "the veto and the vol
+   cap are substitutes" stands and `breadth_curve`'s does not.)
+4. **The daily equity curve is returned.** All three old loops build one and
+   throw it away, which is why no distributional metric has ever been computed
+   on this strategy.
+
+## The rebuild, and what the honest cost does
+
+15 seeds, $50,000 account, H=60, vol cap 0.50, veto 0.25, target +100%.
+LEGACY reproduces the old charge exactly (gross target column minus half a flat
+round trip); HONEST charges one size-aware round trip.
+
+**Development**
+
+| N | $/name | LEGACY | HONEST | §84 published |
+|---|---|---|---|---|
+| 15 | 3,333 | 0.67 ± 0.37 | **0.46** | 0.52 |
+| 30 | 1,667 | 0.84 ± 0.40 | **0.73** | 1.45 |
+| 60 | 833 | 1.46 ± 0.24 | **1.37** | 1.36 |
+| 150 | 333 | 1.68 ± 0.19 | **1.60** | 1.52 |
+| 400 | 125 | 1.76 ± 0.07 | **1.67** | 1.77 |
+
+**Sealed holdout** (the fifth read of it — recorded as such)
+
+| N | LEGACY | HONEST | §84 published |
+|---|---|---|---|
+| 15 | 1.29 ± 0.54 | **1.07** | 1.21 |
+| 30 | 1.09 ± 0.56 | **0.98** | 0.87 |
+| 60 | 1.62 ± 0.45 | **1.51** | 1.39 |
+| 150 | 2.33 ± 0.37 | **2.17** | 2.31 |
+| 400 | 3.02 ± 0.21 | **2.79** | 2.66 |
+
+Three conclusions.
+
+**1. The reconstruction is faithful, except at N=30.** Nine of the ten LEGACY
+cells land within about half a seed-standard-error of the published number, and
+N=400 lands on it exactly (1.76 vs 1.77 dev, 3.02 vs 2.66 holdout). **N=30 on
+development does not reproduce: 0.84 against a published 1.45.** The published
+value is also the one anomaly in its own column — it is higher than N=60's 1.36,
+breaking a curve that is otherwise monotone in N. The rebuild is monotone
+throughout. §84 used exactly that N=30 figure to argue "N=30's dev figure was the
+best of the low-N row and did not survive"; in the rebuild N=30 was never best.
+
+**2. The honest cost does not overturn the recommendation.** At N=60 the charge
+roughly doubles (48 → 81 bps) and Sharpe falls 6%, dev 1.46 → 1.37 and holdout
+1.62 → 1.51. §84's *direction* was right and its conclusion survives its own
+correction. Cost bites hardest exactly where §84 said it would: at N=15 the
+charge goes 49 → 174 bps, because $3,333 a name walks past the ~$1,900 inside
+quote, and Sharpe falls 0.67 → 0.46.
+
+**3. The orders-per-day column was the cap, not the rate.** §84 reports
+1.0/1.0/1.0/3.0/7.0 across N=15/30/60/150/400. Those are `ceil(N/H)` — the
+per-session stagger limit. The **realised** rate is what the book actually does,
+which in steady state is `N/H`: **0.25 / 0.51 / 0.97 / 2.40 / 3.97** on
+development. So the claim that "N=60 costs the same operational effort as N=30 —
+one order per session" is wrong. N=30 is half an order a session; N=60 is one.
+The Sharpe ranking is unaffected, but the effort argument that justified moving
+from 30 to 60 was double-counting.
+
+## 86. The lesson
+
+**A result that cannot be re-run is not a result yet.** §84 was written
+carefully, pre-registered its constants, declared its holdout read and stated its
+limits — and still shipped a headline recommendation produced by code that was
+never committed. Everything that made it checkable was recorded except the thing
+that produced it.
+
+The operational rule: **the commit that reports a number must contain the code
+that computed it.** A spec file and a log table are not enough; `cost_model.py`
+sat in the same commit as the table it supposedly produced and was imported by
+nothing.
+
+---
+
+# 87. Round 15, Part I — the evaluation battery, and what it says about the evidence
+
+## What was built
+
+`research/penny/eval/battery.py`, tested in `tests/test_penny_battery.py` — 38
+tests, each pinning a metric against a case whose answer is known in closed form.
+Five tiers: the Sharpe with a standard error and a deflation, the shape of the
+loss, breadth, backtest-overfitting diagnostics, and execution realism. The full
+mathematics and references are in `PREREGISTRATION_R15.md` Part I.
+
+Two things about it are worth recording here rather than in the spec.
+
+**`stats.deflated_sharpe_ratio` has existed since round 4 and had never been
+called with a real trial count.** It was written, tested, and left holding a
+default of 1. The battery now feeds it the project's actual ledger:
+`search_trials.jsonl` (195) plus `PRIOR_TRIALS = 72` plus the round's own cells.
+
+**The Hill estimator needed a correction that only shows up on this strategy.** A
+profit target puts a point mass at the barrier: with a +100% target a large share
+of trades return exactly +1.00 less cost. Hill sees a wall of ties, drives its
+mean log excess to zero, and reports `alpha -> inf` — which reads as "no tail"
+when what actually happened is "the tail was truncated by construction". The
+right tail is now estimated only on gains below the barrier, with the truncated
+share reported beside it. First run, the uncorrected version reported tail
+indices of 220, 672, 1034 and `inf` across four adjacent cells, which is how it
+was caught.
+
+## The first finding: 972 trades are 17 observations
+
+`average_uniqueness` on the N=60 development book:
+
+| | |
+|---|---|
+| nominal trades | 972 |
+| mean concurrency | 57.3 |
+| average uniqueness | **0.0174** |
+| **effective sample** | **16.9** |
+
+At a 60-session hold with an entry a day, roughly 57 positions are live at any
+moment and every one of them overlaps the others. The information content is
+bounded by how many non-overlapping 60-session windows fit in the period, which
+over 1,004 sessions is about 17.
+
+**Stated carefully, because it is easy to over-read.** This measures *temporal*
+overlap and treats two concurrent positions in different symbols as fully
+redundant. They are not — they share `mu_t`, not `eta`. So 17 is the bound on
+independent *time* observations, not on independent bets, and the truth lies
+between 17 and 972. The correlation-adjusted breadth
+`BR_eff = N / (1 + (N-1) * rho_bar)` is what speaks to the cross-section, and at
+a modest `rho_bar = 0.2` it puts 60 nominal positions at under 5 effective ones.
+
+Either way the direction is the same and it is uncomfortable: **every interval in
+rounds 11-14 was computed on a nominal count that overstates the evidence.**
+
+## The second finding: three uncertainty measures disagree by 5x
+
+The daily returns of a 60-session book are strongly autocorrelated, and they stop
+being so at almost exactly the hold length. Measured on the N=60 development
+book:
+
+| lag | 1 | 5 | 20 | 60 |
+|---|---|---|---|---|
+| rho | **+0.215** | +0.166 | +0.129 | −0.009 |
+
+That is the overlapping-hold structure printing itself directly into the return
+series. Its consequence, on the same book (single seed, Sharpe 0.948):
+
+| measure | value |
+|---|---|
+| Sharpe | 0.948 |
+| Mertens/Lo standard error (IID) | 0.450 → ±0.88 |
+| **Lo autocorrelation-adjusted Sharpe** | **0.704** — a 26% haircut |
+| stationary bootstrap, block 1 | [−0.02, +1.79] width 1.81 |
+| stationary bootstrap, block 5 | [−0.51, +2.41] width 2.93 |
+| stationary bootstrap, block 20 | [−1.27, +3.04] width 4.31 |
+| **stationary bootstrap, block 60** | **[−1.42, +3.59]** width 5.01 |
+
+The interval widens monotonically with the block length until the block reaches
+the holding period, and then stops — which is exactly the signature of dependence
+with a 60-session memory, and confirms the block bootstrap is measuring
+something real rather than inflating noise.
+
+**At the honest block length the 95% interval includes zero.** The Mertens
+standard error, which assumes independent observations, is roughly a fifth of the
+width the data actually supports.
+
+The battery keeps 20 as its default block only so previously computed tables stay
+comparable; `boot_block` is now an explicit parameter and a new result should
+pass the holding period.
+
+---
+
+# 88. Round 15, Part I — what the battery says about the recommendation
+
+Full sweep: N ∈ {15, 30, 60, 150, 400} × four arms, 15 seeds, one size-aware
+round trip, \$50,000 account. The arms are a genuine factorial — the fill rule is
+random in all four, so the veto is the only thing that changes between them,
+which `breadth_curve.py`'s "noveto" control never managed.
+
+## The table
+
+**Development** (2020-01-01 … 2023-12-29, 1,004 sessions, 973 cells)
+
+| N | base | veto only | volcap only | volcap+veto (V3) |
+|---|---|---|---|---|
+| 15 | 0.20 | 0.41 | 0.46 | 0.46 |
+| 30 | 0.67 | 0.68 | 0.70 | 0.73 |
+| 60 | 1.24 | **1.50** | 1.38 | 1.37 |
+| 150 | 1.48 | **1.74** | 1.62 | 1.60 |
+| 400 | 1.67 | **1.94** | 1.73 | 1.67 |
+
+**Sealed holdout** (≥ 2024-01-01) — the fifth read, recorded as such
+
+| N | base | veto only | volcap only | volcap+veto (V3) |
+|---|---|---|---|---|
+| 15 | 0.05 | 0.34 | 0.91 | **1.07** |
+| 30 | 0.18 | 0.61 | **1.10** | 0.98 |
+| 60 | 0.55 | 1.28 | 1.50 | **1.51** |
+| 150 | 0.63 | 1.54 | 1.77 | **2.17** |
+| 400 | 1.52 | 2.23 | 2.62 | **2.79** |
+
+Three things follow immediately.
+
+**The base population is close to worthless on the holdout** — 0.05 at N=15,
+0.55 at N=60 — against 1.24 on development. This reproduces §78's central
+finding on a corrected simulator: whatever the strategy earns out of sample, the
+filters earn it.
+
+**Development and the holdout disagree about which filter is best.** On
+development `veto only` leads at every N ≥ 60; on the holdout it is the *worst*
+of the three filtered arms and `volcap+veto` leads. Neither ordering is
+stable, and the differences (0.13 to 0.34) sit inside the seed-to-seed
+dispersion, which averages 0.26 on development and 0.44 on the holdout. The
+honest reading is **all three filters are indistinguishable from each other and
+all clearly beat the unfiltered base** — which is §80's substitutability finding,
+neither confirmed nor refuted, but now measured on a real factorial.
+
+**PBO is 0.214 on development and 0.414 on the holdout.** On the holdout,
+picking the best cell of this sweep is close to uninformative about which cell
+will be best next.
+
+## Deflation: the answer depends on a choice, so both are given
+
+The deflated Sharpe deflates against $SR^*_0$, the best Sharpe a search of $N$
+trials yields **under the null**, and that needs $\operatorname{Var}(SR_n)$ —
+the trial-to-trial dispersion *of noise*. Two candidates are available and they
+disagree:
+
+| period | dispersion used | sd | E[max] at 287 trials | N=60 V3 | best cell |
+|---|---|---|---|---|---|
+| dev | across the 20 swept cells | 0.554 | 1.60 | **−0.23** | +0.35 |
+| dev | seed-to-seed at fixed config | 0.255 | 0.73 | **+0.63** | +1.21 |
+| holdout | across the 20 swept cells | 0.779 | 2.25 | **−0.74** | +0.54 |
+| holdout | seed-to-seed at fixed config | 0.439 | 1.26 | **+0.24** | +1.52 |
+
+**The second is the defensible one.** The spread across the swept cells includes
+the N-effect, which is a real monotone relationship rather than noise, so using
+it as the null dispersion over-deflates. Seed-to-seed dispersion at a fixed
+configuration is pure resampling noise and is what the statistic asks for.
+
+On that basis **N=60 clears the 287-trial noise floor on both periods, but only
+just on the holdout (+0.24)**, and the best cell clears comfortably (+1.21 dev,
++1.52 holdout). Recorded here because the harsher reading is one substitution
+away, and because this is the first time in the project the deflated Sharpe has
+been given a real trial count at all.
+
+## Realised drawdowns are up to 3x worse than the Sharpe implies
+
+`mdd_vs_expected` — realised maximum drawdown over its expectation for a random
+walk with the same drift and volatility (Magdon-Ismail & Atiya 2004), on
+development:
+
+| N | 15 | 30 | 60 | 150 | 400 |
+|---|---|---|---|---|---|
+| ratio | 1.10 | 1.49 | **2.37** | 2.91 | 2.70 |
+
+At N=15 the book draws down roughly what its own volatility predicts. By N=60 it
+draws down **2.4 times** that. Breadth cuts volatility faster than it cuts
+drawdown, because the losses arrive together — the same common-factor exposure
+seen from the drawdown side. **A Sharpe comparison across N systematically
+understates the risk of the higher-N configurations**, and nothing in fourteen
+rounds would have shown that.
+
+## Cost and breadth are separable, and §84 was right about which binds
+
+The cleanest test the cost model allows: at a \$25,000 account both N=15
+(\$1,667 a name) and N=60 (\$417) sit inside the ~\$1,900 inside quote, so both
+pay essentially the same spread and only breadth differs. 15 seeds, development:
+
+| account | N | \$/name | cost bps | Sharpe | seed sd | annual |
+|---|---|---|---|---|---|---|
+| 25k | 15 | 1,667 | 94 | 0.60 | 0.38 | +12.9% |
+| 25k | 30 | 833 | 80 | 0.76 | 0.41 | +11.9% |
+| **25k** | **60** | **417** | **81** | **1.37** | 0.25 | +18.4% |
+| 50k | 15 | 3,333 | 174 | 0.46 | 0.39 | +9.3% |
+| 50k | 30 | 1,667 | 91 | 0.73 | 0.41 | +11.4% |
+| 50k | 60 | 833 | 81 | 1.37 | 0.25 | +18.4% |
+| 100k | 15 | 6,667 | 346 | 0.17 | 0.41 | +1.9% |
+| 100k | 30 | 3,333 | 168 | 0.54 | 0.42 | +8.0% |
+| 100k | 60 | 1,667 | 93 | 1.33 | 0.25 | +17.9% |
+
+**At matched cost, N=15 scores 0.60 against N=60's 1.37. The floor at 15 is a
+breadth floor**, exactly as §84 argued, and its conclusion survives its own
+correction. The cost effect is separately visible and compounds: N=15 falls
+0.60 → 0.46 → 0.17 as the account grows and its orders walk further outside the
+quote. N=60 is flat at 1.37 / 1.37 / 1.33, which is the mechanism behind
+`N_min = max(60, account/1700)` — at \$417 to \$1,667 a name it never leaves the
+inside quote.
+
+**One row does not reproduce, at any account size.** §84 reports N=30 at
+1.47 / 1.45 / 1.28 for \$25k / \$50k / \$100k; the rebuild gives
+**0.76 / 0.73 / 0.54** — roughly half — while N=15 and N=60 reproduce closely at
+all three. The uncommitted code cannot be recovered, so the cause is not
+determinable. The consequence is: §84's claim that "N=30's dev figure was the
+best of the low-N row and did not survive" rests on the single figure that does
+not reproduce. In the rebuild N=30 was never best, and the curve is monotone in
+N throughout.
+
+## The tails: the heavy-tail escape hatch is closed
+
+Per-trade Hill tail indices, development, +100% target:
+
+| | N=15 | N=60 | N=400 |
+|---|---|---|---|
+| gains (below the barrier) | 3.69 | 8.45 | 11.31 |
+| losses | 4.80 | 8.45 | 8.69 |
+
+**All comfortably above 2, so variance is finite and `SE = sigma/sqrt(N)` is
+legitimate arithmetic.** H1's first branch is answered before it was formally
+opened: whatever explains the gap between §82's decomposition (predicting a 6%
+Sharpe gain from N=15 to N=60) and the measured gain, it is not the tail index.
+The remaining candidate is that §82's `sd(mu_t)` was measured on the uncapped
+population, and that is what H1 should now test.
+
+The barrier also matters less than its name suggests. **17.0% of the candidate
+population touches +100%**, and only 8–10% of trades actually taken do, because
+both filters select lower-volatility names that touch less often. Its value is
+variance reduction, not upside capture — and that reproduces §82 exactly: mean
+gross **+14.44%** with the target against **+16.08%** without, for a standard
+deviation of **49.3% against 69.9%**. Giving up 1.6 points of mean to remove 20
+points of sigma is the entire case for the target, and it holds.
+
+## 89. What Part I changes, and what it does not
+
+**Does not change:** N=60 remains the recommendation. It survives an honest
+single cost charge (dev 1.46 → 1.37, holdout 1.62 → 1.51), it clears the
+287-trial noise floor on the defensible deflation, and the breadth floor beneath
+it is real at matched cost.
+
+**Changes:**
+1. §84's `orders/day` column is the per-session cap `ceil(N/H)`, not the realised
+   rate `N/H`. "N=60 costs the same effort as N=30" is wrong — N=30 is half an
+   order a session.
+2. §84's N=30 row does not reproduce at any account size, and it is the row that
+   carried the argument for moving from 30 to 60. The move is still right; the
+   stated reason was not.
+3. Drawdown risk at N ≥ 60 is 2.4–2.9x what the volatility implies. Any future
+   comparison across N must report it.
+4. The evidence base is far thinner than the trade counts suggest — ~17
+   independent time observations behind 972 trades, and no development
+   configuration whose block-bootstrap interval excludes zero.
+5. Three superseded simulators are marked deprecated in place, pointing at
+   `strategy/book.py`.
+
+**Part II (H1–H5 in `PREREGISTRATION_R15.md`) has not been run.** Nothing in it
+has been looked at.
+
+---
+
+# 90. Round 15, Part II — H1: why sixty positions is an identity, not a choice
+
+## H1 as pre-registered, and its prediction falsified
+
+`PREREGISTRATION_R15.md` predicted that `sd(mu_t)` measured on the **vol-capped**
+population would be materially below the 24.9% §82 measured on the uncapped one —
+which would have made `sigma_common` something the filter already moves, and
+therefore a fourth lever. Measured on development, traded return (gross of the
++100% target, one flat round trip):
+
+| population | n | cells | mean | **sd(mu_t)** | sd(eta) | sd total | ceiling |
+|---|---|---|---|---|---|---|---|
+| uncapped | 44,241 | 973 | +13.47% | **24.6%** | 41.2% | 49.3% | 0.55 |
+| vol-capped at q=0.50 | 22,373 | 973 | +11.72% | **24.3%** | 36.4% | 43.9% | 0.48 |
+
+Two things follow.
+
+**The decomposition reproduces §82 almost exactly** — 24.6% against its 24.9%,
+41.2% against its 41%. §82's arithmetic was faithful; the rebuild confirms it
+rather than overturning it.
+
+**And the prediction is falsified.** The vol cap moves `sd(mu_t)` from 24.6% to
+24.3% — a 1% relative change, nothing. What it moves is `sd(eta)`, 41.2% → 36.4%.
+**The volatility filter is purely an idiosyncratic-variance filter; it does not
+touch the common factor at all.** Per the pre-registration this branch stops: the
+§82-versus-§84 gap is not explained by which population was measured.
+
+## What does explain the gap
+
+The decomposition predicts portfolio `sd = sqrt(sd(mu)^2 + sd(eta)^2/N)`, so
+going N=15 → N=60 should improve the Sharpe by a factor of **1.06**. Measured:
+
+| N | 15 | 30 | 60 | 150 |
+|---|---|---|---|---|
+| predicted ratio vs N=15 | 1.00 | 1.03 | **1.06** | 1.07 |
+| measured ratio vs N=15 | 1.00 | 1.58 | **2.94** | 3.45 |
+
+The resolution is that **in this design `N` is not only a breadth parameter.**
+The stagger admits `ceil(N/H)` entries a session, so the entry rate is
+
+$$\lambda = N/H$$
+
+and the number of bets placed over `T` sessions is `T*N/H` — which also scales
+with `N`. The decomposition describes cross-sectional averaging **at one
+instant**; it is silent about how many sequential bets the book gets to place.
+Over the development period N=15 places **255** trades and N=60 places **973**.
+
+Adding the temporal term, the expected improvement is roughly
+`1.06 * sqrt(60/15) = 2.12`, against a measured 2.94. Isolating it directly by
+switching the stagger off, so the book fills as one synchronised cohort:
+
+| stagger | N=15 | N=60 | ratio |
+|---|---|---|---|
+| off (one cohort) | 0.36 | 0.64 | **1.78x** |
+| on (60 cohorts) | 0.44 | 1.37 | **3.11x** |
+| decomposition | — | — | 1.06x |
+
+Neither figure matches the decomposition, and the stagger roughly doubles the
+effect on top. **The two results were never in conflict; they measure different
+objects, and comparing them was the error.** §82's decomposition is right about
+the cross-section and was read as if it described the book.
+
+## The consequence, which is the answer to the concurrency question
+
+$$N_{\text{pos}} = H \cdot \lambda$$
+
+is an identity, not a result. §80 closed both of its terms:
+
+* `H >= 60` — finding 2, the excess is a threshold and its CI excludes zero only
+  from 60 sessions;
+* `lambda` cannot be reduced by entering on a calendar cadence — finding 1, 2 of
+  84 configurations admissible, best Sharpe 0.70.
+
+With `H = 60` and `lambda = 1` order a session — which is the operational
+maximum a person is willing to run, and is where §84 landed — **`N = 60` is
+forced arithmetic.** It is not a portfolio-construction choice that can be
+optimised; it is what the two closed levers leave.
+
+Cutting `N` therefore costs bets one-for-one, and the fundamental law prices
+that exactly. With `IR = IC * sqrt(BR)` (Grinold 1989) and `BR` proportional to
+`lambda`:
+
+| target N | lambda | BR vs N=60 | IR cost | **IC per bet must rise by** |
+|---|---|---|---|---|
+| 30 | 0.50 | 0.50x | 0.71x | **+41%** |
+| 20 | 0.33 | 0.33x | 0.58x | **+73%** |
+| 15 | 0.25 | 0.25x | 0.50x | **+100%** |
+
+**That is the price of a smaller book, stated in the only currency that can pay
+for it.** A thirty-name version of this strategy is not a weighting question or a
+risk question; it requires a selector delivering 41% more information per bet
+than random selection among the survivors.
+
+Against that bar, §80 measured the existing composite's top decile at **−1.18%
+excess** where a random feature scored **+0.77%** — the current feature set
+delivers *negative* incremental information as a selector. Which is precisely why
+H3 tests the one untapped source against the one estimand that has never been
+used.
+
+---
+
+# 91. Round 15, Part II — H2: the sector cap is a drawdown lever, not a Sharpe lever
+
+## What was tested
+
+A hard cap on **concurrent holdings per sector**, using the cached
+`sic_sectors.parquet` (17 sectors). It is a concentration control, not a ranking,
+so it cannot smuggle in a selection effect — which is what makes it a legitimate
+test of `sigma_common` rather than a disguised selector.
+
+Motivated by the tape: the live screen run this session (2026-08-28) fired ten
+names, of which SMJF, KXIN, SUGP, MIMI, RCON and SGLY were all China-domiciled
+microcaps unwinding together. Ten slots bought one position six times.
+
+## Development, 15 seeds, one size-aware round trip
+
+| N | cap | Sharpe | ± | annual | maxDD | vs uncapped |
+|---|---|---|---|---|---|---|
+| 15 | none | 0.46 | 0.39 | +9.3% | −47.6% | — |
+| 15 | 1 | 0.51 | 0.34 | +9.8% | −43.0% | +0.04 |
+| 15 | 2 | 0.33 | 0.24 | +5.3% | −53.1% | −0.13 |
+| 15 | 5 | 0.40 | 0.31 | +7.3% | −50.1% | −0.07 |
+| 30 | none | 0.73 | 0.41 | +11.4% | −38.7% | — |
+| **30** | **1** | **0.82** | 0.24 | +9.5% | **−21.2%** | +0.09 |
+| 30 | 5 | **0.96** | 0.24 | +15.4% | −36.4% | +0.23 |
+| 60 | none | **1.37** | 0.25 | +18.4% | −35.8% | — |
+| **60** | **1** | 0.90 | 0.24 | +5.3% | **−10.8%** | −0.46 |
+| 60 | 2 | 0.92 | 0.30 | +7.4% | −20.2% | −0.45 |
+| 60 | 3 | 1.21 | 0.20 | +12.5% | −25.2% | −0.15 |
+| 60 | 5 | 1.39 | 0.27 | +17.1% | −32.2% | +0.02 |
+| 150 | none | **1.60** | 0.18 | +17.7% | −33.2% | — |
+| **150** | **1** | 0.94 | 0.19 | +2.4% | **−4.4%** | −0.66 |
+| 150 | 2 | 1.07 | 0.16 | +3.9% | −7.4% | −0.54 |
+| 150 | 3 | 1.15 | 0.20 | +5.2% | −11.3% | −0.46 |
+| 150 | 5 | 1.44 | 0.19 | +8.7% | −17.4% | −0.17 |
+
+**On its first acceptance clause — "Sharpe at fixed N rises" — H2 fails.** At
+N=60, the operative size, every tight cap costs Sharpe: −0.46, −0.45, −0.15, and
++0.02 at a cap so loose it barely binds. Not one delta exceeds its own seed
+dispersion.
+
+**But look at the drawdown column.** At N=60 a cap of one takes the maximum
+drawdown from **−35.8% to −10.8%** — it removes more than two thirds of the worst
+loss — while return falls from +18.4% to +5.3%. Return and risk fall together and
+Sharpe falls slightly, which is exactly what a *diversification* constraint does
+to a book whose returns are already right-skewed: it removes the concentrated
+bets, and those carry both the drawdowns and the upside.
+
+The relationship is monotone and remarkably clean. At N=150 the cap walks the
+book down a frontier — Sharpe 1.60 → 1.44 → 1.15 → 1.07 → 0.94 against drawdowns
+of −33.2% → −17.4% → −11.3% → −7.4% → **−4.4%**. **This is a risk-preference
+frontier, not a Sharpe improvement**, and it is the cleanest monotone
+relationship the project has produced.
+
+So `sigma_common` **is** movable — the −10.8% drawdown proves it — but moving it
+does not buy Sharpe, because the common factor is carrying return as well as
+risk. That is a different finding from H1's, where the volatility filter turned
+out not to touch `sd(mu_t)` at all, and the two together say the common factor is
+reachable only by composition, and is not free when you reach it.
+
+## The clause that matters is the second one
+
+H2's acceptance criterion had two limbs, and the second is the one aimed at the
+actual question: *"or the N needed for a target Sharpe falls."*
+
+With 17 sectors, a cap of one makes the book **physically incapable of holding
+more than 17 names**. So "N=60, cap 1" is not a 60-name book — it is a ~17-name
+book, and it scores **0.90 with a −10.8% drawdown**. The unconstrained 15-name
+book scores **0.46 with a −47.6% drawdown**.
+
+That comparison, if it survives being matched properly on the number of
+positions actually held, is the answer to the concurrency question: not "hold
+fewer names" but "hold fewer *correlated* names". It is measured in §92.
+
+---
+
+# 92. Round 15, Part II — the answer: hold fewer *correlated* names, not fewer names
+
+## The comparison that had to be matched
+
+There are 17 sectors, so a cap of one name per sector makes the book physically
+incapable of holding more than 17 positions no matter how many slots it is given.
+"N=60 with cap 1" is not a 60-name book, and §91's table compared books of
+different sizes. The comparison that means something matches on **what is
+actually held**, measured directly rather than assumed.
+
+Development, 15 seeds, one size-aware round trip, $50,000:
+
+| config | slots | cap | **live positions** | orders/day | Sharpe | ± | annual | maxDD |
+|---|---|---|---|---|---|---|---|---|
+| unconstrained | 15 | — | **15.1** | 0.25 | **0.46** | 0.39 | +9.3% | −47.6% |
+| unconstrained | 20 | — | 20.1 | 0.34 | 0.58 | 0.28 | +10.8% | −44.2% |
+| unconstrained | 30 | — | 29.9 | 0.51 | 0.73 | 0.41 | +11.4% | −38.7% |
+| unconstrained | 60 | — | 57.3 | 0.97 | 1.37 | 0.25 | +18.4% | −35.8% |
+| unconstrained | 100 | — | 97.2 | 1.64 | 1.46 | 0.17 | +16.7% | −33.4% |
+| **sector cap 1** | 30 | 1 | **15.4** | 0.26 | **0.82** | 0.24 | +9.5% | **−21.2%** |
+| **sector cap 1** | 60 | 1 | **15.4** | 0.26 | **0.90** | 0.24 | +5.3% | **−10.8%** |
+| **sector cap 1** | 100 | 1 | 15.5 | 0.26 | **0.92** | 0.19 | +3.4% | **−7.0%** |
+| sector cap 2 | 30 | 2 | 28.4 | 0.48 | 0.68 | 0.33 | +9.8% | −34.8% |
+| **sector cap 2** | 60 | 2 | **29.3** | 0.49 | **0.92** | 0.30 | +7.4% | **−20.2%** |
+| **sector cap 2** | 100 | 2 | **30.0** | 0.50 | **0.93** | 0.19 | +5.0% | **−11.7%** |
+
+## The result
+
+**At the same book size and the same order rate, sector diversification roughly
+doubles the Sharpe and halves the drawdown.**
+
+| | unconstrained | sector-capped |
+|---|---|---|
+| live positions | 15.1 | 15.4 |
+| orders per session | 0.25 | 0.26 |
+| **Sharpe** | **0.46** | **0.82 – 0.92** |
+| **max drawdown** | **−47.6%** | **−21.2% to −7.0%** |
+
+Nothing operational differs. The same number of line items, the same number of
+orders, the same capital, the same signal, the same filters. The only change is
+a refusal to hold two names from one sector at the same time.
+
+Read against the unconstrained curve, a Sharpe of 0.82 would otherwise require
+roughly **35 positions** (interpolating 30 → 0.73 and 60 → 1.37). So the
+constraint delivers the performance of a ~35-name book in **15 names** — a
+**57% reduction in concurrent positions at no cost in Sharpe**, and a large gain
+in drawdown.
+
+**The effect holds at 30 names as well as 15**, and the row that does not win
+says why. At 30 slots a cap of two does not bind — 17 sectors x 2 = 34 > 30 — so
+that book is effectively unconstrained (28.4 live, Sharpe 0.68 against 0.73) and
+scores like one. Give it 60 or 100 slots so the cap actually binds and the same
+~30-name book scores **0.92 and 0.93** against the unconstrained 0.73, with the
+drawdown falling from −38.7% to −20.2% and −11.7%.
+
+| live positions | unconstrained | sector-capped | delta | maxDD unc. | maxDD capped |
+|---|---|---|---|---|---|
+| ~15 | 0.46 | **0.90** | **+0.44** | −47.6% | −10.8% |
+| ~30 | 0.73 | **0.93** | **+0.20** | −38.7% | −11.7% |
+
+The gain shrinks as the book grows, which is exactly what the decomposition
+predicts: `sigma^2_eta / N` vanishes with breadth and `sigma^2_common` does not,
+so managing the common term matters most where breadth is scarcest.
+
+**H2's second acceptance clause passes on development.** Its first clause —
+"Sharpe at fixed N rises" — failed, and that failure was real: at a fixed 60
+slots the cap costs Sharpe. But the clause that was aimed at the actual question,
+"the N needed for a target Sharpe falls," passes clearly.
+
+## Why this works, and why nothing before found it
+
+§80 fixed the identity `N = (H/tau) * K * (1-delta)` and closed two of its three
+terms. Every subsequent attempt to cut `N` moved a term of that identity, and
+each cost bets one-for-one. **The sector cap does not appear in the identity at
+all.** It leaves `H`, `tau` and `K` exactly where they were and changes the
+*composition* of the names filling the slots — which changes `sigma_common`, the
+term §82's decomposition treats as a constant of nature.
+
+H1 showed that constant is untouched by the volatility filter: `sd(mu_t)` is
+24.6% uncapped and 24.3% vol-capped. The filter is purely an idiosyncratic-risk
+filter. **The common factor was never being managed at all**, by anything, in
+fourteen rounds — and it is the term that dominates at high `N`, because
+`sigma^2_eta / N` vanishes and `sigma^2_common` does not.
+
+That is also why the effect is invisible in every per-trade statistic the project
+has computed. The trades are identical. Only which ones are held *at the same
+time* changes.
+
+## Honest limits
+
+1. **The Sharpe delta is about one combined seed standard deviation.** 0.46 ± 0.39
+   against 0.82 ± 0.24 on a single comparison. The drawdown difference is far
+   larger relative to its dispersion, and the monotone frontier across caps 1, 2,
+   3 and 5 at every `N` (§91) is stronger evidence than the point estimate.
+2. **Development only.** The holdout read is separate and is recorded when taken.
+3. **The sector labels are SIC-derived and static**, not point-in-time. A
+   reclassification is not a look-ahead in any strong sense — sector membership
+   does not change with price — but it is not a clean point-in-time join either.
+4. **17 sectors is a coarse grid.** A cap of one is therefore a hard ceiling of 17
+   names, which is why the capped rows converge to the same book whatever slot
+   count they are given. A finer partition — SIC industry, or a statistical
+   clustering of return correlations — would give a continuous lever instead of a
+   ceiling, and that is the obvious next step rather than a limit of the idea.
+5. The return of the capped book is **much lower** (+3.4% to +9.5% against
+   +18.4%). This is not a free improvement; it is a different point on a risk
+   frontier, and a person who wants +18% a year still needs the 60-name book.
+
+---
+
+# 93. Round 15, Part II — H4: the inverse-volatility arm was a no-op, and once fixed it does nothing
+
+## The defect, found because the numbers were identical to the digit
+
+H4's first pass returned **0.46 / 0.46** at N=15 and **0.73 / 0.73** at N=30 for
+equal and inverse-volatility weighting — the same to two decimals, with the same
+drawdown and the same seed dispersion. Two weighting schemes do not agree that
+exactly.
+
+`risk_shaped.py:120`, which `strategy/book.py` inherited:
+
+```python
+iv = 1.0 / pool["B7_realised_vol"].to_numpy()
+w  = iv / iv.mean() / cfg.n_slots
+```
+
+`pool` at that point is the set the fill rule has **already sampled down to**,
+and the stagger two lines earlier admits `ceil(n_slots / H)` fills a session —
+which is **one** for every `n_slots <= H`. With one name in the pool,
+`iv / iv.mean()` is identically 1 and the expression returns `1 / n_slots`: the
+equal-weight book, exactly.
+
+**Every inverse-volatility result this project has reported at N ≤ 60 was an
+equal-weight result.** That covers §80's weighting comparison and §82's, at every
+retail configuration. The fix is to normalise against the day's **eligible** set
+rather than the sampled subset, and it is pinned by a test that asserts the
+weights vary and that low-volatility names carry the larger share.
+
+## H4 re-run, with the tilt actually applied
+
+Development, 15 seeds. `wt sd` is the cross-sectional dispersion of weights
+scaled by `N` — zero for equal weight by construction, and non-zero here only
+because the fix works.
+
+| N | weight | Sharpe | ± | annual | maxDD | wt sd | delta |
+|---|---|---|---|---|---|---|---|
+| 15 | equal | 0.46 | 0.39 | +9.3% | −47.6% | 0.000 | — |
+| 15 | invvol | 0.35 | 0.37 | +6.2% | −50.0% | 0.355 | **−0.11** |
+| 30 | equal | 0.73 | 0.41 | +11.4% | −38.7% | 0.000 | — |
+| 30 | invvol | 0.83 | 0.35 | +12.8% | −35.7% | 0.265 | **+0.10** |
+| 60 | equal | 1.37 | 0.25 | +18.4% | −35.8% | 0.000 | — |
+| 60 | invvol | 1.37 | 0.27 | +17.7% | −34.2% | 0.303 | **−0.00** |
+
+**Nothing.** −0.11, +0.10, −0.00 — signs that do not agree, magnitudes far inside
+the seed dispersion. Inverse-volatility weighting neither helps nor hurts.
+
+That is the *expected* answer and it is worth stating why, because a null result
+with a reason behind it is more useful than one without. §78 established
+`E[R]` is **flat in the score** inside the surviving population, and flat expected
+returns is precisely the condition under which equal weight is optimal — there is
+no expected-return dispersion to tilt toward. The volatility cap has already
+removed the high-volatility half, so tilting further within the low-volatility
+survivors is re-weighting on a variable whose informative range has been spent.
+
+## Kelly, since position size keeps being raised as a lever
+
+The growth-optimal fraction solved numerically on the measured per-trade payoff
+(mean +13.47%, sd 49.3%) is **f\* = 0.629**, half-Kelly 0.315.
+
+That number is not directly comparable to the book's 1/60 = 1.67% a name, because
+Kelly on a single sequential bet is not Kelly on sixty concurrent correlated
+ones. The comparison that does hold is at the aggregate: the book is **long-only
+and fully invested**, so there is no leverage headroom to exploit in either
+direction. Position sizing is not a free lever here — **breadth is the binding
+constraint, not leverage**, and that is what H1's arithmetic already said.
+
+---
+
+# 94. Round 15, Part II — H2 on the sealed holdout: the drawdown effect replicates, the Sharpe effect half does
+
+This is the **sixth** read of the sealed holdout (§78, §80, §82, §84, Part I's
+re-cost, and this). Recorded as such.
+
+| config | slots | cap | live | ord/day | Sharpe | ± | annual | maxDD |
+|---|---|---|---|---|---|---|---|---|
+| unconstrained | 15 | — | 15.1 | 0.25 | 1.07 | 0.55 | +25.5% | −21.8% |
+| unconstrained | 20 | — | 20.0 | 0.34 | 1.04 | 0.72 | +21.5% | −23.7% |
+| unconstrained | 30 | — | 29.8 | 0.51 | 0.98 | 0.57 | +15.7% | −26.0% |
+| unconstrained | 60 | — | 58.2 | 1.00 | **1.51** | 0.45 | +17.2% | −19.5% |
+| unconstrained | 100 | — | 97.5 | 1.68 | 1.86 | 0.46 | +17.4% | −16.1% |
+| sector cap 1 | 30 | 1 | 16.3 | 0.28 | 1.05 | 0.36 | +12.6% | −14.8% |
+| sector cap 1 | 60 | 1 | 16.3 | 0.28 | 1.10 | 0.36 | +6.6% | −7.5% |
+| sector cap 1 | 100 | 1 | 16.5 | 0.28 | 0.94 | 0.28 | +3.4% | −5.0% |
+| sector cap 2 | 30 | 2 | 29.3 | 0.51 | **1.30** | 0.48 | +21.0% | −21.9% |
+| sector cap 2 | 60 | 2 | 31.0 | 0.53 | 1.26 | 0.47 | +10.6% | −12.9% |
+| sector cap 2 | 100 | 2 | 31.6 | 0.54 | 1.20 | 0.36 | +6.2% | −7.9% |
+| **sector cap 3** | 60 | 3 | **44.2** | 0.76 | **1.59** | 0.43 | +15.6% | **−14.9%** |
+| **sector cap 3** | 100 | 3 | 46.2 | 0.80 | **1.66** | 0.36 | +10.5% | −9.6% |
+
+## Matched pairs, both periods
+
+| live | dev unc. | dev capped | **holdout unc.** | **holdout capped** |
+|---|---|---|---|---|
+| ~15 | 0.46 | **0.90** (+0.44) | **1.07** | **1.10** (+0.03) |
+| ~30 | 0.73 | **0.93** (+0.20) | **0.98** | **1.30** (+0.32) |
+| ~45 | ~1.0 | 1.21 (+0.2) | ~1.2 | **1.59** (+0.4) |
+
+**The N=15 result does not replicate.** Development showed +0.44 and the holdout
+shows +0.03. That was the largest effect in the development table and it is the
+one that vanished — the oldest pattern in this project, and the reason the
+holdout exists.
+
+**The ~30 and ~45 comparisons do replicate**, and more strongly out of sample than
+in it: +0.32 at 30 names and about +0.4 at 45.
+
+**The drawdown effect replicates everywhere and is large.** At ~16 names, −21.8%
+becomes −14.8% / −7.5% / −5.0%. At ~30, −26.0% becomes −21.9% / −12.9% / −7.9%.
+At ~45, −19.5% becomes −14.9%. In every pair, in both periods, the capped book
+draws down less.
+
+## The configuration this actually supports
+
+Against the standing recommendation — 60 names, unconstrained:
+
+| | dev Sharpe | holdout Sharpe | dev maxDD | holdout maxDD | live positions |
+|---|---|---|---|---|---|
+| unconstrained, 60 slots | **1.37** | **1.51** | −35.8% | −19.5% | 57–58 |
+| **cap 3, 60 slots** | 1.21 | **1.59** | **−25.2%** | **−14.9%** | **41–44** |
+
+**A per-sector cap of three cuts the book from ~58 names to ~42 — a 28%
+reduction — at no reliable cost in Sharpe (−0.16 dev, +0.08 holdout, both inside
+the seed dispersion of 0.2–0.45) and with a materially better drawdown in both
+periods.**
+
+That is the concurrency answer that survives a holdout: not a halving, and not
+the doubling of Sharpe development advertised at 15 names, but a real ~28%
+reduction with better risk, from a constraint that costs nothing to implement and
+does not touch the identity `N = H * lambda` at all.
+
+## Why the small-book result failed and the medium one held
+
+Consistent with the mechanism rather than with luck. With 17 sectors a cap of one
+is a hard ceiling of 17 names, so it does not merely diversify — it *forces* the
+book to sit out days when its sectors are full, cutting the trade count and the
+return (annual +3.4% to +12.6% against +25.5%). That is a different strategy, not
+a diversified version of the same one. A cap of two or three binds often enough to
+decorrelate and rarely enough to keep the book invested, and those are the ones
+that replicate.
+
+---
+
+# 95. Round 15, Part II — the fifth adjusted/unadjusted failure, caught by a number that was too good
+
+## What happened
+
+H3 and H5 needed minute bars, and the cache covered only **12.7%** of the
+round-15 population — it had been fetched for earlier rounds' screens, which
+select an entirely different population. So 1,654 sessions of the 2020-2026
+candidate set were fetched (98,378 symbol-days, taking the cache from 921 MB to
+1.2 GB), and both hypotheses were run on it.
+
+H5's first result was that entering at the daily open returned **+15.35%** gross
+against **+1.85%** for the minute open — *the same session, the same bar*. An
+execution difference cannot be eight times the return.
+
+Pairing the two directly, on the same symbol-day:
+
+| minute open / daily unadjusted open | |
+|---|---|
+| within 1% | **64.2%** |
+| within 5% | 67.9% |
+| 95th percentile | **20.0** |
+| 99th percentile | **40.0** |
+
+SOS on 2021-03-26: daily open **6.22**, minute open **4672.50**. Ratio
+**750.000** — to six figures.
+
+`alpaca_fetch.py:127` requests minute bars with **`adjustment="all"`**. The
+entire minute cache is split- and dividend-**adjusted**, while
+`panel_strategy.parquet` carries the raw `*_unadj` series that every filter and
+every forward path in this project uses. They are two different price bases and
+they had been paired.
+
+## The feature this killed, which was the best one
+
+`M_mean_trade_usd` — mean dollars per trade, a retail-participation proxy —
+scored **IC −0.0528, t −6.82**: the second-strongest feature in the entire
+project, behind only realised volatility, and one of three to survive BH-FDR
+against all 287 prior trials.
+
+It is a **price level times volume**, computed from adjusted prices. A name that
+later reverse-splits carries an inflated adjusted dollar volume *today*, and
+names reverse-split because they keep falling. **High adjusted trade size implies
+a future consolidation implies worse returns.** That is §72's bias exactly,
+rediscovered in a new data source, and its t-statistic of −6.82 is how strong a
+look-ahead can look.
+
+Withdrawn. Every remaining feature is **scale-invariant within the session** — a
+ratio, a share, or a standard deviation of log returns — so a constant adjustment
+factor cancels exactly, and a unit test now rescales a synthetic session by 750x
+and asserts that no emitted feature moves.
+
+The idea survived the implementation: `M_shares_per_trade`, the same notion
+without the price, is one of the two features that beats the barrier base rate
+(§96).
+
+## H5, once the comparison is valid
+
+The fix is to use minute prices only as **within-session ratios** and apply those
+to the unadjusted daily open — the ratio is unaffected by a constant factor. All
+four rules on the common subsample where every one is priced (21,234 rows):
+
+| entry | touch % | mean gross | median | sd | IR/position | vs open |
+|---|---|---|---|---|---|---|
+| daily open | 18.2% | +15.35% | +4.33% | 50.7% | 0.303 | — |
+| minute open | 18.2% | +15.35% | +4.33% | 50.7% | 0.303 | +0.000 |
+| **10:00 print** | 18.7% | **+16.25%** | +5.24% | 51.0% | **0.319** | **+0.016** |
+| 09:30–10:00 VWAP | 18.6% | +16.00% | +4.91% | 50.9% | 0.314 | +0.012 |
+
+The second row is the check: the minute open scaled by its own ratio to itself
+must reproduce the daily open exactly, and it does to five decimals.
+
+**Waiting until 10:00 is worth about +5% of information ratio per position** —
+0.303 to 0.319, mean gross +15.35% to +16.25%. Small, positive, and in the
+direction the microstructure literature predicts (Heston, Korajczyk & Sadka 2010):
+the open is the widest-spread minute of a microcap session and there is no
+compensating drift to capture, which §71 had already established from the other
+side.
+
+It is not a large enough effect to change the recommendation on its own, and it
+is development-only. It is also free — the order is placed thirty minutes later.
+
+## The rule this adds
+
+**A cached bar's adjustment basis is part of its schema, and must be asserted
+where the two meet.** Four previous failures (§57, §64, §67, §72) were all inside
+one data source. This one is *between* two sources that were each internally
+correct. The daily panel is scrupulous about `_unadj`; the minute cache is
+adjusted and never said so; nothing in between checked.
+
+Cheap defences, both now in place: features from a possibly-adjusted source must
+be scale-invariant, and a level from one source may only meet a level from
+another through a ratio.
+
+---
+
+# 96. Round 15, Part II — H3: a selector from the minute tape
+
+## Why this was the only place left to look
+
+§80 measured the existing composite as a selector and it is dead: the top decile
+returned **−1.18%** excess where a *random* feature returned **+0.77%**. Every
+non-price block died in `6cb0b55`. The minute cache was the one source never
+turned into cross-sectional features, and the only reason it was available at all
+is that this round fetched 1,654 sessions of the round-15 population — the
+existing cache covered **12.7%** of it, having been built for earlier screens.
+
+Coverage after the fetch: **96.8%** of the development frame.
+
+## (a) Scored the way every block has been scored
+
+Within-cell IC on the demeaned return, `cross_section.score_feature`, cells
+bootstrapped rather than observations. 973 cells.
+
+| feature | IC | t | 95% CI |
+|---|---|---|---|
+| **M_close_participation** | **+0.0389** | **5.20** | [+0.0243, +0.0541] |
+| **M_volume_spikiness** | **+0.0328** | **4.13** | [+0.0175, +0.0488] |
+| M_open_participation | −0.0205 | −2.65 | [−0.0361, −0.0051] |
+| M_minutes_traded | −0.0197 | −2.40 | [−0.0363, −0.0039] |
+| M_vwap_position | +0.0159 | 2.00 | [+0.0005, +0.0316] |
+| M_intraday_vol | −0.0112 | −1.47 | [−0.0261, +0.0044] |
+| *B0_random (control)* | *+0.0070* | *0.92* | *[−0.0073, +0.0222]* |
+
+**Three survive BH-FDR padded with all 287 prior trials**, and the random control
+sits at t = 0.92 where it belongs. These are the first non-composite features in
+the project to clear that bar.
+
+They are also, on their own, not tradable: the rank-weighted long-short net
+return is negative for every one of them (−0.72% for the best IC). An IC of 0.039
+against a cost floor is a real effect that cannot pay for itself as a
+dollar-neutral portfolio — which is the same wall §78 hit, and the reason the
+second estimand exists.
+
+## (b) Scored the way a barrier strategy actually pays
+
+`P(touch the +100% barrier | top decile within the day)`, ranked within the day so
+the day effect cannot masquerade as selection. Base rate **17.1%**.
+
+| feature | top 10% | lift | 95% CI | bottom 10% |
+|---|---|---|---|---|
+| **M_intraday_vol** | **22.9%** | **1.34** | [21.0%, 24.8%] | **6.4%** |
+| **M_shares_per_trade** | **21.8%** | **1.28** | [19.9%, 23.6%] | 12.4% |
+| M_vwap_position | 18.7% | 1.10 | [16.4%, 20.9%] | 24.6% |
+| *B0_random (control)* | *17.4%* | *1.02* | *[15.2%, 19.7%]* | *17.2%* |
+
+Two features beat the base rate with intervals excluding it, and the control does
+not. **Intraday realised volatility on the crash day raises the barrier-touch rate
+from 17.1% to 22.9%, and its bottom decile falls to 6.4%** — a spread of nearly
+four to one across the same population.
+
+Note that `M_intraday_vol` scores **nothing** on the IC (t = −1.47, wrong sign).
+It is invisible to the estimator every previous block was judged by, and it is the
+strongest thing here. That is the whole argument for the second estimand: with a
+barrier exit, which names *touch* is not the same question as which names have a
+higher mean.
+
+Economically it is coherent rather than mysterious. The population is already
+filtered to the **low** half by *daily* realised volatility, so the top decile by
+*intraday* volatility is the set of normally-quiet names that had one violent
+session. A stock that just moved violently is more likely to move violently
+again — and a +100% barrier needs exactly that.
+
+## (c) As a fill rule — the only form that can reduce the book
+
+Same population, same filters, same horizon, same stagger, same size-aware cost.
+Only the rule choosing which survivor fills a free slot changes. Development,
+15 seeds for the random arm (the ranked arms are deterministic, hence ± 0.00).
+
+| N | fill rule | orders/day | Sharpe | annual | maxDD | vs random | vs control |
+|---|---|---|---|---|---|---|---|
+| 15 | random | 0.25 | 0.46 | +9.3% | −47.6% | — | — |
+| 15 | **top M_intraday_vol** | 0.25 | **1.02** | **+23.5%** | −49.1% | +0.55 | **+1.03** |
+| 15 | top M_shares_per_trade | 0.25 | 0.65 | +12.9% | −38.3% | +0.19 | +0.66 |
+| 15 | *top B0_random* | 0.25 | *−0.01* | *−2.9%* | *−63.2%* | *−0.47* | — |
+| 30 | random | 0.51 | 0.73 | +11.4% | −38.7% | — | — |
+| 30 | **top M_intraday_vol** | 0.51 | **1.38** | **+23.3%** | −36.3% | +0.65 | **+1.02** |
+| 30 | top M_shares_per_trade | 0.51 | 1.25 | +22.1% | −33.8% | +0.51 | +0.89 |
+| 30 | *top B0_random* | 0.51 | *0.36* | *+4.7%* | *−58.6%* | *−0.37* | — |
+| 60 | random | 0.97 | 1.37 | +18.4% | −35.8% | — | — |
+| 60 | **top M_intraday_vol** | 0.97 | **1.89** | **+29.7%** | **−25.8%** | +0.53 | +0.61 |
+| 60 | top M_shares_per_trade | 0.97 | **2.10** | **+31.8%** | −30.8% | +0.74 | +0.82 |
+| 60 | *top B0_random* | 0.97 | *1.28* | *+16.9%* | *−40.1%* | *−0.08* | — |
+
+The control matters and it behaves: filling deterministically on a **random**
+column scores at or below the random fill at every N, so the gain is the ranking
+and not the determinism.
+
+**On development, a 30-name book filled by intraday volatility scores 1.38 — the
+same as the 60-name random book's 1.37, at half the positions and +23.3% annual
+against +18.4%.** That is the concurrency answer in its strongest form.
+
+## The cost objection, tested rather than assumed
+
+The selector prefers thinner, more volatile names — median ADV **\$0.73M** against
+**\$2.48M** for a random fill. The ADV-binned cost model does charge it more,
+**127 bps against 91**, a ratio of 1.40x. But the model bins on ADV and cannot see
+volatility, and spread scales with volatility, so it might underprice exactly what
+the selector picks.
+
+Measured independently with the **Corwin–Schultz (2012)** high-low estimator,
+which uses only daily OHLC and never touches the quote data the cost model was
+fitted on:
+
+| | median CS spread |
+|---|---|
+| top decile by intraday vol | **256 bps** |
+| the rest | **178 bps** |
+| ratio | **1.43x** |
+
+Against the cost model's 1.40x. **The extra cost of the selector's names is
+already being charged, to within about 2%** — roughly 3 bps on a 127 bps round
+trip. The objection is real and it is covered.
+
+---
+
+# 97. Round 15, Part II — H3 on the sealed holdout: both selectors die, one of them twice
+
+Seventh read of the holdout, and it kills the round's best-looking result.
+
+| N | fill rule | trades | **dev Sharpe** | **holdout Sharpe** | dev vs random | holdout vs random |
+|---|---|---|---|---|---|---|
+| 15 | random | 165 | 0.46 | 1.07 | — | — |
+| 15 | top M_intraday_vol | 165 | **1.02** | **0.14** | +0.55 | **−0.93** |
+| 15 | top M_shares_per_trade | 165 | 0.65 | 2.70 | +0.19 | +1.63 |
+| 15 | *top B0_random* | 165 | *−0.01* | *1.14* | *−0.47* | *+0.06* |
+| 30 | random | 330 | 0.73 | 0.98 | — | — |
+| 30 | top M_intraday_vol | 330 | **1.38** | **0.09** | +0.65 | **−0.89** |
+| 30 | top M_shares_per_trade | 330 | 1.25 | 3.63 | +0.51 | +2.65 |
+| 30 | *top B0_random* | 330 | *0.36* | *1.40* | *−0.37* | *+0.42* |
+| 60 | random | 648 | 1.37 | 1.51 | — | — |
+| 60 | top M_intraday_vol | 648 | **1.89** | **0.05** | +0.53 | **−1.46** |
+| 60 | top M_shares_per_trade | 648 | 2.10 | 4.62 | +0.74 | +3.11 |
+
+## M_intraday_vol: refuted
+
+Development +0.55 / +0.65 / +0.53. Holdout **−0.93 / −0.89 / −1.46**. Not a
+weakening — a sign flip of the same magnitude, at every book size, monotonically
+worse as N rises. A feature chosen as the best of fourteen on one period,
+behaving as the worst on the next.
+
+Its development evidence was not weak, either: it was the only feature whose
+barrier-touch interval excluded the base rate at both ends (22.9% top decile,
+6.4% bottom, base 17.1%), it had a calibrated random control, and its economic
+story was coherent. **None of that survived contact with 2024–2026.**
+
+## M_shares_per_trade: a look-ahead, and it got past a guard written for it
+
+Sharpe **4.62** at N=60 with a −7.0% maximum drawdown and +65% a year. Nothing in
+this universe does that, and §95 had just finished withdrawing its sibling.
+
+`M_mean_trade_usd` was withdrawn because a price *level* from an adjusted cache
+encodes future corporate actions. `M_shares_per_trade` was its replacement with
+the price removed — and **Alpaca adjusts VOLUME as well, in the opposite
+direction**. A name that later reverse-splits carries a *deflated* adjusted share
+count today, so ranking on shares-per-trade ranks on not-about-to-consolidate.
+
+Measured on the holdout population:
+
+| | share with adj/unadj > 1.5 |
+|---|---|
+| top decile by M_shares_per_trade | **0.0%** |
+| the rest | **7.4%** |
+
+Spearman with the adjustment ratio **−0.307**; with `1/price`, **+0.464**. The
+top decile contains **no** future reverse-splitters at all. It is a survivorship
+screen built from tomorrow's corporate actions — §72's retraction mechanism
+exactly, this time pointing the flattering way.
+
+**The scale-invariance test written in §95 did not catch it, because it rescaled
+prices and left volume alone.** A split adjustment moves price and volume in
+*opposite* directions; a guard that tests one is not a guard. Fixed: the test now
+rescales price by 750x and volume by 1/750x, and no trade-size feature is emitted
+in any form.
+
+## The control is the most useful column in the table
+
+`B0_random` — a fixed random number per row, used as a fill rule — moves the
+holdout Sharpe by **+0.06 at N=15 and +0.42 at N=30**. A meaningless column
+appears to improve the book by four tenths of a Sharpe.
+
+That is the measurement error on every deterministic single-draw arm in this
+table, and it is larger than most effects the project has chased. The random-fill
+arm averages 15 seeds and has a seed dispersion of 0.45–0.57 on the holdout; the
+ranked arms are one draw each and have no dispersion to report, which makes them
+look precise and is why the control had to be there.
+
+## Verdict
+
+**H3 fails.** No intraday feature reduces the position count. The IC results in
+§96 stand as measurements — three features clear BH-FDR against 287 prior trials
+and the random control is calibrated — but an IC of 0.039 with a negative
+long-short net return was never tradable, and the two features that looked
+tradable are one overfit and one look-ahead.
+
+The minute cache is now built and correct for the round-15 population (1,654
+sessions fetched, 96.8% development and 99.7% holdout coverage), which is the
+durable output. What it does not contain is a selector.
+
+---
+
+# 98. Round 15 — what it recommends, and the lesson
+
+## The question, answered
+
+*Can the book hold fewer than sixty positions?*
+
+**Yes, about 28% fewer, and the reason is not the one anyone was looking for.**
+
+`N = H * lambda` is an identity, not a result. §80 closed `H` (≥60, the excess is
+a threshold) and `tau` (calendar cadence, 2 of 84 configurations admissible), so
+with one order a session as the operational limit, **N=60 is forced arithmetic**.
+Cutting it costs bets one-for-one, and the fundamental law prices that exactly:
+a 30-name book needs **+41%** more information per bet, a 15-name book **+100%**.
+
+Neither of the two ways to buy that information worked:
+
+* **A selector** would raise IC per bet. H3 tested fourteen intraday features
+  against the estimand that actually pays. On development the best added +0.6
+  Sharpe at every N; on the holdout it **inverted** (−0.9 to −1.5), and the
+  runner-up turned out to be a look-ahead. §80's verdict on selectors stands.
+* **Better weighting** would raise the information transferred. H4 is a flat
+  null once its no-op was fixed — and that was the expected answer, because §78
+  found expected return **flat in the score** among survivors, which is exactly
+  when equal weight is optimal.
+
+What did work is not in the identity at all. **A cap on concurrent holdings per
+sector changes which names occupy the slots, not how many slots there are** — so
+it moves `sigma_common`, the term §82's decomposition treats as a constant and
+which H1 showed the volatility filter never touched (`sd(mu_t)` 24.6% uncapped,
+24.3% capped).
+
+## The configuration
+
+> Crashed microcaps: fell ≥15% over five sessions, \$0.50–\$10 unadjusted,
+> ADV ≥ \$250k. Keep the lower half by 20-day realised volatility. **60 slots
+> with at most three names per sector held at once.** Equal weight, at most one
+> entry per session, exit at +100% or after 60 sessions, enter at the next open —
+> or at 10:00, which is worth about +5% of information ratio and costs nothing.
+
+| | dev Sharpe | holdout Sharpe | dev maxDD | holdout maxDD | live positions |
+|---|---|---|---|---|---|
+| §84's recommendation | **1.37** | **1.51** | −35.8% | −19.5% | 57–58 |
+| **with a cap of 3** | 1.21 | **1.59** | **−25.2%** | **−14.9%** | **41–44** |
+
+Sharpe is a wash (−0.16 development, +0.08 holdout, both well inside the seed
+dispersion of 0.20–0.45). The drawdown is better in **both** periods. The book is
+**28% smaller**. The constraint costs nothing to implement and needs no new data —
+`sic_sectors.parquet` has been on disk since round 11.
+
+For a smaller book still, a cap of two gives ~30 names at holdout Sharpe 1.30
+against the unconstrained 30-name book's 0.98 — but that is a 0.2 Sharpe give-up
+against the 60-name configuration, and it is a choice about how many line items a
+person will tolerate, not a free lunch.
+
+**What is not recommended:** a cap of one. It is a hard ceiling of 17 names, it
+was the largest effect on development (+0.44), and it is the one that vanished on
+the holdout (+0.03). The oldest pattern in this project.
+
+## What this round actually produced
+
+The recommendation moved 28%. The infrastructure moved further.
+
+**Built:** `strategy/book.py`, one simulator replacing three that disagreed;
+`eval/battery.py`, five tiers of metrics with 38 tests against closed forms;
+`PREREGISTRATION_R15.md` with the mathematics and 33 references; the minute cache
+rebuilt for the actual population, 1,654 sessions, 96.8%/99.7% coverage.
+
+**Found, in code that had been shipping results:**
+
+1. The round-14 table came from **uncommitted code**; `cost_model.py` was
+   imported by nothing.
+2. Cost was charged **1.5 round trips** on the time-stop path and **0.5** on the
+   profit-target path — a threefold difference between two arms of one sweep.
+3. `slots.py`'s "noveto" control still ranked on the composite, so
+   `breadth_curve.py` changed two things at once.
+4. Exits were scheduled on **candidate days**, not trading sessions.
+5. The inverse-volatility arm was **a no-op at every N ≤ 60** in every prior
+   round — `iv / iv.mean()` over a one-name pool.
+6. §84's `orders/day` column is the per-session **cap**, not the realised rate;
+   "N=60 costs the same effort as N=30" is wrong.
+7. §84's N=30 row does **not reproduce** at any account size.
+8. Two look-aheads in new features, §95 and §97, both from the same source.
+
+**Measured for the first time:** 972 trades carry ~17 independent time
+observations; daily returns are autocorrelated to lag 60 and the honest bootstrap
+interval is five times the Mertens standard error; realised drawdowns run 2.4–2.9x
+their own expectation at N ≥ 60; per-trade tail indices are 3.7–11.3, so the
+variance arithmetic every breadth argument rests on is valid.
+
+## 99. The lesson
+
+**A guard written for one direction of a bias does not cover the other.**
+
+§95 withdrew `M_mean_trade_usd` because an adjusted price *level* encodes future
+corporate actions, and added a test that rescales a synthetic session's prices by
+750x and asserts no feature moves. `M_shares_per_trade` — the same idea with the
+price removed — passed that test and reached the holdout at Sharpe 4.62, because
+**a split adjustment moves price and volume in opposite directions** and the test
+only moved price.
+
+The general form: an adjustment is a transformation of *several* fields at once.
+A scale-invariance guard must apply the whole transformation, not the half of it
+that motivated the guard. The corrected test rescales price by 750x **and** volume
+by 1/750x.
+
+This is the sixth adjusted/unadjusted failure in this project (§57, §64, §67,
+§72, §95, §97), and the first two of those were seven rounds ago. The pattern is
+not carelessness about adjustment — the codebase is scrupulous about it. It is
+that each new *pairing* of data sources creates a new place for the same bias,
+and the check has to live where the sources meet.
+
+---
+
+# 100. The consolidated specification
+
+Rounds 1-15 are recorded in this log as a narrative, which is the right shape for
+process and the wrong shape for a design. **`research/penny/STRATEGY_SPEC.md`**
+is the design: the strategy as it stands, every element of it, and the catalogue
+of what has been tested against what is still open.
+
+It exists because the answer to "what is the strategy" was spread across ninety
+nine sections, and because the answer to "what should be tried next" was not
+written down anywhere at all. The live candidates it names, in order:
+
+1. **A finer partition than SIC sector** -- a correlation-clustered tree instead
+   of 17 buckets, turning the one lever that replicated (SS92, SS94) into a
+   continuous one rather than a 17-name ceiling.
+2. **Balance sheet: cash / market cap and net cash.** Specified in
+   `FORMULATION.md` as block B4 and never fetched -- `etl/xbrl.py` pulls share
+   counts only. B4's dilution half is dead; its cash half has never been tested.
+3. **ATM program size and warrant overhang**, open since SS21.
+4. **A conditional release rule** -- H=60 as a maximum rather than a fixed term.
+   Since `N = H * lambda`, cutting the AVERAGE hold cuts the book. It must be
+   tested as a time/state release and never as a price stop, which is dead twice.
+
+And the one it rules out on evidence rather than taste: **breakout and
+continuation patterns**. The 441-cell grid tested momentum, gap-ups, new 20-day
+highs and volume shocks, and every family was negative gross. In this universe
+continuation is the losing side.

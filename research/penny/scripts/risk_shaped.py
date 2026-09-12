@@ -25,6 +25,23 @@ not work, and this is a different claim that must be tested on its own.
 
 Everything else is held fixed: composite signs frozen at the pre-2020 fit,
 random fills among survivors, development only.
+
+.. deprecated:: round 15
+   **Do not use this simulator for new results.** It charges the cost
+   inconsistently -- `R` from `cross_section.forward_return` already carries a
+   full round trip and this loop subtracts another `0.5 * cost` on top (1.5x),
+   while a `R_t*` target column is gross and ends up charged 0.5x. It also
+   schedules exits on candidate-days rather than market sessions and discards
+   the daily equity curve it computes. Use `research/penny/strategy/book.py`,
+   which fixes all three and is unit-tested. See LOG 85.
+
+   It also has a FOURTH defect, found in round 15: the inverse-volatility arm
+   is a no-op. Line 120 normalises `1/sigma` over the SAMPLED pool, and the
+   stagger at line 89 admits `ceil(n_slots / H)` fills a session -- which is
+   ONE for every n_slots <= H. With a one-name pool `iv / iv.mean()` is
+   identically 1, so `weight="invvol"` produces exactly the equal-weight book.
+   Every inverse-vol result reported at N <= 60 is an equal-weight result.
+   Reproduced and fixed in `strategy/book.py`; see LOG 93.
 """
 from __future__ import annotations
 
