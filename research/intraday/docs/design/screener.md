@@ -97,7 +97,9 @@ dividend-adjusted, so `pm_dollar_volume` straight from them is exactly the withd
   that row's own factor before any dollar volume is formed. Cross-day ratios (gap versus prior
   close) are raw-to-raw (`pm_close × f_{D-1} / close_unadj_{D-1}`); a raw level is never paired with an
   adjusted one.
-- **Cache coverage.** The minute and pre-market caches hold only earlier rounds' candidates. See
+- **Cache coverage.** The minute cache (median 54 symbols a day) and the pre-market cache (median 13
+  a day) hold only the union of earlier rounds' candidate pools, while the daily caches are complete
+  for the universe. So the universe filter has full data, but pre-market ranking does not. See
   `feed.md` (Open questions, Failure modes) for the coverage rejects, which are reported per arm.
 - **Sealed holdout.** The adapter refuses any session date `>= holdout_start` (raise) unless
   `unseal=True` is passed. `unseal` is part of `config_hash`, so it shows in `screen_id`.

@@ -50,7 +50,7 @@ Ticks outside the session emit nothing. Ticks before `Candidates` arrives emit n
 | live `feed` | `"iex"` | spec §1 (free real-time is IEX only); the paid SIP choice is Phase 4's decision |
 | emitted bar basis | **unadjusted** (prices and share volume as they traded) | spec Constraints ("unadjusted prices in every filter"); decided here (below) |
 | `data_root` | `C:/Users/Shachar/Desktop/PythonProjects/QuantCode/data/research_penny` | builder's call (the data lives in the main checkout, gitignored, not in the worktree) |
-| minute cache | `<data_root>/minute/dt=YYYY-MM-DD/minute.parquet` (2016-02-17 .. 2026-08-07, about 2,628 days; columns `symbol, date, minute_et` ('HH:MM' ET), `open, high, low, close, volume` (float), `trade_count` (float), `vwap`) | existing cache |
+| minute cache | `<data_root>/minute/dt=YYYY-MM-DD/minute.parquet` (2016-02-17 .. 2026-08-07, 2,628 days, 09:25–16:05 ET; columns `symbol, date, minute_et` ('HH:MM' ET), `open, high, low, close, volume` (float), `trade_count` (float), `vwap`) | existing cache |
 | daily cache | `<data_root>/daily/bars_<year>.parquet` (adjusted OHLCV plus `open_unadj, high_unadj, low_unadj, close_unadj`) | existing cache (`research/penny/etl/bars.py`) |
 | `unadjust_tolerance` | `0.02` | builder's call |
 | `raw_minute_dir` (top-up cache) | `<data_root>/minute_raw/dt=YYYY-MM-DD/minute.parquet` | builder's call |
@@ -170,8 +170,13 @@ uses `alpaca.data` only.
   R16 development window is material (say above 2% of candidate symbol-days), refetch that window
   raw instead; the agent does not change. The rate is reported with the R16 run.
 
-- **[research]** Minute-cache coverage. `<data_root>/minute/` holds only earlier rounds'
-  candidates, 12–185 symbols a day (2016-02-17: 29; 2017-04-26: 12; 2026-08-07: 185). Most of an R16
+- **[research]** Minute-cache coverage. `<data_root>/minute/` is the union of earlier penny rounds'
+  candidate pools (the per-day `requested.json` lists the requested symbols): 2,628 days, 207,594
+  symbol-days, 3,507 unique symbols, symbols per day min 1 / median 54 / max 819, minutes 09:25–16:05
+  ET. The pre-market cache (`<data_root>/premarket/`) is the same kind of union: 2,621 days, 452,243
+  symbol-days, 3,555 symbols, median 13 a day, 04:00–09:34 ET. No other minute data exists on disk.
+  Daily bars, by contrast, are complete for the universe (`<data_root>/daily/bars_YYYY.parquet`, and
+  `data/research_breakout/daily/bars_YYYY.parquet`, about 6–7k symbols a year). Most of an R16
   screen's names, and nearly all of the no-selection arm's, have no minute bars there. Without
   action ReplayFeed would emit all-`Gap` symbol-days that look like illiquid names, and the arms
   would silently not be comparable. Remedy: a top-up fetch of the missing symbol-days through
