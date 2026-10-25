@@ -48,7 +48,9 @@ tick's date (the `tzdata` package supplies the database on Windows; it is instal
 | universe filter: `min_adv_usd` (20-day median of `close_unadj` × unadjusted share volume, days before the session) | `1_000_000` | R16; placeholder default |
 | ranking feature(s) for `arm="screen"` | `pm_gap` then `pm_dollar_volume`, descending, ties broken by symbol | R16 ("ranked by pre-market features"); placeholder default |
 | `top_n` | `20` | R16; placeholder default |
-| `exclude_split_days` | `True` | builder's call (a raw-price gap on a split day is fabricated) |
+| `exclude_split_days` | `True` | builder's call (a raw-price gap on a split day is fabricated); detected causally, see the adjustment rule |
+| `holdout_start` | `2025-08-07` | spec §4 (last 12 months sealed) / R16; provisional value per controller Ruling 10 until `PREREGISTRATION_R16.md` fixes it |
+| `unseal` | `False` | spec §4 (the sealed holdout is read only by an explicit, recorded decision) |
 | `data_root` | `C:/Users/Shachar/Desktop/PythonProjects/QuantCode/data/research_penny` | builder's call (main checkout, gitignored) |
 
 `arm="no_selection"` returns every symbol that passes the universe filter, with no ranking and
@@ -62,7 +64,11 @@ Reuse (all on this branch under `research/penny/`):
 - `features/premarket.py`: `assert_no_post_decision_bars` checks a hard-coded 09:35 cutoff, which
   is later than this screen's. Keep it as a second guard, and add the agent's own assertion at
   `screen_time_et` (every bar's `bar_start + 1 min <= firing tick ts`).
-- `etl/corporate_actions.py`: `flag_reverse_splits`, `flag_forward_splits` to drop split days.
+- `etl/corporate_actions.py`: **not** at screen time. `flag_reverse_splits` and `flag_forward_splits`
+  read the session's open and its full-session range (`corporate_actions.py:82,98,146`), which are
+  unknowable at 09:25. Use them only for after-the-fact audits.
+- `etl/bars.py:226-238`: the causal split-event factor (the step of the adjustment ratio between
+  consecutive days), the precedent for the split-day flag below.
 - `etl/bars.py`: `load_years` for daily bars carrying `close_unadj` (raw) beside the adjusted series.
 - `etl/alpaca_fetch.py`: `make_data_client`, `fetch_with_rejects` for any new fetch.
 
@@ -71,20 +77,40 @@ Reuse (all on this branch under `research/penny/`):
 `data_root` were fetched with `adjustment="all"` (`research/penny/etl/alpaca_fetch.py:127,184`):
 the minute cache and the pre-market cache (`<data_root>/premarket/`) are split- and
 dividend-adjusted, so `pm_dollar_volume` straight from them is exactly the withdrawn
-`M_mean_trade_usd` leak. Decision: the screener's input adapter converts pre-market bars with the
-same per-`(symbol, date)` factor and consistency check as ReplayFeed (`feed.md`: prices × `f`,
-share volume ÷ `f`, `f = close_unadj / close` of the session date's daily row; a failing
-symbol-day is dropped from the screen and recorded). The factor is a scale only; the session
-date's daily price levels never enter a feature. Daily filters use `close_unadj` (and the other
-`*_unadj` columns); daily share volume is converted the same way before any dollar volume is formed.
-Cross-day ratios (gap versus prior close) are raw-to-raw with split days excluded; a raw level is
-never paired with an adjusted one.
+`M_mean_trade_usd` leak. Decision, causal at 09:25 on session date `D`:
+- **Conversion factor.** Pre-market bars are converted with `f_{D-1} = close_unadj / close` of the
+  last daily row **before** `D` (prices × `f_{D-1}`, share volume ÷ `f_{D-1}`). That is exact on every
+  day without a corporate action at `D`'s open; split days are excluded below, so it is exact for
+  every symbol the screen keeps. The screener never reads the session date's daily row for
+  conversion or consistency. That check belongs to the FeedAgent's adapter (`feed.md`), where the
+  `D` row is used only as a scale factor.
+- **Split-day flag.** A split at `D`'s open is detected from the factor step `f_{D-1} / f_D`
+  (the `bars.py:226-238` event factor; ex-dates are announced ahead, so the step is knowable before
+  the open), or from a corporate-actions calendar if one is added. Only the ratio of the two factors
+  is used, never a session price. If the `D` row is missing, no split is known and the symbol is
+  **kept**. Never `flag_reverse_splits`/`flag_forward_splits` (session open and range).
+- **Failing symbol-days stay in `Candidates`.** A symbol whose session-`D` data later turns out
+  missing or inconsistent (halted all day, delisted that day, a factor mismatch) is not dropped by
+  the screen, since dropping it would select on the outcome. The FeedAgent turns its minutes into
+  `Gap`s and records the reject.
+- Daily filters use the `*_unadj` columns of rows before `D`; daily share volume is converted with
+  that row's own factor before any dollar volume is formed. Cross-day ratios (gap versus prior
+  close) are raw-to-raw (`pm_close × f_{D-1} / close_unadj_{D-1}`); a raw level is never paired with an
+  adjusted one.
+- **Cache coverage.** The minute and pre-market caches hold only earlier rounds' candidates. See
+  `feed.md` (Open questions, Failure modes) for the coverage rejects, which are reported per arm.
+- **Sealed holdout.** The adapter refuses any session date `>= holdout_start` (raise) unless
+  `unseal=True` is passed. `unseal` is part of `config_hash`, so it shows in `screen_id`.
 
 ## Invariants
 
 - At most one `Candidates` per session; it is emitted on a `ClockTick` and nothing else.
-- No input row has a timestamp at or after the firing tick's `ts`: daily rows are for dates
-  before the session date, pre-market bars end at or before the tick.
+- No input row has a timestamp at or after the firing tick's `ts`. Daily rows read by the screener
+  are for dates strictly before the session date `D`. The one exception is the split-day flag, which
+  reads only the factor ratio `f_{D-1} / f_D`, a stand-in for the announced ex-date calendar and never
+  a price. Pre-market bars end at or before the tick.
+- The screen never drops a symbol because of session-`D` data being missing or inconsistent.
+- No session date `>= holdout_start` is screened unless `unseal=True`.
 - Every price or dollar-volume level in a filter is unadjusted.
 - The same inputs and configuration give the same `Candidates` (no randomness, no wall clock).
 - `screen_id` changes when any configuration value changes.
@@ -95,6 +121,7 @@ never paired with an adjusted one.
 |---|---|---|
 | The adapter returns a bar or daily row at or after the cutoff | the agent's own timestamp assertion | raise (a leak; the run is void) |
 | No daily history for the session (missing cache year) | adapter returns no rows for the prior date | raise (a data error, not an empty day) |
+| Session date `>= holdout_start` and `unseal` is false | date check in the adapter | raise |
 | A symbol lacks pre-market bars | absent from the pre-market panel | skip the symbol (it has no pre-market activity, so it cannot rank) |
 | The first tick of the session is after `screen_time_et` + 5 min | tick time check | raise (the run was started late; a late screen sees more data than the design allows) |
 | A second session date appears in the ticks | date of tick differs from `session_date` | raise (one run is one session) |
@@ -116,6 +143,10 @@ before the firing tick, and the agent's assertion checks it either way.
 - `test_no_selection_arm_returns_whole_filtered_universe`
 - `test_price_filter_uses_unadjusted_prior_close`
 - `test_split_day_symbol_excluded`
+- `test_split_flag_reads_factor_step_not_session_prices`
+- `test_missing_session_daily_row_keeps_symbol`
+- `test_conversion_uses_prior_day_factor`
+- `test_holdout_date_refused_without_unseal`
 - `test_premarket_bars_converted_to_traded_basis`
 - `test_dollar_volume_uses_unadjusted_price_and_shares`
 - `test_input_row_at_cutoff_raises`

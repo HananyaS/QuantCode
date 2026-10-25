@@ -53,6 +53,9 @@ Ticks outside the session emit nothing. Ticks before `Candidates` arrives emit n
 | minute cache | `<data_root>/minute/dt=YYYY-MM-DD/minute.parquet` (2016-02-17 .. 2026-08-07, about 2,628 days; columns `symbol, date, minute_et` ('HH:MM' ET), `open, high, low, close, volume` (float), `trade_count` (float), `vwap`) | existing cache |
 | daily cache | `<data_root>/daily/bars_<year>.parquet` (adjusted OHLCV plus `open_unadj, high_unadj, low_unadj, close_unadj`) | existing cache (`research/penny/etl/bars.py`) |
 | `unadjust_tolerance` | `0.02` | builder's call |
+| `raw_minute_dir` (top-up cache) | `<data_root>/minute_raw/dt=YYYY-MM-DD/minute.parquet` | builder's call |
+| `holdout_start` | `2025-08-07` | spec §4 (last 12 months sealed) / R16; provisional value per controller Ruling 10 until `PREREGISTRATION_R16.md` fixes it |
+| `unseal` | `False` | spec §4 (the sealed holdout is read only by an explicit, recorded decision) |
 | quote size unit | shares | contract (`Quote.bid_size/ask_size` are shares) |
 
 **The minute cache is adjusted, and ReplayFeed un-adjusts it (decision).** The cache was fetched
@@ -98,6 +101,7 @@ under `data_root`, never in the worktree.
 - Prices and share volume are on the traded (unadjusted) basis; `feed` matches the source.
 - Output order within a tick is sorted symbol, then `Bar`/`Gap`, then `Quote`.
 - Two replays of the same session emit identical events.
+- No session date `>= holdout_start` is replayed unless `unseal=True`.
 
 ## Failure modes
 
@@ -109,6 +113,8 @@ under `data_root`, never in the worktree.
 | Duplicate rows for one `(symbol, bar_start)` in the cache | checked at load | raise |
 | A cached quote is crossed or zero-sized | `Quote.__post_init__` raises, or size check at load | skip that quote (summarise_quotes already drops non-markets; a stray one is not a reason to abort) |
 | A second `Candidates` in one session | state check | raise |
+| A candidate has **zero** rows in both minute caches for the session (a coverage reject, not illiquidity) | check when `Candidates` loads | emit `Gap` for each of its minutes, and record a coverage reject (`kind="coverage"`, symbol, date, `screen_id`) separately from per-minute `Gap`s. The run summary counts coverage rejects **per arm**, so the arms are compared on what was actually covered |
+| Session date `>= holdout_start` and `unseal` is false | date check when the adapter opens a session | raise |
 | Live: a bar arrives after its minute was already released as `Gap` | buffer sees a `bar_start` older than the last release | skip (drop it and count it); the log keeps the `Gap`, so live and its nightly replay agree |
 | Live: the stream disconnects | no data for whole minutes | emit `Gap` per symbol per minute; the MonitorAgent's stale-feed rule decides on `Kill` |
 
@@ -140,6 +146,11 @@ uses `alpaca.data` only.
 - `test_factor_mismatch_symbol_day_becomes_gaps`
 - `test_missing_daily_row_symbol_day_becomes_gaps`
 - `test_intraday_returns_unchanged_by_unadjust`
+- `test_zero_row_candidate_is_coverage_reject_not_only_gaps`
+- `test_coverage_rejects_counted_per_arm`
+- `test_raw_cache_rows_skip_unadjust`
+- `test_raw_cache_wins_over_adjusted_for_same_symbol_day`
+- `test_holdout_date_refused_without_unseal`
 - `test_raw_fetch_requests_unadjusted_sip` (any new ETL request carries `adjustment="raw"`, `feed="sip"`)
 
 ## Open questions
@@ -158,6 +169,18 @@ uses `alpaca.data` only.
 - **[research]** How many symbol-days fail the un-adjustment check. If the failure rate in the
   R16 development window is material (say above 2% of candidate symbol-days), refetch that window
   raw instead; the agent does not change. The rate is reported with the R16 run.
+
+- **[research]** Minute-cache coverage. `<data_root>/minute/` holds only earlier rounds'
+  candidates, 12–185 symbols a day (2016-02-17: 29; 2017-04-26: 12; 2026-08-07: 185). Most of an R16
+  screen's names, and nearly all of the no-selection arm's, have no minute bars there. Without
+  action ReplayFeed would emit all-`Gap` symbol-days that look like illiquid names, and the arms
+  would silently not be comparable. Remedy: a top-up fetch of the missing symbol-days through
+  `fetch_with_rejects` with `adjustment="raw"`, `feed="sip"`, into `raw_minute_dir`. The directory
+  tells the two sources apart, so each row's basis is known. Rows from `minute/` are adjusted and get
+  the un-adjust step. Rows from `minute_raw/` are already on the traded basis and are emitted as they
+  are (the un-adjust step is skipped, not run with `f = 1`). If both hold a symbol-day, `minute_raw/`
+  wins. Until the top-up exists, the coverage rejects above are counted and reported per arm, and R16
+  states the coverage it ran on.
 
 ## Tracker
 

@@ -37,7 +37,14 @@ usually the only source). Agents' returned events re-enter the queue in the same
 | session tick range | `[09:25, 16:02)` ET, converted to UTC per session date | builder's call: the screen fires at 09:25, the last bar (15:59) is released at 16:00, and the end-of-session pass runs at 16:01 |
 | source order | `clock_ticks(...)` is source 0 | ADR-001 (tick-first ordering); built |
 | agent order | the order given to `EventBus` | builder's call: screener, feed, state, predictor, risk, execution, monitor |
+| `holdout_start` | `2025-08-07` | spec §4 (last 12 months sealed) / R16; provisional value per controller Ruling 10 until `PREREGISTRATION_R16.md` fixes it |
+| `unseal` | `False` | spec §4 (the sealed holdout is read only by an explicit, recorded decision) |
 | one run | one trading session, fresh agents, a new log path | builder's call (ADR-001 determinism; nothing carries across days except explicit inputs such as starting equity) |
+
+Phase 2 real-data replays use only session dates before `holdout_start`. The session runner
+(integration) refuses a date `>= holdout_start` unless `unseal=True`, and so does every data adapter
+(screener, feed). `unseal` is recorded in the run manifest. `run_replay` itself stays data-agnostic,
+because it sees events, not dates; the guard sits where dates enter.
 
 Agent order matters only among agents subscribed to the same envelope: dispatch is breadth-first,
 so every subscriber of an envelope sees it before any event it caused is delivered.
@@ -90,7 +97,8 @@ Existing, `tests/test_intraday_replay.py`: `test_clock_ticks_bounds_and_utc`,
 `test_replay_log_closed_on_agent_error`.
 
 Integration (main session, after the Phase 2 merges), `tests/test_intraday_replay.py`:
-`test_recorded_day_end_to_end_twice_identical_hash` (all seven agents on one recorded day).
+`test_recorded_day_end_to_end_twice_identical_hash` (all seven agents on one recorded day),
+`test_session_runner_refuses_holdout_date_without_unseal`.
 
 ## Open questions
 
