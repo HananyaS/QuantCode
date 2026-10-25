@@ -63,3 +63,32 @@ def test_from_record_rejects_extra_and_missing_keys():
     missing = {k: v for k, v in rec.items() if k != "reason"}
     with pytest.raises(ValueError, match="Kill"):
         from_record(missing)
+
+
+@pytest.mark.parametrize("bad", [None, [], "Kill", 3, [("type", "Kill")]])
+def test_from_record_rejects_non_mapping(bad):
+    with pytest.raises(ValueError, match="Mapping"):
+        from_record(bad)
+
+
+def test_round_trip_new_fixtures():
+    from research.intraday.contracts.fixtures import (
+        make_candidates, make_clock_tick, make_gap, make_halt, make_kill,
+        make_order_update,
+    )
+    for event in (make_candidates(), make_clock_tick(), make_gap(), make_halt(),
+                  make_kill(), make_order_update()):
+        assert from_record(json.loads(canonical_json(to_record(event)))) == event
+
+
+def test_decoded_datetimes_are_utc_singleton():
+    from datetime import timezone
+    out = from_record(json.loads(canonical_json(to_record(make_bar()))))
+    assert out.ts.tzinfo is timezone.utc and out.bar_start.tzinfo is timezone.utc
+
+
+def test_from_record_rejects_int_for_float_field():
+    rec = to_record(make_fill(cost_bps=0.0))
+    rec["cost_bps"] = 0
+    with pytest.raises(ValueError, match="Fill.cost_bps"):
+        from_record(rec)

@@ -58,7 +58,9 @@ def _decode(tp: Any, value: Any) -> Any:
 
 
 def from_record(record: Mapping[str, object]) -> Event:
-    """Dict -> Event. ValueError on unknown type, schema mismatch, or bad keys."""
+    """Dict -> Event. ValueError on a non-mapping, unknown type, schema mismatch, or bad keys."""
+    if not isinstance(record, Mapping):
+        raise ValueError(f"event record must be a Mapping, got {type(record).__name__}")
     name = record.get("type")
     cls = EVENT_TYPES.get(name) if isinstance(name, str) else None
     if cls is None:

@@ -7,7 +7,7 @@ checks) sees the tick before that minute's bars. See ADR-001.
 from __future__ import annotations
 
 import heapq
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence
 
@@ -18,7 +18,8 @@ from research.intraday.ops.recorder import JsonlRecorder, log_hash
 
 
 def _is_utc_aware(dt: datetime) -> bool:
-    return dt.tzinfo is not None and dt.utcoffset() == timedelta(0)
+    """Same rule as the contracts: a plain datetime with tzinfo=timezone.utc."""
+    return type(dt) is datetime and dt.tzinfo is timezone.utc
 
 
 def clock_ticks(start: datetime, end: datetime,

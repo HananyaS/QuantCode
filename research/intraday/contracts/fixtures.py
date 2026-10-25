@@ -5,10 +5,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from research.intraday.contracts.events import (
-    Bar, Fill, OrderIntent, Quote, Signal, Window,
+    Bar, Candidates, ClockTick, Fill, Gap, Halt, Kill, OrderIntent, OrderUpdate,
+    Quote, Signal, Window,
 )
 
 T0: datetime = datetime(2026, 3, 2, 14, 31, tzinfo=timezone.utc)
+# Development-period stamp (before the sealed holdout); use it for anything
+# that might later be compared with real development data.
+T_DEV: datetime = datetime(2024, 3, 4, 14, 31, tzinfo=timezone.utc)
 _MIN = timedelta(minutes=1)
 
 
@@ -58,3 +62,39 @@ def make_fill(**overrides: Any) -> Fill:
         price=1.01, cost_bps=5.0)
     fields.update(overrides)
     return Fill(**fields)
+
+
+def make_clock_tick(**overrides: Any) -> ClockTick:
+    fields: dict[str, Any] = dict(ts=T0)
+    fields.update(overrides)
+    return ClockTick(**fields)
+
+
+def make_candidates(**overrides: Any) -> Candidates:
+    fields: dict[str, Any] = dict(ts=T0, screen_id="screen-1", symbols=("TEST",))
+    fields.update(overrides)
+    return Candidates(**fields)
+
+
+def make_gap(**overrides: Any) -> Gap:
+    fields: dict[str, Any] = dict(ts=T0, symbol="TEST", missing_bar_start=T0 - _MIN)
+    fields.update(overrides)
+    return Gap(**fields)
+
+
+def make_order_update(**overrides: Any) -> OrderUpdate:
+    fields: dict[str, Any] = dict(ts=T0, intent_id="intent-1", status="accepted", detail="")
+    fields.update(overrides)
+    return OrderUpdate(**fields)
+
+
+def make_halt(**overrides: Any) -> Halt:
+    fields: dict[str, Any] = dict(ts=T0, symbol="TEST", halted=True, reason="LULD")
+    fields.update(overrides)
+    return Halt(**fields)
+
+
+def make_kill(**overrides: Any) -> Kill:
+    fields: dict[str, Any] = dict(ts=T0, reason="test")
+    fields.update(overrides)
+    return Kill(**fields)

@@ -109,3 +109,34 @@ def test_replay_log_closed_on_agent_error(tmp_path: Path) -> None:
     envs = list(read_log(path))
     assert envs and isinstance(envs[-1].event, Bar)
     path.unlink()  # on Windows this fails if the handle is still open
+
+
+# ---- cross-process determinism (final-review fix A7) ------------------------
+import os  # noqa: E402
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_CHILD = (
+    "import sys\n"
+    "from pathlib import Path\n"
+    "from tests.test_intraday_replay import EchoAgent, _sources\n"
+    "from research.intraday.engine.replay import run_replay\n"
+    "print(run_replay([EchoAgent()], _sources(), Path(sys.argv[1])))\n"
+)
+
+
+def _replay_in_subprocess(log_path: Path, hashseed: str) -> str:
+    env = {**os.environ, "PYTHONHASHSEED": hashseed}
+    out = subprocess.run([sys.executable, "-c", _CHILD, str(log_path)], cwd=_REPO_ROOT,
+                         env=env, capture_output=True, text=True, timeout=60, check=True)
+    return out.stdout.strip().splitlines()[-1]
+
+
+def test_replay_hash_identical_across_processes_and_hash_seeds(tmp_path: Path) -> None:
+    h0 = _replay_in_subprocess(tmp_path / "seed0.jsonl", "0")
+    h1 = _replay_in_subprocess(tmp_path / "seed12345.jsonl", "12345")
+    assert len(h0) == 64
+    assert h0 == h1
+    assert (tmp_path / "seed0.jsonl").read_bytes() == (tmp_path / "seed12345.jsonl").read_bytes()
+    assert h0 == run_replay([EchoAgent()], _sources(), tmp_path / "inproc.jsonl")

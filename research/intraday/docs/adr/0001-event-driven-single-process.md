@@ -24,12 +24,17 @@ infrastructure before any edge is shown (spec section 2).
   delivered before any other source's events.
 - **The recorder is a bus sink, not an `Agent`.** It must see `seq`, `cause_seq` and
   `source`, which the bus assigns and an agent never receives.
-- **Fail loud.** Any exception during dispatch (non-monotone ts, ts-causality violation,
-  cascade overflow) propagates to the caller. After one, the bus is unusable: `seq` and the
-  last external `ts` have already advanced and queued events were dropped, so the run is
-  abandoned and replayed from the start. A half-delivered event is never silently skipped.
-  (The bus does not yet refuse further publishes after a failure; discarding it is the
-  caller's duty.)
+- **Fail loud, then refuse.** Any exception raised inside a cascade (an agent's
+  `on_event`, the sink, a ts-causality violation, cascade overflow; any `BaseException`)
+  propagates to the caller and poisons the bus: `seq` and the last external `ts` have
+  already advanced and queued events were dropped, so every later `publish` raises
+  `RuntimeError`. The run is abandoned and replayed from the start with a new bus and new
+  agents. A half-delivered event is never silently skipped, and the caller cannot keep
+  publishing into a bus that is out of step with its log. A non-monotone external `ts` is
+  rejected with `ValueError` before anything is assigned or delivered, so it does not
+  poison the bus.
+- **Reserved source name.** No agent may be named `external`; that name marks external
+  publishes in the log, so an agent with it would be indistinguishable from a feed.
 
 ## Consequences
 

@@ -164,3 +164,53 @@ def test_sink_exception_propagates() -> None:
 
     with pytest.raises(OSError):
         EventBus([], sink=boom).publish(make_bar())
+
+
+# ---- hardening (final-review fix A5) ----------------------------------------
+from research.intraday.engine.bus import EXTERNAL  # noqa: E402
+
+
+def test_agent_named_external_rejected() -> None:
+    with pytest.raises(ValueError, match=EXTERNAL):
+        EventBus([Counter(EXTERNAL)])
+
+
+def test_bus_is_poisoned_after_a_failed_cascade() -> None:
+    bus = EventBus([Late()])
+    with pytest.raises(ValueError, match="late"):
+        bus.publish(make_bar())
+    with pytest.raises(RuntimeError, match="failed"):
+        bus.publish(make_bar())
+    with pytest.raises(RuntimeError, match="failed"):
+        bus.publish(make_signal())
+
+
+def test_bus_is_poisoned_after_sink_failure() -> None:
+    calls: list[int] = []
+
+    def boom(env: Envelope) -> None:
+        calls.append(env.seq)
+        raise OSError("disk")
+
+    bus = EventBus([], sink=boom)
+    with pytest.raises(OSError):
+        bus.publish(make_bar())
+    with pytest.raises(RuntimeError, match="failed"):
+        bus.publish(make_bar())
+    assert calls == [0]
+
+
+def test_bus_is_poisoned_after_runaway_cascade() -> None:
+    bus = EventBus([SignalToKill(), KillToSignal()], max_cascade=5)
+    with pytest.raises(RuntimeError, match="5"):
+        bus.publish(make_signal())
+    with pytest.raises(RuntimeError, match="failed"):
+        bus.publish(make_signal())
+
+
+def test_non_monotone_rejection_does_not_poison() -> None:
+    bus = EventBus([])
+    bus.publish(make_bar(ts=T0))
+    with pytest.raises(ValueError, match="non-monotone"):
+        bus.publish(make_signal(ts=T0 - timedelta(seconds=1)))
+    assert len(bus.publish(make_bar(ts=T0))) == 1

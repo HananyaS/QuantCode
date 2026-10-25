@@ -1,8 +1,20 @@
 """Frozen event contracts for the intraday engine.
 
 Every event is immutable and validates its own invariants in ``__post_init__``.
-Contracts validate; they never repair (no auto-sorting, no clamping).
-All datetimes are timezone-aware UTC so codec output is canonical.
+Contracts validate; they never repair (no auto-sorting, no clamping, no coercion).
+
+Field types are strict, and every violation raises ``ValueError`` (never
+``TypeError``/``AttributeError``):
+
+* int fields need ``type(x) is int`` (bool and numpy ints are rejected);
+* float fields need ``isinstance(x, float)`` (``np.float64`` is accepted; int
+  and bool are rejected, so a producer passes ``0.0``, never ``0``);
+* bool fields need ``type(x) is bool``;
+* symbols and ids are non-empty ``str``; free text (reason, detail) is ``str``;
+* tuple fields need ``type(v) is tuple`` with every element of the given class;
+* datetimes need ``type(dt) is datetime and dt.tzinfo is timezone.utc``, which
+  rejects naive values, ``pd.Timestamp`` and zero-offset zones such as
+  ``ZoneInfo("Europe/London")``, so codec output is canonical.
 
 Note: with ``slots=True`` the class is rebuilt, so zero-arg ``super()`` breaks;
 subclasses call ``Event.__post_init__(self)`` explicitly.
@@ -11,32 +23,74 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Literal
+from datetime import datetime, timedelta, timezone
+from typing import Any, Literal
 
 SCHEMA_VERSION: int = 1
 
 _ONE_MIN = timedelta(minutes=1)
 
 
-def _require_utc(cls: str, name: str, dt: datetime) -> None:
-    if not isinstance(dt, datetime) or dt.tzinfo is None or dt.utcoffset() != timedelta(0):
-        raise ValueError(f"{cls}.{name} must be a timezone-aware UTC datetime, got {dt!r}")
+def _require_utc(cls: str, name: str, dt: Any) -> None:
+    if not (type(dt) is datetime and dt.tzinfo is timezone.utc):
+        raise ValueError(
+            f"{cls}.{name} must be a datetime with tzinfo=timezone.utc, got {dt!r}")
 
 
-def _finite_positive(cls: str, name: str, x: float) -> None:
-    if not (isinstance(x, (int, float)) and math.isfinite(x) and x > 0):
+def _int(cls: str, name: str, x: Any) -> None:
+    if type(x) is not int:
+        raise ValueError(f"{cls}.{name} must be an int, got {type(x).__name__} {x!r}")
+
+
+def _float(cls: str, name: str, x: Any) -> None:
+    if not isinstance(x, float):
+        raise ValueError(f"{cls}.{name} must be a float, got {type(x).__name__} {x!r}")
+
+
+def _bool(cls: str, name: str, x: Any) -> None:
+    if type(x) is not bool:
+        raise ValueError(f"{cls}.{name} must be a bool, got {type(x).__name__} {x!r}")
+
+
+def _str(cls: str, name: str, s: Any) -> None:
+    """Non-empty string: symbols and ids."""
+    if not isinstance(s, str) or not s:
+        raise ValueError(f"{cls}.{name} must be a non-empty string, got {s!r}")
+
+
+def _text(cls: str, name: str, s: Any) -> None:
+    """Free text (may be empty)."""
+    if not isinstance(s, str):
+        raise ValueError(f"{cls}.{name} must be a str, got {type(s).__name__} {s!r}")
+
+
+def _tuple_of(cls: str, name: str, v: Any, elem: type) -> None:
+    if type(v) is not tuple or not all(isinstance(e, elem) for e in v):
+        raise ValueError(f"{cls}.{name} must be a tuple of {elem.__name__}, got {v!r}")
+
+
+def _finite_positive(cls: str, name: str, x: Any) -> None:
+    _float(cls, name, x)
+    if not (math.isfinite(x) and x > 0):
         raise ValueError(f"{cls}.{name} must be finite and > 0, got {x}")
 
 
-def _non_negative(cls: str, name: str, x: float) -> None:
-    if not (isinstance(x, (int, float)) and math.isfinite(x) and x >= 0):
+def _non_negative_int(cls: str, name: str, x: Any) -> None:
+    _int(cls, name, x)
+    if x < 0:
+        raise ValueError(f"{cls}.{name} must be >= 0, got {x}")
+
+
+def _positive_int(cls: str, name: str, x: Any) -> None:
+    _int(cls, name, x)
+    if x <= 0:
+        raise ValueError(f"{cls}.{name} must be > 0, got {x}")
+
+
+def _non_negative_float(cls: str, name: str, x: Any) -> None:
+    _float(cls, name, x)
+    if not (math.isfinite(x) and x >= 0):
         raise ValueError(f"{cls}.{name} must be finite and >= 0, got {x}")
-
-
-def _non_empty(cls: str, name: str, s: str) -> None:
-    if not isinstance(s, str) or not s:
-        raise ValueError(f"{cls}.{name} must be a non-empty string, got {s!r}")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -59,6 +113,10 @@ class Candidates(Event):
 
     def __post_init__(self) -> None:
         Event.__post_init__(self)
+        _str("Candidates", "screen_id", self.screen_id)
+        _tuple_of("Candidates", "symbols", self.symbols, str)
+        for sym in self.symbols:
+            _str("Candidates", "symbols[]", sym)
         if list(self.symbols) != sorted(set(self.symbols)):
             raise ValueError(f"Candidates.symbols must be unique and sorted, got {self.symbols!r}")
 
@@ -78,6 +136,7 @@ class Bar(Event):
 
     def __post_init__(self) -> None:
         Event.__post_init__(self)
+        _str("Bar", "symbol", self.symbol)
         _require_utc("Bar", "bar_start", self.bar_start)
         if self.ts != self.bar_start + _ONE_MIN:
             raise ValueError(
@@ -89,8 +148,8 @@ class Bar(Event):
             raise ValueError(f"Bar.low must be <= min(open, close), got low={self.low}")
         if self.high < max(self.open, self.close):
             raise ValueError(f"Bar.high must be >= max(open, close), got high={self.high}")
-        _non_negative("Bar", "volume", self.volume)
-        _non_negative("Bar", "trade_count", self.trade_count)
+        _non_negative_int("Bar", "volume", self.volume)
+        _non_negative_int("Bar", "trade_count", self.trade_count)
         if self.feed not in ("sip", "iex"):
             raise ValueError(f"Bar.feed must be 'sip' or 'iex', got {self.feed!r}")
 
@@ -105,12 +164,13 @@ class Quote(Event):
 
     def __post_init__(self) -> None:
         Event.__post_init__(self)
+        _str("Quote", "symbol", self.symbol)
         _finite_positive("Quote", "bid", self.bid)
         _finite_positive("Quote", "ask", self.ask)
         if self.bid > self.ask:
             raise ValueError(f"Quote.bid must be <= ask (crossed book), got bid={self.bid} ask={self.ask}")
-        _non_negative("Quote", "bid_size", self.bid_size)
-        _non_negative("Quote", "ask_size", self.ask_size)
+        _non_negative_int("Quote", "bid_size", self.bid_size)
+        _non_negative_int("Quote", "ask_size", self.ask_size)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -120,7 +180,12 @@ class Gap(Event):
 
     def __post_init__(self) -> None:
         Event.__post_init__(self)
+        _str("Gap", "symbol", self.symbol)
         _require_utc("Gap", "missing_bar_start", self.missing_bar_start)
+        if self.ts != self.missing_bar_start + _ONE_MIN:
+            raise ValueError(
+                f"Gap.ts must equal missing_bar_start + 1 minute (the missing bar's end), "
+                f"got ts={self.ts!r} missing_bar_start={self.missing_bar_start!r}")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -130,6 +195,8 @@ class Window(Event):
 
     def __post_init__(self) -> None:
         Event.__post_init__(self)
+        _str("Window", "symbol", self.symbol)
+        _tuple_of("Window", "bars", self.bars, Bar)
         if len(self.bars) == 0:
             raise ValueError("Window.bars must be non-empty")
         if any(b.symbol != self.symbol for b in self.bars):
@@ -151,11 +218,12 @@ class Signal(Event):
 
     def __post_init__(self) -> None:
         Event.__post_init__(self)
-        if not (isinstance(self.score, (int, float)) and math.isfinite(self.score)):
+        _str("Signal", "symbol", self.symbol)
+        _float("Signal", "score", self.score)
+        if not math.isfinite(self.score):
             raise ValueError(f"Signal.score must be finite, got {self.score}")
-        if not self.horizon_min > 0:
-            raise ValueError(f"Signal.horizon_min must be > 0, got {self.horizon_min}")
-        _non_empty("Signal", "model_hash", self.model_hash)
+        _positive_int("Signal", "horizon_min", self.horizon_min)
+        _str("Signal", "model_hash", self.model_hash)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -172,11 +240,11 @@ class OrderIntent(Event):
 
     def __post_init__(self) -> None:
         Event.__post_init__(self)
-        _non_empty("OrderIntent", "intent_id", self.intent_id)
+        _str("OrderIntent", "intent_id", self.intent_id)
+        _str("OrderIntent", "symbol", self.symbol)
         if self.side not in ("buy", "sell"):
             raise ValueError(f"OrderIntent.side must be 'buy' or 'sell', got {self.side!r}")
-        if not self.qty > 0:
-            raise ValueError(f"OrderIntent.qty must be > 0, got {self.qty}")
+        _positive_int("OrderIntent", "qty", self.qty)
         for name in ("limit_price", "take_profit", "stop_loss"):
             val = getattr(self, name)
             if val is not None:
@@ -194,6 +262,7 @@ class OrderIntent(Event):
             if self.time_stop <= self.ts:
                 raise ValueError(
                     f"OrderIntent.time_stop must be > ts, got time_stop={self.time_stop!r} ts={self.ts!r}")
+        _text("OrderIntent", "reason", self.reason)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -204,9 +273,10 @@ class OrderUpdate(Event):
 
     def __post_init__(self) -> None:
         Event.__post_init__(self)
-        _non_empty("OrderUpdate", "intent_id", self.intent_id)
+        _str("OrderUpdate", "intent_id", self.intent_id)
         if self.status not in ("accepted", "rejected", "cancelled", "expired"):
             raise ValueError(f"OrderUpdate.status invalid, got {self.status!r}")
+        _text("OrderUpdate", "detail", self.detail)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -220,13 +290,13 @@ class Fill(Event):
 
     def __post_init__(self) -> None:
         Event.__post_init__(self)
-        _non_empty("Fill", "intent_id", self.intent_id)
+        _str("Fill", "intent_id", self.intent_id)
+        _str("Fill", "symbol", self.symbol)
         if self.side not in ("buy", "sell"):
             raise ValueError(f"Fill.side must be 'buy' or 'sell', got {self.side!r}")
-        if not self.qty > 0:
-            raise ValueError(f"Fill.qty must be > 0, got {self.qty}")
+        _positive_int("Fill", "qty", self.qty)
         _finite_positive("Fill", "price", self.price)
-        _non_negative("Fill", "cost_bps", self.cost_bps)
+        _non_negative_float("Fill", "cost_bps", self.cost_bps)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -235,10 +305,20 @@ class Halt(Event):
     halted: bool
     reason: str
 
+    def __post_init__(self) -> None:
+        Event.__post_init__(self)
+        _str("Halt", "symbol", self.symbol)
+        _bool("Halt", "halted", self.halted)
+        _text("Halt", "reason", self.reason)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Kill(Event):
     reason: str
+
+    def __post_init__(self) -> None:
+        Event.__post_init__(self)
+        _text("Kill", "reason", self.reason)
 
 
 EVENT_TYPES: dict[str, type[Event]] = {

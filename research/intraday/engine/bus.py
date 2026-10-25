@@ -25,6 +25,8 @@ class EventBus:
         names = [a.name for a in agents]
         if any(not n for n in names):
             raise ValueError("agent name must be non-empty")
+        if EXTERNAL in names:
+            raise ValueError(f"agent name {EXTERNAL!r} is reserved for external publishes")
         dups = sorted({n for n in names if names.count(n) > 1})
         if dups:
             raise ValueError(f"duplicate agent names: {dups}")
@@ -33,6 +35,7 @@ class EventBus:
         self._max_cascade = max_cascade
         self._seq = 0
         self._last_external_ts: datetime | None = None
+        self._failed: BaseException | None = None
 
     def _next_seq(self) -> int:
         seq = self._seq
@@ -40,11 +43,30 @@ class EventBus:
         return seq
 
     def publish(self, event: Event) -> list[Envelope]:
+        """Publish one external event and run its cascade to quiescence.
+
+        A non-monotone ts is rejected before anything happens (the bus stays
+        usable). Any exception inside the cascade -- an agent, the sink, a ts
+        violation, a runaway cascade -- poisons the bus: it is re-raised, and
+        every later publish raises RuntimeError, because agent state and the
+        log are now out of step and a partial cascade cannot be resumed.
+        """
+        if self._failed is not None:
+            raise RuntimeError(
+                f"bus failed earlier ({type(self._failed).__name__}: {self._failed}); "
+                f"build a new bus and agents")
         last = self._last_external_ts
         if last is not None and event.ts < last:
             raise ValueError(
                 f"non-monotone source: event ts {event.ts} < last external ts {last}")
         self._last_external_ts = event.ts
+        try:
+            return self._cascade(event)
+        except BaseException as exc:
+            self._failed = exc
+            raise
+
+    def _cascade(self, event: Event) -> list[Envelope]:
         queue: deque[Envelope] = deque([Envelope(self._next_seq(), None, EXTERNAL, event)])
         out: list[Envelope] = []
         while queue:
