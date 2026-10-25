@@ -16,8 +16,13 @@ Decide whether a `Signal` becomes an order, and if so its size, its TP/SL/time-s
   bar-volume liquidity fallback) and the recent true ranges (ATR exits). In the bus's
   breadth-first order a minute's `Bar` reaches this agent before the `Signal` derived from it.
 - `Quote`: the latest inside sizes and its `ts` per symbol (the quote-size cap).
-- `Fill`: positions, cash, realised P&L.
+- `Fill`: positions, cash, realised P&L. A size-capped partial entry fill is a position: in the
+  same cascade the ExecutionAgent emits the `Fill` first and then `OrderUpdate(cancelled)` for the
+  remainder, so by the time the cancel arrives the filled qty is already booked.
 - `OrderUpdate`: `rejected`, `cancelled` or `expired` frees the working slot of that `intent_id`.
+  After a partial fill it drops only the working remainder: the filled partial position is kept
+  (it still counts toward `max_open_positions` and the one-entry-per-symbol rule) and exits on its
+  bracket.
 - `Halt`: `halted=True` blocks new entries in the symbol until a `halted=False` for it.
 - `Kill`: no further `OrderIntent` this session.
 
@@ -63,7 +68,8 @@ intent is reserved for later use (e.g. flatten on the loss limit) and is not emi
 
 - Per symbol: latest `Bar` (close, volume), a `deque(maxlen=atr_period)` of true ranges, latest
   `Quote` (ask size, ts), position qty and average price, entries this session, halted flag.
-- Working intents: `intent_id -> (symbol, qty)` until filled, rejected, cancelled or expired.
+- Working intents: `intent_id -> (symbol, remaining qty)` until fully filled, rejected, cancelled
+  or expired; a fill reduces the remaining qty and adds to the position.
 - Account: `cash`, realised P&L, `start_equity_usd`, `killed`, `loss_limit_tripped`, the intent
   counter.
 - Size: O(candidates × atr_period), about `20 × 14` true ranges plus a few scalars per symbol.
@@ -94,6 +100,15 @@ fallback cap and the quote sizes arrive that way from the FeedAgent (`feed.md` c
 adjusted cache). Dollar sizing, the price band and the shares-at-best-quote cap must never be fed
 an adjusted level (penny §72).
 
+`adv_shares` (wherever the agent or the cost inputs use it) is the mean of the 20 prior sessions'
+daily share volume, every session converted to one share basis, the traded basis of the session
+date `D`, with `f_{D-1}` (the factor of the last daily row before `D`, `screener.md`): each adjusted
+volume is divided by `f_{D-1}`. Mixing per-day factors would put a split inside the window on two
+bases. Only prior sessions enter it; `D`'s own volume never does.
+
+Construction asserts `last_entry_et < flatten_et` (an entry window that ends after the flatten
+time would give an intent whose `time_stop` is capped at or before its own `ts`).
+
 Marked equity = `cash + Σ qty × latest close`. Cash moves on each `Fill`: a buy costs
 `price × qty × (1 + cost_bps / 10_000)`, a sell returns `price × qty × (1 − cost_bps / 10_000)`.
 The loss limit is checked after every `Bar` and `Fill`; once tripped it stays tripped for the
@@ -112,7 +127,8 @@ can quote" rule on summary frames; the agent applies it per order on events. `re
 - Open positions plus working intents never exceed `max_open_positions`.
 - No intent after `Kill`, after the loss limit trips, for a halted symbol, or at or after `last_entry_et`.
 - Every `time_stop` is at or before `flatten_et`.
-- Position bookkeeping matches the sum of `Fill`s exactly.
+- Position bookkeeping matches the sum of `Fill`s exactly, partial fills included.
+- `last_entry_et < flatten_et` (asserted at construction).
 
 ## Failure modes
 
@@ -152,6 +168,9 @@ stream and the quote cap binds.
 - `test_no_entry_at_or_after_last_entry_time`
 - `test_unknown_fill_raises`
 - `test_books_match_fills`
+- `test_partial_fill_then_cancel_keeps_filled_position`
+- `test_adv_shares_uses_prior_sessions_on_one_basis`
+- `test_last_entry_must_precede_flatten`
 
 ## Open questions
 

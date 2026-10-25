@@ -22,9 +22,9 @@ Nothing on the bus. One line per envelope on disk.
 ## State
 
 - One open file handle (mode `"x"`, UTF-8, LF). No in-memory buffer beyond the file object's.
-- Size on disk: one line per event, a few hundred bytes each; a 20-candidate session is roughly
-  20 × 390 × (bar + window + signal) ≈ 25,000 lines, a few MB. A `Window` line repeats its `k`
-  bars, so the log grows with `k`.
+- Size on disk: one line per event, a few hundred bytes each, except `Window`: a `Window` line
+  repeats its `k` bars, so the log grows with `k`. At 50 symbols and `k = 30` a session is about
+  135 MB, almost all of it `Window` lines (see the OPEN DECISION under Open questions).
 
 ## Configuration
 
@@ -60,7 +60,9 @@ Nothing on the bus. One line per envelope on disk.
 
 The same sink. Live flushes each line so a crash keeps the log up to the last event; replay may
 buffer. The live log is the input of the nightly replay: its external envelopes (`source ==
-"external"`) are re-published in order, and the replayed log is diffed against the live one.
+"external"`) are re-published in order, and the replayed log is diffed against the live one. Live
+bars are FeedAgent emissions, not external, so that replay also needs a log-backed feed adapter
+(`engine.md`, Open questions).
 
 ## Test plan
 
@@ -78,6 +80,12 @@ New, `tests/test_intraday_ops_recorder.py`:
 
 ## Open questions
 
+- **[blocks-build]** OPEN DECISION (blocks the state/model build and the R16 cost estimate; does
+  not block the data, risk, exec or ops builds): `Window` log size, about 135 MB per session at 50
+  symbols and `k = 30`, because every `Window` line repeats its bars. Preferred: the recorder writes
+  a `Window` compactly as references to the `seq`s of its already-logged bars and expands them on
+  `read_log`; the contract is unchanged and the hash stays deterministic (it is over the compact
+  bytes). To be decided in the ops Phase-2 plan; until then the full `Window` is written.
 - **[research]** The manifest's contents and the nightly diff's format are needed only by Phase 5.
   The Phase 2 build writes the manifest fields above; the diff report is designed with the live runner.
 

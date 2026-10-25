@@ -25,7 +25,10 @@ Turn each `OrderIntent` into fills and order updates through a broker adapter, m
   - `rejected` on a duplicate `intent_id`, an intent after `Kill`, a `sell` larger than the
     position, or a broker refusal (`detail` says which);
   - `cancelled` for a working entry on `Halt`/`Kill`, or for the unfilled remainder after a
-    size-capped partial fill;
+    size-capped partial fill. In that case, in the same cascade, the `Fill` for the capped qty
+    comes first and the `OrderUpdate(cancelled)` for the remainder after it, so the RiskAgent and
+    the MonitorAgent book the filled partial position before they see the cancel; the cancel
+    drops only the working remainder;
   - `expired` for an entry with no bar within `entry_max_wait_min`, or an exit still unfilled at the
     end of the session (only possible when the symbol is halted).
 - `Fill` with `ts` = the filling `Bar`'s `ts` (or the end-of-session tick's `ts`), `intent_id` of the
@@ -52,8 +55,9 @@ Turn each `OrderIntent` into fills and order updates through a broker adapter, m
   Entries wait at most `entry_max_wait_min`, then expire; exits wait until the session ends.
 - **Size cap.** Fill qty = `min(remaining qty, floor(quote_size_frac × ask_size))` for a buy (bid
   size for a sell) from the latest `Quote` within `quote_max_age_min`; with no fresh quote, the cap
-  is `floor(bar_participation_cap × volume)` of the filling bar. An entry remainder is cancelled; an
-  exit remainder stays pending for the next bar.
+  is `floor(bar_participation_cap × volume)` of the filling bar. An entry remainder is cancelled
+  (the `Fill` is emitted before that `OrderUpdate(cancelled)`, same cascade); the filled part is a
+  position with the entry's bracket. An exit remainder stays pending for the next bar.
 - **Cost.** `cost_bps` = one leg of the refit cost model: half-spread + impact + depth shortfall
   (`research/penny/etl/quotes.py::leg_cost_bps`). Half-spread and inside notional come from the
   fresh quote if one exists, else from the cost inputs for the symbol-day (below).
@@ -91,7 +95,12 @@ Turn each `OrderIntent` into fills and order updates through a broker adapter, m
 
 Cost inputs are not events: an injected per-symbol-day adapter supplies `sigma_daily` (trailing 20
 sessions before the session date), `adv_shares` (same window), and the 09:34 quote summary's
-`half_spread_bps`, `ask_notional`, `bid_notional` where cached. Participation = `fill qty / adv_shares`.
+`half_spread_bps`, `ask_notional`, `bid_notional` where cached. Participation = `fill qty / adv_shares`
+(`adv_shares` as defined in `risk.md`: the mean of the 20 prior sessions, all on one share basis via
+`f_{D-1}`). The 09:34 summary covers quotes through 09:34 ET, so it is causal only for fills at or
+after 09:35 ET; the builder asserts it (`Fill.ts >= 09:35 ET` whenever the summary is the spread or
+notional source). An earlier fill with no fresh quote uses `default_half_spread_bps` and the bar
+cap.
 Every level in it is **unadjusted** (shares and dollars as they traded; penny §72): `adv_shares` is
 converted from the adjusted daily cache with the per-day factor (`feed.md`), while `sigma_daily` is a
 return statistic and may come from the adjusted series. Bar prices and quote sizes already arrive on
@@ -114,6 +123,8 @@ functions), `summarise_quotes` for the summary inputs. From main and this branch
   position.
 - Each `intent_id` is processed once; a duplicate gets `rejected` and no fill.
 - After `Kill`, no new entry fill.
+- A partial entry fill's `Fill` precedes the remainder's `OrderUpdate(cancelled)` in the cascade.
+- The 09:34 quote summary is used only for fills at or after 09:35 ET (asserted).
 - Only the live adapter module (`research/intraday/exec/alpaca_paper.py`, the guard's allowlist)
   imports `alpaca.trading`.
 
@@ -154,6 +165,8 @@ nightly replay of the same day measures the gap between SimBroker and paper.
 - `test_entry_expires_after_max_wait`
 - `test_fill_capped_by_shares_at_best_quote`
 - `test_partial_entry_remainder_cancelled`
+- `test_partial_fill_precedes_remainder_cancel`
+- `test_0934_summary_not_used_before_0935`
 - `test_cost_bps_matches_leg_cost_bps`
 - `test_duplicate_intent_rejected_no_second_fill`
 - `test_kill_cancels_entries_and_exits_positions`

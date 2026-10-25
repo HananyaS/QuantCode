@@ -31,6 +31,11 @@ checks it), so no feature can see a later bar.
   bar in the deque.
 - Size: at most `len(symbols) × k` bars, so `20 × 30 = 600` at the largest R16 cell.
 
+`symbols` is for membership tests only. Never emit while iterating a set or frozenset (its order
+changes with `PYTHONHASHSEED`, and so would the log hash); sort first. `Window.bars` must be built
+as `tuple(deque)` at emit: the contract requires a `tuple` of `Bar` (a deque or a list is
+rejected), and the copy freezes the window so later appends cannot change an emitted event.
+
 ## Configuration
 
 | Parameter | Default | Source |
@@ -56,6 +61,8 @@ it) as this agent, or training and serving differ.
 - A `Window` is emitted only in response to a `Bar`, never to a `Gap` or a tick.
 - No bar is invented, repeated or reordered; a `Gap` never becomes a bar.
 - At most one `Window` per symbol per minute.
+- `Window.bars` is a fresh `tuple` copied from the deque at emit; nothing is emitted from a set
+  iteration.
 - Bars from before `Candidates` or for non-candidates never enter a buffer.
 
 ## Failure modes
@@ -85,6 +92,7 @@ None. The agent is the same code in both, with no adapter: its inputs are bus ev
 - `test_out_of_order_bar_raises`
 - `test_one_window_per_symbol_per_minute`
 - `test_state_bounded_by_k_per_symbol`
+- `test_window_bars_is_tuple_snapshot_of_deque`
 
 ## Open questions
 

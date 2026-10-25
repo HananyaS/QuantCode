@@ -26,17 +26,27 @@ Halt data is not an event on the way in: an injected halt-source adapter supplie
 - `Kill` with `ts` = the cause's `ts` and a `reason` naming the rule and the evidence, at most
   once per session, on:
   - **stale feed**: at a tick `T` during the feed session, a candidate has had no `Bar` or `Gap`
-    for `stale_after_min` minutes;
+    for `stale_after_min` minutes. The check at `T` is evaluated against `T − 1 min`, because the
+    minute ending at `T` arrives after the tick (tick-first ordering, ADR-001): the candidate is
+    stale when `(T − 1 min) − last >= stale_after_min`, where `last` is the `ts` of its latest
+    `Bar`/`Gap`, or, before any arrives, the baseline = the session's first expected `bar_start`
+    (09:30 ET). So the first session tick (09:31) never kills;
   - **order-flow inconsistency**: a `Fill` whose `intent_id` was never seen in an order intent;
     total fills for an `intent_id`'s entry side above the intent's `qty`; a `sell` fill that would
     take the symbol's net position below zero; an order intent whose `intent_id` repeats.
+    The overfill and net-position books count **filled** qty. After a size-capped partial fill the
+    `Fill` precedes `OrderUpdate(cancelled)` for the remainder in the same cascade; the cancel
+    closes the intent to further entry fills but leaves the filled qty (and the position) booked.
 
 After its `Kill` the agent emits nothing else for the session.
 
 ## State
 
 - Candidate set; per symbol, the `ts` of the latest `Bar`/`Gap`; per symbol, halted flag.
-- Per `intent_id`: intent qty and filled qty by side; per symbol: net position from fills.
+- Per `intent_id`: intent qty and filled qty by side, and whether it was cancelled/expired; per
+  symbol: net position from fills.
+- The stale baseline: the session's first expected `bar_start` (09:30 ET), used as `last` for a
+  candidate until its first `Bar`/`Gap`.
 - The halt-source cursor; `killed` flag.
 - Size: O(candidates + intents per session).
 
@@ -87,9 +97,12 @@ agent decides.
 - `test_halt_ts_equals_tick_ts`
 - `test_resume_without_halt_skipped`
 - `test_stale_feed_emits_kill`
+- `test_first_session_tick_does_not_kill`
+- `test_stale_check_at_tick_uses_previous_minute`
 - `test_full_coverage_never_kills`
 - `test_fill_for_unknown_intent_kills`
 - `test_overfill_kills`
+- `test_partial_fill_then_cancel_books_filled_qty`
 - `test_short_creating_sell_kills`
 - `test_duplicate_intent_id_kills`
 - `test_at_most_one_kill_and_silence_after`

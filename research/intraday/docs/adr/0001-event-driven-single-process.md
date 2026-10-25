@@ -18,8 +18,8 @@ infrastructure before any edge is shown (spec section 2).
 - **Pure agents returning events.** An agent receives an event and returns the events it
   emits. It holds no reference to another agent, and the bus is the only coupling.
 - **Timestamp causality.** An emitted event's `ts` equals the `ts` of its cause. External
-  publishes (feeds, clock) have monotone non-decreasing `ts`. Time comes from `Clock`
-  events, never the wall clock.
+  publishes (feeds, clock) have monotone non-decreasing `ts`. Time comes from
+  `ClockTick` events, never the wall clock.
 - **Tick-first ordering.** `clock_ticks` is source 0, so at equal `ts` the clock tick is
   delivered before any other source's events.
 - **The recorder is a bus sink, not an `Agent`.** It must see `seq`, `cause_seq` and

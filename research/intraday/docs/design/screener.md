@@ -49,6 +49,7 @@ tick's date (the `tzdata` package supplies the database on Windows; it is instal
 | ranking feature(s) for `arm="screen"` | `pm_gap` then `pm_dollar_volume`, descending, ties broken by symbol | R16 ("ranked by pre-market features"); placeholder default |
 | `top_n` | `20` | R16; placeholder default |
 | `exclude_split_days` | `True` | builder's call (a raw-price gap on a split day is fabricated); detected causally, see the adjustment rule |
+| `split_log_step_threshold` (flag a split when `abs(log(f_{D-1} / f_D))` exceeds it) | `log(1.25)` | builder's call (an ex-dividend step is a few percent, a split is at least 5:4, so dividends are not flagged) |
 | `holdout_start` | `2025-08-07` | spec §4 (last 12 months sealed) / R16; provisional value per controller Ruling 10 until `PREREGISTRATION_R16.md` fixes it |
 | `unseal` | `False` | spec §4 (the sealed holdout is read only by an explicit, recorded decision) |
 | `data_root` | `C:/Users/Shachar/Desktop/PythonProjects/QuantCode/data/research_penny` | builder's call (main checkout, gitignored) |
@@ -71,7 +72,8 @@ Reuse (all on this branch under `research/penny/`):
 - `etl/bars.py:226-238`: the causal split-event factor (the step of the adjustment ratio between
   consecutive days), the precedent for the split-day flag below.
 - `etl/bars.py`: `load_years` for daily bars carrying `close_unadj` (raw) beside the adjusted series.
-- `etl/alpaca_fetch.py`: `make_data_client`, `fetch_with_rejects` for any new fetch.
+- `etl/alpaca_fetch.py`: no new fetch (user decision 2026-10-26: no downloads). Replay reads the
+  existing caches only; the live pre-market fetch is a Phase-5 adapter question.
 
 **The adjustment rule (spec §1, penny §57–§99).** Every price, share-volume or dollar-volume
 **level** used in a filter or a feature is on the traded (unadjusted) basis. The caches under
@@ -88,7 +90,9 @@ dividend-adjusted, so `pm_dollar_volume` straight from them is exactly the withd
 - **Split-day flag.** A split at `D`'s open is detected from the factor step `f_{D-1} / f_D`
   (the `bars.py:226-238` event factor; ex-dates are announced ahead, so the step is knowable before
   the open), or from a corporate-actions calendar if one is added. Only the ratio of the two factors
-  is used, never a session price. If the `D` row is missing, no split is known and the symbol is
+  is used, never a session price. Only a step with `abs(log(f_{D-1} / f_D)) > split_log_step_threshold`
+  (default `log(1.25)`) is a split: the adjusted series also steps on every ex-dividend date, and
+  those small steps must not exclude the symbol. If the `D` row is missing, no split is known and the symbol is
   **kept**. Never `flag_reverse_splits`/`flag_forward_splits` (session open and range).
 - **Failing symbol-days stay in `Candidates`.** A symbol whose session-`D` data later turns out
   missing or inconsistent (halted all day, delisted that day, a factor mismatch) is not dropped by
@@ -153,6 +157,7 @@ before the firing tick, and the agent's assertion checks it either way.
 - `test_price_filter_uses_unadjusted_prior_close`
 - `test_split_day_symbol_excluded`
 - `test_split_flag_reads_factor_step_not_session_prices`
+- `test_ex_dividend_factor_step_is_not_a_split`
 - `test_missing_session_daily_row_keeps_symbol`
 - `test_conversion_uses_prior_day_factor`
 - `test_holdout_date_refused_without_unseal`

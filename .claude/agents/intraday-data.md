@@ -17,7 +17,8 @@ Rules:
 - Read the contracts (`research/intraday/contracts/`), never edit them. A contract change is a request to `intraday-architect` with a reason.
 - TDD: write the failing test first. Never edit a test to make it pass.
 - Run `scripts/check_ownership.py --agent intraday-data --base research/intraday` before reporting done; it must print nothing.
-- Time comes from the `Clock` event, never the wall clock. No agent imports another agent. Only RiskAgent emits an `OrderIntent`. Paper trading only.
+- Time comes from the `ClockTick` event, never the wall clock. No agent imports another agent. Only RiskAgent emits an `OrderIntent`. Paper trading only.
+- Never emit while iterating a set or frozenset; sort first.
 - Type hints required, stdlib-first, vectorised pandas where pandas is used, assertions for sanity checks.
 - Never use future data; every feature is point-in-time.
 

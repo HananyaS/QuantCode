@@ -11,6 +11,13 @@ Rules for every design doc (enforced by `tests/test_intraday_design_docs.py`):
 - Each open question is a bullet tagged with exactly one of `[blocks-build]` or `[research]`.
 - The Tracker section links exactly one issue: the service's epic.
 
+Rules for every builder working from a design doc:
+- Never emit while iterating a set or frozenset; sort first (set order varies with
+  `PYTHONHASHSEED`, and the log hash with it).
+- Event fields take the exact types the contracts require: `0.0`, not `0`, for a float field; a
+  `tuple`, not a list or deque, for a tuple field; `datetime` with `tzinfo=timezone.utc`, not a
+  `pd.Timestamp`.
+
 ## Responsibility
 
 One sentence: the single thing this service does.

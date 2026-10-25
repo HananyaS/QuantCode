@@ -24,7 +24,8 @@ usually the only source). Agents' returned events re-enter the queue in the same
 ## State
 
 - EventBus: the agent tuple (frozen at construction), the sink, `seq`, the last external `ts`,
-  and during a publish the breadth-first queue, bounded by `max_cascade`.
+  the failure that poisoned it (if any), and during a publish the breadth-first queue, bounded by
+  `max_cascade`.
 - `merge_sources`: one look-ahead event per source (a lazy heap merge).
 - Size: O(agents + cascade); nothing grows with the session.
 
@@ -59,7 +60,11 @@ All built and tested in Phase 1:
 - Dispatch is breadth-first in registration order; an agent never receives its own emissions; an
   agent receives only the types in its `subscribes`.
 - The sink sees every envelope, `seq` strictly increasing by 1 from 0.
-- `run_replay` over the same agents and sources gives a byte-identical log, hence the same hash.
+- `run_replay` over the same agents and sources gives a byte-identical log, hence the same hash,
+  in the same process and across processes with different `PYTHONHASHSEED`s.
+- No agent is named `external` (reserved for external publishes).
+- After any exception inside a cascade the bus is poisoned: every later `publish` raises
+  `RuntimeError` (ADR-001).
 - No wall clock anywhere in `research/intraday/` (`tests/test_intraday_guards.py`).
 
 ## Failure modes
@@ -70,7 +75,9 @@ All built and tested in Phase 1:
 | A source not ts-monotone | `merge_sources` check | raise (`ValueError`) |
 | Emitted `ts` differs from the cause's | dispatch check | raise (`ValueError`) |
 | Runaway cascade | count above `max_cascade` | raise (`RuntimeError`) |
-| An agent or the sink raises | not caught | raise (propagates; the log is closed by `run_replay`, the run is void and is replayed from the start) |
+| An agent or the sink raises | not caught | raise (propagates; the bus is poisoned, the log is closed by `run_replay`, the run is void and is replayed from the start) |
+| `publish` after a failed cascade | poison flag | raise (`RuntimeError`) |
+| An agent named `external` | `EventBus.__init__` | raise (`ValueError`) |
 
 ## Replay vs live
 
@@ -78,8 +85,10 @@ The bus is the same. Replay: `run_replay` merges `clock_ticks` with any recorded
 publishes as fast as it can. Live (Phase 5): a live runner, outside the agents, publishes a
 `ClockTick` each minute from the wall clock (the only place a wall clock is read, outside
 `research/intraday/`'s guarded code) and lets adapters release buffered data on ticks. The nightly
-check replays the live log's external envelopes through fresh agents and diffs the logs. A later
-services split replaces only the transport (ADR-001).
+check replays the live log through fresh agents and diffs the logs; live bars are emitted by the
+FeedAgent (envelope `source` = the feed's name), not published as `external`, so that replay needs
+a log-backed feed adapter (Open questions). A later services split replaces only the transport
+(ADR-001).
 
 ## Test plan
 
@@ -89,24 +98,32 @@ Existing, `tests/test_intraday_bus.py`: `test_dispatch_is_breadth_first_in_regis
 `test_cascade_counter_resets_per_publish`, `test_non_monotone_external_publish_raises`,
 `test_equal_ts_external_publish_is_allowed`, `test_sink_sees_every_envelope_with_increasing_seq`,
 `test_duplicate_agent_names_rejected`, `test_empty_agent_name_rejected`,
-`test_agents_frozen_at_construction`, `test_sink_exception_propagates`.
+`test_agents_frozen_at_construction`, `test_sink_exception_propagates`,
+`test_agent_named_external_rejected`, `test_bus_is_poisoned_after_a_failed_cascade`,
+`test_bus_is_poisoned_after_sink_failure`, `test_bus_is_poisoned_after_runaway_cascade`,
+`test_non_monotone_rejection_does_not_poison`.
 
 Existing, `tests/test_intraday_replay.py`: `test_clock_ticks_bounds_and_utc`,
 `test_merge_orders_by_ts_then_source_index`, `test_merge_rejects_non_monotone_source`,
 `test_same_day_replayed_twice_gives_identical_hash`, `test_changed_input_changes_hash`,
-`test_replay_log_closed_on_agent_error`.
+`test_replay_log_closed_on_agent_error`,
+`test_replay_hash_identical_across_processes_and_hash_seeds` (the same replay fixture run in two
+subprocesses with `PYTHONHASHSEED=0` and `=12345`; identical log hash and bytes; part of the normal
+suite, under a second).
 
 Integration (main session, after the Phase 2 merges), `tests/test_intraday_replay.py`:
 `test_recorded_day_end_to_end_twice_identical_hash` (all seven agents on one recorded day),
-`test_session_runner_refuses_holdout_date_without_unseal`.
+`test_session_runner_refuses_holdout_date_without_unseal`, and the same end-to-end day run in two
+subprocesses with `PYTHONHASHSEED=0` and `=12345`, asserting an identical `log_hash`
+(`test_recorded_day_identical_hash_across_hash_seeds`).
 
 ## Open questions
 
-- **[research]** The bus has no poison flag: after an exception it would accept further publishes
-  although `seq` and the last external `ts` have advanced and queued events were dropped (ADR-001
-  makes discarding it the caller's duty). Not blocking: `run_replay` abandons the run on any
-  exception. Decide before the Phase 5 live runner whether the bus refuses publishes after a failure
-  (an architect change with a test).
+- **[blocks-build]** (Phase 5 only) Nightly replay of live mode. Live bars come from the FeedAgent
+  (envelope `source` = the feed's name), not from `external`, so re-publishing only the external
+  envelopes would replay ticks without market data. The nightly check needs a log-backed feed
+  adapter that serves the live log's feed-emitted `Bar`/`Quote`/`Gap` events to a FeedAgent in
+  replay. Does not block Phase 2 (replay feeds read the caches). Decided with the live runner.
 - **[research]** Session calendar: half days (13:00 ET close) and holidays need the tick range and
   the feed session per date. Phase 2 uses full days only; the calendar source is chosen with the
   integration replay.

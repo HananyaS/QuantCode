@@ -69,7 +69,7 @@ Design rules:
 - **Contracts are the only shared code.** `intraday/contracts/` holds the frozen event
   dataclasses (UTC timestamps, schema version) and the agent protocols. No agent imports
   another agent.
-- **Time comes from a `Clock` event**, never `datetime.now()`. Replay mode is therefore
+- **Time comes from a `ClockTick` event**, never `datetime.now()`. Replay mode is therefore
   deterministic, and two runs of one day give event logs with the same hash.
 - **Single process now, services later.** The bus transport sits behind an interface. If
   the design ever needs real services, swap in-memory for ZeroMQ or Redis and no agent changes.
