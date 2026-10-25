@@ -423,6 +423,50 @@ def test_tracker_section_links_an_issue():
 
 ---
 
+### Task 9: Tooling map for every stage
+
+The user asked that every design and implementation stage use the skills and MCP servers it needs. Builders only see their own `.claude/agents/*.md`, so the map has to live in those files.
+
+**Files:**
+- Modify: `.claude/agents/intraday-*.md` (all 8). Add a `## Skills and tools` section after the existing body, and stage with `git add -f`.
+- Modify: `docs/superpowers/specs/2026-10-26-intraday-system-design.md`. Append `## 6. Tooling per stage`.
+- Test: `tests/test_intraday_tooling.py`
+
+**Interfaces:**
+- Produces: the stage → tool map below, copied verbatim into spec §6. Each agent file lists only the rows that apply to its role.
+
+| Stage | Skills (Skill tool) | MCP / CLI |
+|---|---|---|
+| Any design or new behaviour | `superpowers:brainstorming`, `codebase-design`, `domain-modeling` (CONTEXT.md glossary, ADRs) | — |
+| Plan writing | `superpowers:writing-plans`, then `improve-plan` (quant/maths/realism review) | — |
+| Implementation | `superpowers:test-driven-development`, `superpowers:verification-before-completion` | `plugin_context7` for library docs (pandas, alpaca-py) once it is authenticated |
+| Bugs / failing tests / slow code | `superpowers:systematic-debugging`, `diagnosing-bugs`, `phd-skills:debug` for experiment failures | — |
+| Review | `superpowers:requesting-code-review`, `code-review` | `gh` |
+| Pre-registration (R16) | `phd-skills:experiment-design`, `phd-skills:literature-research` | `scholar-search` (papers, citations) |
+| Running research | `phd-skills:reproduce`, `phd-skills:compare` | `mlflow-mcp`, one experiment named `intraday` (every run logged with params, metrics and the event-log hash) |
+| Plots | `plotly`, `dataviz` | — |
+| Tracking | — | `gh` against `HananyaS/QuantCode-intraday-board` and project 1 (the controller only) |
+| Finishing a branch | `superpowers:finishing-a-development-branch` | — |
+
+- [ ] **Step 1: Write the failing tests.**
+
+```python
+STAGE_SKILLS = {"superpowers:test-driven-development", "superpowers:verification-before-completion",
+                "superpowers:systematic-debugging"}
+def test_every_builder_definition_has_skills_section(): ...   # "## Skills and tools" in data/model/risk/exec/ops .md
+def test_builders_list_tdd_verification_debugging(): ...     # each builder section names all of STAGE_SKILLS
+def test_designer_lists_experiment_design_and_scholar_search(): ...
+def test_critic_lists_mlflow_and_compare(): ...
+def test_spec_has_tooling_section(): ...                      # "## 6. Tooling per stage" present in the spec
+```
+
+- [ ] **Step 2: Run** `"$PY" -m pytest tests/test_intraday_tooling.py -v`. Expected: FAIL.
+- [ ] **Step 3: Add the sections and spec §6.** Each section also says: "invoke a skill before acting when there is even a small chance it applies; if an MCP tool needs authentication, report NEEDS_CONTEXT instead of skipping it."
+- [ ] **Step 4: Run** the tooling, ownership and design-doc tests, then the full suite.
+- [ ] **Step 5: Commit** with message `docs(intraday): tooling map per stage in agent definitions and spec`. `Refs: HananyaS/QuantCode-intraday-board#43`.
+
+---
+
 ## Phase 1 exit check
 
 - `"$PY" -m pytest tests/ -q` is green.
