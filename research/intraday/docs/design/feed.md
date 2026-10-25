@@ -53,7 +53,6 @@ Ticks outside the session emit nothing. Ticks before `Candidates` arrives emit n
 | minute cache | `<data_root>/minute/dt=YYYY-MM-DD/minute.parquet` (2016-02-17 .. 2026-08-07, 2,628 days, 09:25–16:05 ET; columns `symbol, date, minute_et` ('HH:MM' ET), `open, high, low, close, volume` (float), `trade_count` (float), `vwap`) | existing cache |
 | daily cache | `<data_root>/daily/bars_<year>.parquet` (adjusted OHLCV plus `open_unadj, high_unadj, low_unadj, close_unadj`) | existing cache (`research/penny/etl/bars.py`) |
 | `unadjust_tolerance` | `0.02` | builder's call |
-| `raw_minute_dir` (top-up cache) | `<data_root>/minute_raw/dt=YYYY-MM-DD/minute.parquet` | builder's call |
 | `holdout_start` | `2025-08-07` | spec §4 (last 12 months sealed) / R16; provisional value per controller Ruling 10 until `PREREGISTRATION_R16.md` fixes it |
 | `unseal` | `False` | spec §4 (the sealed holdout is read only by an explicit, recorded decision) |
 | quote size unit | shares | contract (`Quote.bid_size/ask_size` are shares) |
@@ -76,13 +75,12 @@ Consistency check per symbol-day: the converted first regular-session open must 
 a corporate action between the fetches would make their adjustments differ). A symbol-day that fails,
 or has no daily row, emits no bars: every minute of it is a `Gap`, and the symbol-day is written to
 the ETL's rejects file with the reason. The pre-market cache (`<data_root>/premarket/`) was written
-by the same function and gets the same conversion. The fallback, if too many symbol-days fail, is a
-fresh fetch with `adjustment="raw"` through `fetch_with_rejects`; it changes the cache, not the agent.
+by the same function and gets the same conversion. This adjusted-to-unadjusted step is the single
+path: there is no other minute source (user decision 2026-10-26: no new minute download).
 
 Reuse (all under `research/penny/`):
-- `etl/alpaca_fetch.py`: `make_data_client` (never a trading client), `fetch_with_rejects` for
-  batching and rejected symbols. Do not call `fetch_minute_for_day` for new data: it hard-codes
-  `adjustment="all"`. A new fetch uses the same request shape with `adjustment="raw"`, `feed="sip"`.
+- No minute fetch in Phase 2 (user decision: only stocks already in the minute cache). `etl/alpaca_fetch.py`
+  (`make_data_client`, never a trading client) matters again only for the live feed.
 - `etl/bars.py`: `load_years` for the daily raw/adjusted pair that gives the factor.
 - `etl/quotes.py`: `summarise_quotes` and the cached `quote_summary*.parquet`, `quote_windows_*.parquet`,
   `quotes_rev/` under `data_root`. These are **per-day summaries and windows, not an NBBO
@@ -148,10 +146,7 @@ uses `alpaca.data` only.
 - `test_intraday_returns_unchanged_by_unadjust`
 - `test_zero_row_candidate_is_coverage_reject_not_only_gaps`
 - `test_coverage_rejects_counted_per_arm`
-- `test_raw_cache_rows_skip_unadjust`
-- `test_raw_cache_wins_over_adjusted_for_same_symbol_day`
 - `test_holdout_date_refused_without_unseal`
-- `test_raw_fetch_requests_unadjusted_sip` (any new ETL request carries `adjustment="raw"`, `feed="sip"`)
 
 ## Open questions
 
@@ -167,8 +162,8 @@ uses `alpaca.data` only.
   per-minute quote fetch for the candidates is for the pre-registration to decide.
 
 - **[research]** How many symbol-days fail the un-adjustment check. If the failure rate in the
-  R16 development window is material (say above 2% of candidate symbol-days), refetch that window
-  raw instead; the agent does not change. The rate is reported with the R16 run.
+  R16 development window is material (say above 2% of candidate symbol-days), R16 must say so and
+  weigh it; there is no refetch (no new minute download). The rate is reported per arm with the R16 run.
 
 - **[research]** Minute-cache coverage. `<data_root>/minute/` is the union of earlier penny rounds'
   candidate pools (the per-day `requested.json` lists the requested symbols): 2,628 days, 207,594
@@ -177,15 +172,23 @@ uses `alpaca.data` only.
   symbol-days, 3,555 symbols, median 13 a day, 04:00–09:34 ET. No other minute data exists on disk.
   Daily bars, by contrast, are complete for the universe (`<data_root>/daily/bars_YYYY.parquet`, and
   `data/research_breakout/daily/bars_YYYY.parquet`, about 6–7k symbols a year). Most of an R16
-  screen's names, and nearly all of the no-selection arm's, have no minute bars there. Without
-  action ReplayFeed would emit all-`Gap` symbol-days that look like illiquid names, and the arms
-  would silently not be comparable. Remedy: a top-up fetch of the missing symbol-days through
-  `fetch_with_rejects` with `adjustment="raw"`, `feed="sip"`, into `raw_minute_dir`. The directory
-  tells the two sources apart, so each row's basis is known. Rows from `minute/` are adjusted and get
-  the un-adjust step. Rows from `minute_raw/` are already on the traded basis and are emitted as they
-  are (the un-adjust step is skipped, not run with `f = 1`). If both hold a symbol-day, `minute_raw/`
-  wins. Until the top-up exists, the coverage rejects above are counted and reported per arm, and R16
-  states the coverage it ran on.
+  screen's names, and nearly all of an unrestricted no-selection arm's, would have no minute bars.
+  **Decision (user, 2026-10-26): no fetch.** On each day the R16 universe, for every arm including
+  the no-selection control, is restricted to symbols the minute cache covers that day (the
+  screener's `restrict_to_minute_cache`, see `screener.md`). The coverage-reject failure mode above
+  stays. After the restriction it should be rare (a covered symbol with zero usable rows), and it is
+  still counted per arm. R16 states the per-arm coverage it ran on.
+- **[research]** (for R16) Selection bias from cache membership. The cache is the union of
+  **earlier** rounds' pools, and some of those pools may have been chosen on outcomes: forensic studies
+  of 50%+ movers (`research/penny/scripts/forensic_movers.py`, `forensic_sample.py`) and other scripts
+  that read or fill the caches through `scripts/fetch_intraday.py` and `scripts/fetch_premarket.py`.
+  So "is in the cache on day D" can itself encode day D's outcome. The per-day
+  `<data_root>/minute/dt=YYYY-MM-DD/requested.json` (and `premarket/.../requested.json`) files are the
+  evidence of which symbols were requested on each day. **Required rule for the builders and R16:** the
+  daily universe is reconstructed from a causal screen computable from daily data before the session
+  (or from bars before the decision time), and only then intersected with the cache. It is never
+  "every symbol present in the cache that day". R16 must also audit which rounds' pools contributed to
+  each day's `requested.json`, and exclude or separately report days whose pool was outcome-selected.
 
 ## Tracker
 

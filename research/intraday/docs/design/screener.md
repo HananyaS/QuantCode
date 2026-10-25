@@ -52,6 +52,7 @@ tick's date (the `tzdata` package supplies the database on Windows; it is instal
 | `holdout_start` | `2025-08-07` | spec §4 (last 12 months sealed) / R16; provisional value per controller Ruling 10 until `PREREGISTRATION_R16.md` fixes it |
 | `unseal` | `False` | spec §4 (the sealed holdout is read only by an explicit, recorded decision) |
 | `data_root` | `C:/Users/Shachar/Desktop/PythonProjects/QuantCode/data/research_penny` | builder's call (main checkout, gitignored) |
+| `restrict_to_minute_cache` | `True` | user decision 2026-10-26 (covered stocks only, every arm) |
 
 `arm="no_selection"` returns every symbol that passes the universe filter, with no ranking and
 no `top_n` cut. The other two controls (random score, screen with no model) live in the
@@ -97,10 +98,14 @@ dividend-adjusted, so `pm_dollar_volume` straight from them is exactly the withd
   that row's own factor before any dollar volume is formed. Cross-day ratios (gap versus prior
   close) are raw-to-raw (`pm_close × f_{D-1} / close_unadj_{D-1}`); a raw level is never paired with an
   adjusted one.
-- **Cache coverage.** The minute cache (median 54 symbols a day) and the pre-market cache (median 13
-  a day) hold only the union of earlier rounds' candidate pools, while the daily caches are complete
-  for the universe. So the universe filter has full data, but pre-market ranking does not. See
-  `feed.md` (Open questions, Failure modes) for the coverage rejects, which are reported per arm.
+- **Cache coverage (user decision, 2026-10-26: covered stocks only, no download).** The minute
+  cache (median 54 symbols a day) and the pre-market cache (median 13 a day) hold only the union of
+  earlier rounds' candidate pools, while the daily caches are complete for the universe. Order of
+  operations, for every arm including `no_selection`: (1) the causal universe filter on daily rows
+  before `D`; (2) intersect with the symbols the minute cache covers on `D`
+  (`restrict_to_minute_cache`); (3) for `arm="screen"`, rank on pre-market features, skipping symbols
+  without pre-market bars. Cache membership is never the universe itself, because it may encode the
+  outcome (`feed.md`, Open questions). The count removed at step 2 is recorded per arm.
 - **Sealed holdout.** The adapter refuses any session date `>= holdout_start` (raise) unless
   `unseal=True` is passed. `unseal` is part of `config_hash`, so it shows in `screen_id`.
 
@@ -143,6 +148,8 @@ before the firing tick, and the agent's assertion checks it either way.
 - `test_candidates_ts_equals_firing_tick_ts`
 - `test_symbols_sorted_unique_and_cut_to_top_n_before_sorting`
 - `test_no_selection_arm_returns_whole_filtered_universe`
+- `test_universe_is_causal_filter_intersected_with_cache`
+- `test_cache_symbol_outside_causal_filter_never_selected`
 - `test_price_filter_uses_unadjusted_prior_close`
 - `test_split_day_symbol_excluded`
 - `test_split_flag_reads_factor_step_not_session_prices`
@@ -162,11 +169,10 @@ before the firing tick, and the agent's assertion checks it either way.
 - **[research]** The screen itself (universe bounds, ranking features, `top_n`) is R16's to
   pre-register. The builder implements the placeholder defaults above behind configuration and
   changes no code when R16 sets the values.
-- **[research]** The pre-market cache was requested only for earlier rounds' candidates
-  (`scripts/fetch_premarket.py` records requested symbols per day), so it may not cover R16's whole
-  low-priced universe. The no-selection arm needs the universe filter only (daily data), but the
-  screen arm ranks on pre-market features. Meanwhile: build and test on fixture caches; R16 states
-  the coverage, and a top-up fetch (raw, through `fetch_with_rejects`) fills the gap.
+- **[research]** (for R16) Cache membership may be outcome-selected (see `feed.md`). The universe is
+  the causal filter intersected with the cache, never the cache's symbol list. The pre-market cache is
+  thinner than the minute cache (median 13 against 54 a day), so the screen arm ranks fewer names than
+  the no-selection arm can trade. R16 states both coverages; there is no top-up fetch.
 
 ## Tracker
 
