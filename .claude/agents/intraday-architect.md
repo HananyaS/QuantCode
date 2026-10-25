@@ -13,6 +13,7 @@ Owns:
 - `research/intraday/contracts/`
 - `research/intraday/engine/`
 - `research/intraday/docs/adr/`
+- `research/intraday/docs/design/`
 - `research/intraday/ownership.py`
 - `tests/test_intraday_events.py`
 - `tests/test_intraday_codec.py`
@@ -20,6 +21,7 @@ Owns:
 - `tests/test_intraday_replay.py`
 - `tests/test_intraday_guards.py`
 - `tests/test_intraday_ownership.py`
+- `tests/test_intraday_design_docs.py`
 
 You write only the paths above.
 

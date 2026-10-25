@@ -85,12 +85,12 @@ Agent definitions go in `.claude/agents/intraday-*.md`, following the existing
 
 | Role | Owns (writes only here) | Notes |
 |---|---|---|
-| `intraday-architect` | `intraday/contracts/`, the ADRs | Runs first, alone. Contract changes later need an ADR and the architect |
+| `intraday-architect` | `intraday/contracts/`, the ADRs, engine (bus, replay) (amended 2026-10-26, Ruling 9: engine stays with the architect) | Runs first, alone. Contract changes later need an ADR and the architect |
 | `intraday-data` | ScreenerAgent, FeedAgent, cached data ETL | Reuses `research/penny/etl/*` |
 | `intraday-model` | StateAgent, PredictorAgent, research scripts | Works only after the pre-registration is committed |
 | `intraday-risk` | RiskAgent | Built against fixture `Signal`s; needs no model |
 | `intraday-exec` | ExecutionAgent, SimBroker, later AlpacaPaperBroker | Built against `FakeTradingClient` (`tests/test_execution_agent.py`) |
-| `intraday-ops` | MonitorAgent, RecorderAgent, engine/bus | |
+| `intraday-ops` | MonitorAgent, Recorder sink | |
 | `intraday-hypothesis-designer` | `PREREGISTRATION_R16.md` | Writes only; runs nothing |
 | `intraday-critic` | `docs/critiques/` | Reviews at gates G1 (design), G2 (result), G3 (before paper). Never fixes code |
 | integrator (main session) | merges, end-to-end replay tests | Resolves cross-module problems |
