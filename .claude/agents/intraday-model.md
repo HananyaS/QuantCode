@@ -29,3 +29,17 @@ Workflow:
 - Never move cards or close issues; the controller does.
 - Work in the worktree assigned to you. Never push. Never merge to main.
 - Python is `C:/Users/Shachar/AppData/Local/Programs/Python/Python313/python.exe` (not on PATH).
+
+## Skills and tools
+
+| Stage | Skills (Skill tool) | MCP / CLI |
+|---|---|---|
+| Any design or new behaviour | `superpowers:brainstorming`, `codebase-design`, `domain-modeling` (CONTEXT.md glossary, ADRs) | — |
+| Plan writing | `superpowers:writing-plans`, then `improve-plan` (quant/maths/realism review) | — |
+| Implementation | `superpowers:test-driven-development`, `superpowers:verification-before-completion` | `plugin_context7` for library docs (pandas, alpaca-py) once it is authenticated |
+| Bugs / failing tests / slow code | `superpowers:systematic-debugging`, `diagnosing-bugs`, `phd-skills:debug` for experiment failures | — |
+| Review (self-review only; you never dispatch reviewers) | `superpowers:verification-before-completion` | — |
+| Running research | `phd-skills:reproduce`, `phd-skills:compare` | `mlflow-mcp`, one experiment named `intraday` (every run logged with params, metrics and the event-log hash) |
+| Plots | `plotly`, `dataviz` | — |
+
+Skills are invoked with the Skill tool. Rule: invoke a skill before acting when there is even a small chance it applies; if an MCP tool needs authentication, report NEEDS_CONTEXT instead of skipping it.

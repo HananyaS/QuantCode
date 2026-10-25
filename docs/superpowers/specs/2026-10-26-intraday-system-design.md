@@ -185,3 +185,26 @@ the intraday track, and do no re-tuning.
 - Research: the `eval/nulls.py` battery passes, both controls are reported, and the critic
   verdicts are filed.
 - Paper: a dry-run day first, then a nightly live-versus-replay diff report.
+
+## 6. Tooling per stage
+
+Every design and implementation stage uses the skills and MCP servers below. Builders see only their own `.claude/agents/intraday-*.md`, so each definition carries the rows that apply to its role in a `## Skills and tools` section.
+
+| Stage | Skills (Skill tool) | MCP / CLI |
+|---|---|---|
+| Any design or new behaviour | `superpowers:brainstorming`, `codebase-design`, `domain-modeling` (CONTEXT.md glossary, ADRs) | — |
+| Plan writing | `superpowers:writing-plans`, then `improve-plan` (quant/maths/realism review) | — |
+| Implementation | `superpowers:test-driven-development`, `superpowers:verification-before-completion` | `plugin_context7` for library docs (pandas, alpaca-py) once it is authenticated |
+| Bugs / failing tests / slow code | `superpowers:systematic-debugging`, `diagnosing-bugs`, `phd-skills:debug` for experiment failures | — |
+| Review | `superpowers:requesting-code-review`, `code-review` | `gh` |
+| Pre-registration (R16) | `phd-skills:experiment-design`, `phd-skills:literature-research` | `scholar-search` (papers, citations) |
+| Running research | `phd-skills:reproduce`, `phd-skills:compare` | `mlflow-mcp`, one experiment named `intraday` (every run logged with params, metrics and the event-log hash) |
+| Plots | `plotly`, `dataviz` | — |
+| Tracking | — | `gh` against `HananyaS/QuantCode-intraday-board` and project 1 (controller only) |
+| Finishing a branch | `superpowers:finishing-a-development-branch` | — |
+
+Notes:
+- Per role: builders (data, model, risk, exec, ops) get design, plan, implementation and bugs rows plus self-review only (`superpowers:verification-before-completion`); they never dispatch reviewers. model also gets running research and plots. architect gets design, plan, implementation and bugs. hypothesis-designer gets design and pre-registration (it runs nothing, so it may read MLflow but never writes a run). critic gets review, read-only running research and pre-registration review. Tracking and finishing a branch are controller only.
+- MLflow: one experiment named `intraday`, tracking URI a local file store. MLflow 3.16+ refuses `file://` URIs unless `MLFLOW_ALLOW_FILE_STORE=true`; set it in the tracker's constructor, not at import. The experiment is created when the first research run is logged, not before.
+- context7 is installed but needs OAuth by the user before it works. Until then an agent that needs it reports NEEDS_CONTEXT instead of skipping it.
+- Rule for every agent: invoke a skill before acting when there is even a small chance it applies; if an MCP tool needs authentication, report NEEDS_CONTEXT instead of skipping it.

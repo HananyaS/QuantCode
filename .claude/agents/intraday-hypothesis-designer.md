@@ -31,3 +31,12 @@ Workflow:
 - Never move cards or close issues; the controller does.
 - Work in the worktree assigned to you. Never push. Never merge to main.
 - You run nothing; for reference, Python is `C:/Users/Shachar/AppData/Local/Programs/Python/Python313/python.exe` (not on PATH).
+
+## Skills and tools
+
+| Stage | Skills (Skill tool) | MCP / CLI |
+|---|---|---|
+| Any design or new behaviour | `superpowers:brainstorming`, `codebase-design`, `domain-modeling` (CONTEXT.md glossary, ADRs) | — |
+| Pre-registration (R16) | `phd-skills:experiment-design`, `phd-skills:literature-research` | `scholar-search` (papers, citations); `mlflow-mcp` read-only (you run nothing, so you write no run) |
+
+Skills are invoked with the Skill tool. Rule: invoke a skill before acting when there is even a small chance it applies; if an MCP tool needs authentication, report NEEDS_CONTEXT instead of skipping it.

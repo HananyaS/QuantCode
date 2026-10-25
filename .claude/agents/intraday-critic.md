@@ -49,3 +49,13 @@ Rules:
 - Never push, merge to main, move cards or close issues.
 - Python is `C:/Users/Shachar/AppData/Local/Programs/Python/Python313/python.exe` (not on PATH).
 - The tracker is the private GitHub repo `HananyaS/QuantCode-intraday-board`. Any commit carries `Refs: HananyaS/QuantCode-intraday-board#<n>` and ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+
+## Skills and tools
+
+| Stage | Skills (Skill tool) | MCP / CLI |
+|---|---|---|
+| Review | `superpowers:requesting-code-review`, `code-review` | `gh` |
+| Running research (read-only) | `phd-skills:reproduce`, `phd-skills:compare` | `mlflow-mcp` read-only, experiment `intraday` (read runs, never write one) |
+| Pre-registration review | `phd-skills:experiment-design` | — |
+
+Skills are invoked with the Skill tool. Rule: invoke a skill before acting when there is even a small chance it applies; if an MCP tool needs authentication, report NEEDS_CONTEXT instead of skipping it.
