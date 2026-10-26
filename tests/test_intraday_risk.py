@@ -204,3 +204,36 @@ def test_working_intents_reserve_cash() -> None:
     out = run(agent, bar("AAA", T_DEV, close=1.0, volume=1_000_000), sig("AAA", T_DEV),
               bar("BBB", T_DEV, close=1.0, volume=1_000_000), sig("BBB", T_DEV))
     assert [o.qty for o in out] == [2000, 1000]
+
+
+def test_halted_symbol_blocked_until_resume() -> None:
+    agent = RiskAgent(D)
+    h = make_halt(ts=T_DEV, symbol="AAA", halted=True, reason="LULD")
+    assert run(agent, bar("AAA", T_DEV), h, sig("AAA", T_DEV)) == []
+    r = make_halt(ts=et(9, 32), symbol="AAA", halted=False, reason="resume")
+    (oi,) = run(agent, r, bar("AAA", et(9, 32)), sig("AAA", et(9, 32)))
+    assert oi.symbol == "AAA" and agent.skip_counts == {"halted": 1}
+
+def test_no_intent_after_kill() -> None:
+    agent = RiskAgent(D)
+    out = run(agent, bar("AAA", T_DEV), bar("BBB", T_DEV), make_kill(ts=T_DEV, reason="stale"),
+              sig("AAA", T_DEV), sig("BBB", T_DEV))
+    assert out == [] and agent.killed and agent.skip_counts == {"killed": 2}
+
+def test_loss_limit_stops_new_entries() -> None:
+    agent = RiskAgent(D)          # limit: marked equity <= 24_500
+    (oi,) = run(agent, bar("AAA", T_DEV, volume=1_000_000), sig("AAA", T_DEV))
+    run(agent, buy(1960, 1.02, ts=et(9, 32)), bar("AAA", et(9, 32), close=0.80))   # equity 24_568.8
+    assert not agent.loss_limit_tripped
+    assert len(run(agent, bar("BBB", et(9, 32)), sig("BBB", et(9, 32)))) == 1
+    run(agent, bar("AAA", et(9, 33), close=0.70))                                  # equity 24_372.8
+    assert agent.loss_limit_tripped
+    run(agent, bar("AAA", et(9, 34), close=1.20))                                  # recovery does not reset
+    assert run(agent, bar("CCC", et(9, 34)), sig("CCC", et(9, 34))) == []
+    assert agent.loss_limit_tripped and agent.skip_counts == {"loss_limit": 1}
+
+def test_loss_limit_checked_after_fill() -> None:
+    agent = RiskAgent(D)
+    run(agent, bar("AAA", T_DEV, volume=1_000_000), sig("AAA", T_DEV), buy(1960, 1.02, ts=et(9, 32)))
+    run(agent, sell(1960, 0.70, ts=et(9, 33)))     # realised loss 627.2, no bar needed
+    assert agent.loss_limit_tripped

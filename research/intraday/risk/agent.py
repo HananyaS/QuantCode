@@ -170,10 +170,23 @@ class RiskAgent:
         return ()
 
     def _on_halt(self, event: Event) -> tuple[Event, ...]:
+        assert isinstance(event, Halt)
+        if event.halted:
+            self._halted.add(event.symbol)
+        else:
+            self._halted.discard(event.symbol)
         return ()
 
     def _on_kill(self, event: Event) -> tuple[Event, ...]:
+        assert isinstance(event, Kill)
+        self._killed = True
         return ()
 
     def _check_loss_limit(self) -> None:
-        return None
+        """Trip (for the session) once marked equity is at or below the limit; entries only."""
+        if self._tripped:
+            return
+        closes = {s: b.close for s, b in self._last_bar.items()}
+        floor = self._cfg.start_equity_usd * (1 - self._cfg.daily_loss_limit_pct)
+        if self._books.marked_equity(closes) <= floor:
+            self._tripped = True
