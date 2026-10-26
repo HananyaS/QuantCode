@@ -58,3 +58,12 @@ def test_session_bounds_follow_dst() -> None:
 def test_integer_fields_must_be_int(kw) -> None:
     with pytest.raises(ValueError):
         RiskConfig(**kw)
+
+def test_atr_floor_defaults_to_none_and_accepts_a_positive_float() -> None:
+    assert RiskConfig().atr_floor is None
+    assert RiskConfig(exit_mode="atr", tp_atr=2.0, sl_atr=1.0, atr_floor=0.01).atr_floor == 0.01
+
+@pytest.mark.parametrize("floor", [0.0, -0.01, float("nan"), float("inf"), 1, True])
+def test_bad_atr_floor_rejected(floor) -> None:
+    with pytest.raises(ValueError, match="atr_floor"):
+        RiskConfig(exit_mode="atr", tp_atr=2.0, sl_atr=1.0, atr_floor=floor)

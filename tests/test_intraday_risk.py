@@ -293,3 +293,11 @@ def test_older_quote_cannot_overwrite_newer() -> None:
     with pytest.raises(ValueError):
         run(agent, make_quote(ts=et(9, 29), symbol="AAA", ask_size=150))
     run(agent, make_quote(ts=et(9, 29), symbol="BBB", ask_size=150))   # another symbol's clock is independent
+
+
+def test_atr_floor_turns_flat_bar_skip_into_an_entry() -> None:
+    cfg = RiskConfig(exit_mode="atr", tp_atr=2.0, sl_atr=1.0, atr_period=2, atr_floor=0.01)
+    agent = RiskAgent(D, cfg)
+    (oi,) = run(agent, bar("AAA", et(9, 31)), bar("AAA", et(9, 32)), sig("AAA", et(9, 32)))
+    assert oi.take_profit == pytest.approx(1.04) and oi.stop_loss == pytest.approx(1.01)
+    assert agent.skip_counts == {}
