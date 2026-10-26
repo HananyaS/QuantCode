@@ -1514,7 +1514,7 @@ and item 2 is kept.
 
 ### Amendment 1 (2026-10-26)
 
-Recorded before any full-run minute return was read. The full run at 05a29ad was stopped 45
+Recorded before any full-run minute return was read. The full run at 05a29ad was stopped about 40
 minutes in, during `universe_pre`, so no stage past the universe had run. What was seen before
 this amendment: the smoke run's validity flags only. The smoke `evaluate` stage recorded null
 (a)'s account as failed. No smoke return, AUC or account value was used to write this text.
