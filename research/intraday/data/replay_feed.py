@@ -74,7 +74,9 @@ class ReplayFeed:
         }).reindex(list(symbols))
 
     def _first_session_open(self, minute: pd.DataFrame) -> pd.Series:
-        session = minute[minute["minute_et"] >= self.session_open_et]
+        # regular-session rows only: a symbol with rows only outside it gets Gaps (D5)
+        session = minute[(minute["minute_et"] >= self.session_open_et)
+                         & (minute["minute_et"] < self.session_close_et)]
         first = session.sort_values(["symbol", "minute_et"], kind="mergesort")
         return first.groupby("symbol")["open"].first().astype(float)
 

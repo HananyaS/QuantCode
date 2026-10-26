@@ -332,3 +332,14 @@ def test_replay_feed_is_deterministic(tmp_path: Path) -> None:
                     [clock_ticks(et_to_utc(D, "09:25"), et_to_utc(D, "16:02"))], tmp_path / f"log{i}.jsonl")
          for i in range(2)]
     assert h[0] == h[1]
+
+
+def test_symbol_with_only_post_close_rows_is_not_a_reject(tmp_path: Path) -> None:
+    """Decision D5: rows only outside [09:30, 16:00) give 390 Gaps, never an unadjust reject."""
+    root = _root(tmp_path, A=dict(f=0.5, price=4.0))
+    minute = pd.read_parquet(root / "minute" / "dt=2024-03-04" / "minute.parquet")
+    late = minute[minute["minute_et"] >= "16:00"].copy()
+    late[["open", "high", "low", "close", "vwap"]] = 9.0          # far from the daily open
+    synthetic.write_minute(root, D, late, ("A",))
+    data = ReplayFeed(root, root / "v").open_session(D, ("A",), SID)
+    assert data.rejects == () and data.bars == {}
