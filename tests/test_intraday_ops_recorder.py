@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import deque
 from dataclasses import replace
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Sequence
 
@@ -21,8 +22,11 @@ from research.intraday.contracts.fixtures import (
 )
 from research.intraday.engine.bus import EXTERNAL, EventBus
 from research.intraday.engine.replay import clock_ticks, run_replay
+from research.intraday.ops.manifest import (
+    config_hash, git_state, session_log_path, write_manifest,
+)
 from research.intraday.ops.recorder import (
-    EXTERNAL_SOURCE, LOG_FORMAT, JsonlRecorder, external_envelopes, read_log,
+    EXTERNAL_SOURCE, LOG_FORMAT, JsonlRecorder, external_envelopes, log_hash, read_log,
 )
 
 MIN = timedelta(minutes=1)
@@ -179,3 +183,52 @@ def test_replay_with_windows_identical_hash(tmp_path: Path) -> None:
 
 def test_log_format_is_two() -> None:
     assert LOG_FORMAT == 2
+
+
+# --- Task 3: live flushing, log path layout, run manifest ---
+
+def test_flush_makes_each_line_visible_before_close(tmp_path: Path) -> None:
+    p = tmp_path / "live.jsonl"
+    env = EventBus([]).publish(make_bar())[0]
+    rec = JsonlRecorder(p, flush=True)
+    rec(env)
+    assert p.read_text(encoding="utf-8").count("\n") == 1
+    rec.close()
+
+
+def test_session_log_path_layout(tmp_path: Path) -> None:
+    p = session_log_path(date(2024, 3, 4), "run-001", log_root=tmp_path)
+    assert p == tmp_path / "2024-03-04" / "run-001.jsonl"
+    assert p.parent.is_dir() and not p.exists()
+    for bad in ("", "a/b", "a\\b", "..", "c:x"):
+        with pytest.raises(ValueError):
+            session_log_path(date(2024, 3, 4), bad, log_root=tmp_path)
+
+
+def test_config_hash_is_key_order_independent() -> None:
+    assert config_hash({"a": 1, "b": 2.0}) == config_hash({"b": 2.0, "a": 1})
+    assert config_hash({"a": 1}) != config_hash({"a": 2})
+
+
+def test_manifest_records_sha_config_and_model_hash(tmp_path: Path) -> None:
+    p = tmp_path / "run-001.jsonl"
+    _publish_all(p, [make_bar()])
+    cfg = {"stale_after_min": 2, "arm": "screen"}
+    m = write_manifest(p, git_sha="a" * 40, git_dirty=False, config=cfg,
+                       model_hash="abc123", unseal=False)
+    assert m == tmp_path / "run-001.manifest.json"
+    assert json.loads(m.read_text(encoding="utf-8")) == {
+        "config_hash": config_hash(cfg), "git_dirty": False, "git_sha": "a" * 40,
+        "log_format": 2, "log_hash": log_hash(p), "model_hash": "abc123",
+        "run_id": "run-001", "unseal": False}
+    with pytest.raises(FileExistsError):
+        write_manifest(p, git_sha="a" * 40, git_dirty=False, config=cfg,
+                       model_hash="abc123", unseal=False)
+    with pytest.raises(ValueError):
+        write_manifest(tmp_path / "x.jsonl", git_sha="nothex", git_dirty=False,
+                       config=cfg, model_hash="abc123", unseal=False)
+
+
+def test_git_state_reports_sha_and_dirty() -> None:
+    sha, dirty = git_state(Path(__file__).resolve().parents[1])
+    assert re.fullmatch(r"[0-9a-f]{40}", sha) and isinstance(dirty, bool)

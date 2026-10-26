@@ -30,9 +30,11 @@ EXTERNAL_SOURCE: str = "external"
 
 
 class JsonlRecorder:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, flush: bool = False) -> None:
         # Mode "x": an existing log is never overwritten.
         self._fh = open(path, "x", encoding="utf-8", newline="\n")
+        # Live runs flush every line so a crash loses at most the line in flight.
+        self._flush = flush
         # (symbol, bar_start) -> (seq, Bar) of the latest logged Bar line.
         self._bars: dict[tuple[str, datetime], tuple[int, Bar]] = {}
 
@@ -63,6 +65,8 @@ class JsonlRecorder:
             "event": self._event_record(env.event),
         })
         self._fh.write(line + "\n")  # ValueError if closed
+        if self._flush:
+            self._fh.flush()
         if isinstance(env.event, Bar):
             self._bars[(env.event.symbol, env.event.bar_start)] = (env.seq, env.event)
 
