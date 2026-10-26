@@ -1,4 +1,4 @@
-"""Deterministic client order ids: no uuid, no clock (execution.md, Replay vs live)."""
+"""Deterministic client order ids: derived from the intent id only, no entropy, no clock."""
 from __future__ import annotations
 
 from typing import Literal

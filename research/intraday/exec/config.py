@@ -59,4 +59,4 @@ class ExecConfig:
             raise ValueError(
                 f"ExecConfig.default_half_spread_bps must be > 0, got {self.default_half_spread_bps}")
         if type(self.eod_et) is not time or self.eod_et.tzinfo is not None:
-            raise ValueError(f"ExecConfig.eod_et must be a naive datetime.time, got {self.eod_et!r}")
+            raise ValueError(f"ExecConfig.eod_et must be a naive time of day, got {self.eod_et!r}")
