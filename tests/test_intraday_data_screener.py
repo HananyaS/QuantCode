@@ -196,3 +196,184 @@ def test_rank_with_no_premarket_bars_returns_empty() -> None:
 def test_rank_ties_broken_by_symbol() -> None:
     sel, _ = rank_symbols(("B", "A", "C"), _pm_gaps(A=0.1, B=0.1, C=0.1), _prev(1.0, "A", "B", "C"), ("pm_gap",), 2)
     assert sel == ("A", "B")
+
+
+# ---- Task 6: ScreenerAgent --------------------------------------------------
+from dataclasses import dataclass, field, replace  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+from research.intraday.contracts.events import Candidates, ClockTick  # noqa: E402
+from research.intraday.contracts.fixtures import T_DEV  # noqa: E402
+from research.intraday.data.clock import et_date, et_to_utc  # noqa: E402
+from research.intraday.data.errors import LookAheadError, SealedHoldoutError  # noqa: E402
+from research.intraday.data.screener import ScreenerAgent, ScreenerConfig, config_hash  # noqa: E402
+
+assert et_date(T_DEV) == D
+_PM_CLOSES = {"A": 5.5, "B": 5.2, "C": 6.0}          # raw prev close 5.0: gaps C > A > B
+
+
+def tick(hhmm: str) -> ClockTick:
+    return ClockTick(ts=et_to_utc(D, hhmm))
+
+
+@dataclass
+class FakeScreenInputs:
+    daily: pd.DataFrame
+    f_session: pd.Series
+    premarket: pd.DataFrame
+    cache_symbols: tuple[str, ...]
+    calls: list[str] = field(default_factory=list)
+    seen_daily: list[pd.DataFrame] = field(default_factory=list)
+
+    def daily_before(self, session_date: date, lookback_days: int) -> pd.DataFrame:
+        self.calls.append("daily_before")
+        self.seen_daily.append(self.daily)
+        return self.daily
+
+    def session_factor(self, session_date: date) -> pd.Series:
+        self.calls.append("session_factor")
+        return self.f_session
+
+    def premarket_before(self, session_date: date, cutoff: datetime) -> pd.DataFrame:
+        self.calls.append("premarket_before")
+        return self.premarket
+
+    def minute_cache_symbols(self, session_date: date) -> tuple[str, ...]:
+        self.calls.append("minute_cache_symbols")
+        return self.cache_symbols
+
+    def daily_dates_seen(self) -> list[date]:
+        return [d.date() for df in self.seen_daily for d in df["date"]]
+
+
+def _pm_frame(session: date, minutes: list[str], closes: dict[str, float]) -> pd.DataFrame:
+    frames = []
+    for sym, close in closes.items():
+        rows = synthetic.minute_rows(sym, session, minutes, price=close)
+        rows["bar_start"] = pd.to_datetime([et_to_utc(session, m) for m in minutes], utc=True)
+        frames.append(rows)
+    return pd.concat(frames, ignore_index=True)
+
+
+def _good_inputs(session: date = D, prior_f: dict[str, float] | None = None,
+                 f_session: dict[str, float] | None = None, extra_pm_minute: str | None = None,
+                 daily_through: date | None = None, reverse_rows: bool = False,
+                 cache_symbols: tuple[str, ...] = ("A", "B", "C")) -> FakeScreenInputs:
+    prior_f = prior_f or {}
+    sessions = list(pd.bdate_range(end=pd.Timestamp(session) - timedelta(days=1), periods=20).date)
+    if daily_through is not None:
+        sessions.append(daily_through)
+    rows: list[dict] = []
+    for sym in ("A", "B", "C"):
+        f = prior_f.get(sym, 1.0)
+        rows += [synthetic.daily_row(sym, d, close=_RAW_CLOSE / f, f=f) for d in sessions]
+    daily = _as_read(pd.DataFrame(rows))
+    pm = _pm_frame(session, [f"09:{m:02d}" for m in range(0, 25)], _PM_CLOSES)
+    if extra_pm_minute is not None:
+        pm = pd.concat([pm, _pm_frame(session, [extra_pm_minute], {"A": 5.5})], ignore_index=True)
+    if reverse_rows:
+        daily = daily.iloc[::-1].reset_index(drop=True)
+        pm = pm.iloc[::-1].reset_index(drop=True)
+    fs = pd.Series(f_session if f_session is not None else {"A": 1.0, "B": 1.0, "C": 1.0},
+                   dtype=float, name="f")
+    return FakeScreenInputs(daily=daily, f_session=fs, premarket=pm, cache_symbols=cache_symbols)
+
+
+def test_emits_one_candidates_at_first_tick_at_or_after_screen_time() -> None:
+    agent = ScreenerAgent(_good_inputs())
+    outs = [agent.on_event(tick(t)) for t in ("09:20", "09:24", "09:25", "09:26")]
+    assert [len(o) for o in outs] == [0, 0, 1, 0] and isinstance(outs[2][0], Candidates)
+
+
+def test_ignores_ticks_before_screen_time_and_after_firing() -> None:
+    inputs = _good_inputs(); agent = ScreenerAgent(inputs)
+    for t in ("09:21", "09:25", "09:40", "15:59"):
+        agent.on_event(tick(t))
+    assert inputs.calls.count("daily_before") == 1
+
+
+def test_candidates_ts_equals_firing_tick_ts() -> None:
+    agent = ScreenerAgent(_good_inputs()); agent.on_event(tick("09:24"))
+    (c,) = agent.on_event(tick("09:26"))
+    assert c.ts == et_to_utc(D, "09:26")
+
+
+def test_fires_at_screen_time_in_summer() -> None:
+    d = date(2024, 7, 1)
+    (c,) = ScreenerAgent(_good_inputs(session=d)).on_event(ClockTick(ts=datetime(2024, 7, 1, 13, 25, tzinfo=timezone.utc)))
+    assert c.screen_id.endswith(":2024-07-01")
+
+
+def test_no_selection_arm_returns_whole_filtered_universe() -> None:
+    (c,) = ScreenerAgent(_good_inputs(), ScreenerConfig(arm="no_selection", top_n=1)).on_event(tick("09:25"))
+    assert c.symbols == ("A", "B", "C") and c.screen_id.startswith("no_selection:")
+
+
+def test_split_flag_reads_factor_step_not_session_prices() -> None:
+    inputs = _good_inputs(prior_f={"B": 0.1}, f_session={"A": 1.0, "B": 1.0, "C": 1.0})
+    (c,) = ScreenerAgent(inputs, ScreenerConfig(arm="no_selection")).on_event(tick("09:25"))
+    assert c.symbols == ("A", "C")
+    assert all(d < D for d in inputs.daily_dates_seen())          # no D price row ever requested
+
+
+def test_holdout_date_refused_without_unseal() -> None:
+    sealed = date(2025, 8, 7)
+    with pytest.raises(SealedHoldoutError):
+        ScreenerAgent(_good_inputs(session=sealed)).on_event(ClockTick(ts=et_to_utc(sealed, "09:25")))
+
+
+def test_input_row_at_cutoff_raises() -> None:
+    inputs = _good_inputs(extra_pm_minute="09:25")                 # bar ends 09:26 > tick 09:25
+    with pytest.raises(LookAheadError):
+        ScreenerAgent(inputs).on_event(tick("09:25"))
+
+
+def test_daily_row_on_session_date_raises() -> None:
+    with pytest.raises(LookAheadError):
+        ScreenerAgent(_good_inputs(daily_through=D)).on_event(tick("09:25"))
+
+
+def test_late_first_tick_raises() -> None:
+    with pytest.raises(ValueError, match="late"):
+        ScreenerAgent(_good_inputs()).on_event(tick("09:31"))
+
+
+def test_second_session_date_raises() -> None:
+    agent = ScreenerAgent(_good_inputs()); agent.on_event(tick("09:25"))
+    with pytest.raises(ValueError):
+        agent.on_event(ClockTick(ts=et_to_utc(date(2024, 3, 5), "09:25")))
+
+
+def test_config_rejects_unknown_rank_feature() -> None:
+    with pytest.raises(ValueError):
+        ScreenerConfig(rank_by=("pm_rvol",))
+
+
+def test_screen_id_changes_with_config() -> None:
+    base = ScreenerConfig()
+    ids = {config_hash(base), config_hash(replace(base, top_n=19)), config_hash(replace(base, unseal=True)),
+           config_hash(replace(base, min_price=1.5))}
+    assert len(ids) == 4
+
+
+def test_same_inputs_same_candidates() -> None:
+    a = ScreenerAgent(_good_inputs()).on_event(tick("09:25"))
+    b = ScreenerAgent(_good_inputs()).on_event(tick("09:25"))
+    assert a == b
+
+
+def test_candidates_independent_of_input_row_order() -> None:
+    a = ScreenerAgent(_good_inputs()).on_event(tick("09:25"))
+    b = ScreenerAgent(_good_inputs(reverse_rows=True)).on_event(tick("09:25"))
+    assert a == b
+
+
+def test_empty_universe_emits_empty_candidates() -> None:
+    (c,) = ScreenerAgent(_good_inputs(), ScreenerConfig(min_price=500.0)).on_event(tick("09:25"))
+    assert c.symbols == ()
+
+
+def test_report_records_cache_removals_per_arm() -> None:
+    agent = ScreenerAgent(_good_inputs(cache_symbols=("A", "B")), ScreenerConfig(arm="no_selection"))
+    agent.on_event(tick("09:25"))
+    assert agent.report.n_removed_by_cache == 1 and agent.report.arm == "no_selection"
