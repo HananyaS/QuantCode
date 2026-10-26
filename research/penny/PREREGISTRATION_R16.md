@@ -836,7 +836,7 @@ after Gate I passes and G3 signs off. It is not part of this round's work (§13)
   not read as skill.
 - Joint scale-invariance test on every feature (`price × 750`, `volume ÷ 750`).
 - Assertions: no input after the decision `ts`; no daily row ≥ D in a filter except the factor
-  ratio for the split flag, f_D for step 2b and the feed un-adjustment check, and D's official open in G(D) (§4.4 step 1b); no field of D other than
+  ratio for the split flag, f_D for step 2b and f_D, s_D for the feed un-adjustment of D's own bars (they rebuild the tape as it traded; no other field of D is read), and D's official open in G(D) (§4.4 step 1b); no field of D other than
   the open is read by G; no session ≥ `holdout_start` without `unseal`.
 - Determinism: the engine replay of 5 fixed days run twice gives identical event-log hashes.
 
