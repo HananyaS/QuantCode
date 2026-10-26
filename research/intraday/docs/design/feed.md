@@ -78,6 +78,8 @@ the ETL's rejects file with the reason. The pre-market cache (`<data_root>/prema
 by the same function and gets the same conversion. This adjusted-to-unadjusted step is the single
 path: there is no other minute source (user decision 2026-10-26: no new minute download).
 
+**Volume correction (data plan D1, verified on the cache):** Alpaca `adjustment="all"` adjusts share volume for splits only, not dividends (BRSP 2024-03-04: `f` = 1.345, adjusted volume == raw). Share volume is therefore converted with the split-only factor `s = volume / volume_unadj` from `data/research_breakout/daily`, used only where that file's price factor agrees with the penny daily `f` within 2%; otherwise the symbol-day is rejected as `no_volume_factor`. Wherever this doc says "volume ÷ f", read "volume ÷ s". Daily ADV in dollars is `close_unadj × volume_unadj`.
+
 Reuse (all under `research/penny/`):
 - No minute fetch in Phase 2 (user decision: only stocks already in the minute cache). `etl/alpaca_fetch.py`
   (`make_data_client`, never a trading client) matters again only for the live feed.

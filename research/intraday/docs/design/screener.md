@@ -113,6 +113,8 @@ dividend-adjusted, so `pm_dollar_volume` straight from them is exactly the withd
 - **Sealed holdout.** The adapter refuses any session date `>= holdout_start` (raise) unless
   `unseal=True` is passed. `unseal` is part of `config_hash`, so it shows in `screen_id`.
 
+**Volume correction (data plan D1, verified on the cache):** Alpaca `adjustment="all"` adjusts share volume for splits only, not dividends (BRSP 2024-03-04: `f` = 1.345, adjusted volume == raw). Share volume is therefore converted with the split-only factor `s = volume / volume_unadj` from `data/research_breakout/daily`, used only where that file's price factor agrees with the penny daily `f` within 2%; otherwise the symbol-day is rejected as `no_volume_factor`. Wherever this doc says "volume ÷ f", read "volume ÷ s". Daily ADV in dollars is `close_unadj × volume_unadj`.
+
 ## Invariants
 
 - At most one `Candidates` per session; it is emitted on a `ClockTick` and nothing else.
