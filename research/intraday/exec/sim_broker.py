@@ -55,6 +55,7 @@ class SimBroker:
         self._last_start: dict[str, datetime] = {}
         self._halted: set[str] = set()
         self._closed = False
+        self._killed = False
         self._counts: dict[str, int] = {k: 0 for k in SOURCE_KEYS}
         self._exit_log: list[tuple[str, ExitReason]] = []
 
@@ -124,13 +125,71 @@ class SimBroker:
         for lot in self._sorted_lots():
             if lot.exit is None and lot.time_stop is not None and lot.time_stop <= tick.ts:
                 self._decide_exit(lot, "time", tick.ts)
+        if not self._closed and to_et(tick.ts).time() >= self._cfg.eod_et:
+            out.extend(self._end_session(tick))
         return tuple(out)
 
     def on_halt(self, halt: Halt) -> tuple[ExecEvent, ...]:
+        sym = halt.symbol
+        if halt.halted:
+            self._halted.add(sym)
+            out: list[ExecEvent] = []
+            for w in self._symbol_working(sym, "buy"):
+                del self._working[w.intent.intent_id]
+                out.append(self._update(halt.ts, w.intent.intent_id, "cancelled", "halt"))
+            return tuple(out)
+        self._halted.discard(sym)
+        for lot in self._symbol_lots(sym):
+            if lot.exit is not None:
+                lot.exit.not_before = max(lot.exit.not_before, halt.ts)
+        for w in self._symbol_working(sym, "sell"):
+            w.not_before = max(w.not_before, halt.ts)
         return ()
 
     def on_kill(self, kill: Kill) -> tuple[ExecEvent, ...]:
-        return ()
+        if self._killed:
+            return ()
+        self._killed = True
+        out: list[ExecEvent] = []
+        for w in self._sorted_working("buy"):
+            del self._working[w.intent.intent_id]
+            out.append(self._update(kill.ts, w.intent.intent_id, "cancelled", "kill"))
+        for lot in self._sorted_lots():
+            if lot.exit is None and not lot.stranded:
+                self._decide_exit(lot, "kill", kill.ts)
+        return tuple(out)
+
+    def _end_session(self, tick: ClockTick) -> list[ExecEvent]:
+        """Once: expire working orders, flatten every open lot at its symbol's last close."""
+        self._closed = True
+        out: list[ExecEvent] = []
+        for side in ("buy", "sell"):
+            for w in self._sorted_working(side):
+                del self._working[w.intent.intent_id]
+                out.append(self._update(tick.ts, w.intent.intent_id, "expired", "session end"))
+        for lot in self._sorted_lots():
+            if lot.stranded:
+                continue
+            if lot.symbol in self._halted:
+                lot.stranded = True
+                out.append(self._update(tick.ts, lot.entry_id, "expired",
+                                        "exit unfilled: halted at session end"))
+                continue
+            out.append(self._eod_fill(lot, tick))
+        return out
+
+    def _eod_fill(self, lot: Lot, tick: ClockTick) -> Fill:
+        """Full open qty at the last close (uncapped: the depth term charges the size)."""
+        price = self._last_close.get(lot.symbol)
+        if price is None:
+            raise AssertionError(f"open lot {lot.entry_id} in {lot.symbol} has no bar close")
+        qty = lot.open_qty
+        quote = fresh_quote(self._quote.get(lot.symbol), tick.ts, self._cfg)
+        cost, src = self._cost("sell", qty, price, lot.symbol, tick.ts, quote)
+        self._counts[f"cost:{src}"] += 1
+        self._reduce(lot, qty)
+        return Fill(ts=tick.ts, intent_id=lot.entry_id, symbol=lot.symbol, side="sell", qty=qty,
+                    price=price, cost_bps=cost)
 
     # ---- exits --------------------------------------------------------------
     def _decide_exit(self, lot: Lot, reason: ExitReason, not_before: datetime) -> None:

@@ -229,3 +229,71 @@ def test_0934_summary_not_used_before_0935() -> None:
     (f,) = ex.on_event(bar(4, open=1.00))                   # bar_start 09:35: summary
     assert f.cost_bps == pytest.approx(leg_cost_bps_scalar(100.0, 5e3, 50.0, 0.05, 1e-4, 1.0, 1.0))
     assert (broker.source_counts()["cost:default"], broker.source_counts()["cost:summary"]) == (1, 1)
+
+
+# ---- Task 7: halts, kill, end of session ------------------------------------
+def test_no_fill_while_halted() -> None:
+    ex, _ = make_exec(); enter(ex, time_stop=at(5))
+    ex.on_event(make_halt(ts=at(4), halted=True))
+    ex.on_event(make_clock_tick(ts=at(5)))
+    assert ex.on_event(bar(5)) == () and ex.on_event(bar(6)) == ()
+
+
+def test_entry_cancelled_on_halt() -> None:
+    ex, _ = make_exec()
+    ex.on_event(make_order_intent(ts=at(1)))
+    assert ex.on_event(make_halt(ts=at(1), halted=True)) == (
+        OrderUpdate(ts=at(1), intent_id="intent-1", status="cancelled", detail="halt"),)
+    assert ex.on_event(make_order_intent(ts=at(2), intent_id="intent-2"))[0].detail == "broker refusal: symbol halted"
+
+
+def test_exit_fills_after_resume_at_first_bar_open() -> None:
+    ex, _ = make_exec(); enter(ex, time_stop=at(3))
+    ex.on_event(make_clock_tick(ts=at(3)))                   # exit decided at(3)
+    ex.on_event(make_halt(ts=at(3), halted=True))
+    ex.on_event(make_halt(ts=at(9), halted=False, reason=""))
+    assert ex.on_event(bar(8)) == ()                          # bar_start at(8) < resume at(9)
+    (f,) = ex.on_event(bar(9, open=0.70, high=0.75, low=0.69, close=0.72))
+    assert (f.ts, f.price) == (at(10), 0.70)
+
+
+def test_kill_cancels_entries_and_exits_positions() -> None:
+    ex, _ = make_exec()
+    enter(ex, symbol="AAA")                                   # open lot in AAA
+    ex.on_event(make_order_intent(ts=at(2), intent_id="intent-2"))   # working buy in TEST
+    assert ex.on_event(make_kill(ts=at(2))) == (
+        OrderUpdate(ts=at(2), intent_id="intent-2", status="cancelled", detail="kill"),)
+    (f,) = ex.on_event(bar(2, symbol="AAA", open=0.98, high=0.99, low=0.97, close=0.98))
+    assert (f.symbol, f.side, f.qty, f.price) == ("AAA", "sell", 100, 0.98)
+
+
+def test_intent_after_kill_rejected() -> None:
+    ex, _ = make_exec()
+    ex.on_event(make_kill(ts=at(1)))
+    assert ex.on_event(make_order_intent(ts=at(1))) == (
+        OrderUpdate(ts=at(1), intent_id="intent-1", status="rejected", detail="after kill"),)
+
+
+def test_end_of_session_closes_open_positions() -> None:
+    ex, _ = make_exec()
+    enter(ex, symbol="AAA"); enter(ex, symbol="TEST", intent_id="intent-2")
+    ex.on_event(bar(2, symbol="TEST", close=1.03, high=1.05))
+    out = ex.on_event(make_clock_tick(ts=at(390)))            # 16:01 ET
+    assert [(e.symbol, e.qty, e.price, e.ts) for e in out] == [("AAA", 100, 1.00, at(390)), ("TEST", 100, 1.03, at(390))]
+    assert ex.on_event(make_order_intent(ts=at(390), intent_id="late"))[0].detail == "broker refusal: session closed"
+
+
+def test_halted_position_expires_at_session_end() -> None:
+    ex, broker = make_exec(); enter(ex)
+    ex.on_event(make_halt(ts=at(300), halted=True))
+    assert ex.on_event(make_clock_tick(ts=at(390))) == (OrderUpdate(
+        ts=at(390), intent_id="intent-1", status="expired", detail="exit unfilled: halted at session end"),)
+    assert broker.position("TEST") == 100
+
+
+def test_one_exit_per_lot_when_triggers_overlap() -> None:
+    ex, _ = make_exec(); enter(ex, stop_loss=0.95, take_profit=1.20, time_stop=at(3))
+    ex.on_event(bar(2, open=0.99, high=1.00, low=0.90, close=0.96))   # stop decided at(3)
+    ex.on_event(make_clock_tick(ts=at(3))); ex.on_event(make_kill(ts=at(3)))
+    sells = [e for k in (3, 4, 5) for e in ex.on_event(bar(k)) if isinstance(e, Fill)]
+    assert sum(f.qty for f in sells) == 100 and len(sells) == 1
