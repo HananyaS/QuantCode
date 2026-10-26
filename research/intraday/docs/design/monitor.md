@@ -14,6 +14,7 @@ Watch the session for trading halts and for conditions under which trading must 
 - `Candidates`: the symbols the feed must cover each minute.
 - `Bar`, `Gap`: per-symbol feed coverage (one of them per candidate per minute is expected).
 - `OrderIntent`, `OrderUpdate`, `Fill`: the consistency checks on the order flow.
+- `Kill`: an operator `Kill` from the live runner silences the monitor for the session.
 
 Halt data is not an event on the way in: an injected halt-source adapter supplies
 `(ts, symbol, halted, reason)` rows.
@@ -108,6 +109,19 @@ agent decides.
 - `test_at_most_one_kill_and_silence_after`
 - `test_out_of_order_halt_log_raises`
 - `test_gap_inference_off_by_default`
+
+## Rulings from the ops Phase-2 plan
+
+- Stale baseline is the later of 09:30 ET and `Candidates.ts`; halted symbols are not exempt
+  (the feed emits `Gap`s for them).
+- An entry-side `Fill` after the intent is `cancelled`, `expired` or `rejected` is a
+  `Kill(fill_after_close)`. Opposite-side fills on the same `intent_id` are exits, checked only
+  by the net-position rule. An `OrderUpdate` for an unknown `intent_id` is ignored.
+- Kill reason prefixes: `stale_feed`, `unknown_intent`, `fill_after_close`, `overfill`,
+  `short_sell`, `duplicate_intent`.
+- Gap inference (off by default) halts at the 5th consecutive `Gap`, with that `Gap`'s ts, and
+  resumes on the next `Bar`. A repeated halt row, or a resume with no prior halt, is skipped and counted.
+- The halt-log file loader is deferred to Phase 5; replay uses an empty `RecordedHaltLog(())`.
 
 ## Open questions
 

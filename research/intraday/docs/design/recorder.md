@@ -23,8 +23,10 @@ Nothing on the bus. One line per envelope on disk.
 
 - One open file handle (mode `"x"`, UTF-8, LF). No in-memory buffer beyond the file object's.
 - Size on disk: one line per event, a few hundred bytes each, except `Window`: a `Window` line
-  repeats its `k` bars, so the log grows with `k`. At 50 symbols and `k = 30` a session is about
-  135 MB, almost all of it `Window` lines (see the OPEN DECISION under Open questions).
+  repeats its `k` bars, so written in full a session at 50 symbols and `k = 30` would be about
+  135 MB. Decided in the ops Phase-2 plan: a `Window` whose bars all equal already-logged `Bar`
+  lines is written as `"bar_seqs"` and expanded on `read_log` (all-or-nothing; otherwise written
+  in full). About 10 MB per such session. `LOG_FORMAT = 2` in `recorder.py` and in the manifest.
 
 ## Configuration
 
@@ -80,12 +82,10 @@ New, `tests/test_intraday_ops_recorder.py`:
 
 ## Open questions
 
-- **[blocks-build]** OPEN DECISION (blocks the state/model build and the R16 cost estimate; does
-  not block the data, risk, exec or ops builds): `Window` log size, about 135 MB per session at 50
-  symbols and `k = 30`, because every `Window` line repeats its bars. Preferred: the recorder writes
-  a `Window` compactly as references to the `seq`s of its already-logged bars and expands them on
-  `read_log`; the contract is unchanged and the hash stays deterministic (it is over the compact
-  bytes). To be decided in the ops Phase-2 plan; until then the full `Window` is written.
+- **[research]** Resolved (ops Phase-2 plan, docs/superpowers/plans/2026-10-26-intraday-p2-ops.md):
+  the `Window` log-size decision. Compact `"bar_seqs"` references, all-or-nothing, expanded on
+  `read_log`; contract unchanged; the hash is over the compact bytes and stays deterministic;
+  logs without a `Window` are byte-identical to `LOG_FORMAT = 1`.
 - **[research]** The manifest's contents and the nightly diff's format are needed only by Phase 5.
   The Phase 2 build writes the manifest fields above; the diff report is designed with the live runner.
 
