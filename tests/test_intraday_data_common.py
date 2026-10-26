@@ -98,3 +98,75 @@ def test_to_traded_basis_missing_factor_raises() -> None:
                          "close": [1.0], "vwap": [1.0], "volume": [1.0]})
     with pytest.raises(ValueError, match="X"):
         to_traded_basis(bars, pd.Series(dtype=float), pd.Series({"X": 1.0}))
+
+
+# ---- Task 3: cache readers and the replay ScreenInputs adapter -------------
+from research.intraday.data import synthetic  # noqa: E402
+from research.intraday.data.cache import minute_cache_membership, read_daily  # noqa: E402
+from research.intraday.data.screen_inputs import ReplayScreenInputs  # noqa: E402
+
+D = date(2024, 3, 4)
+
+
+def _write_days(root: Path, symbol: str, days: list[date], f: float = 1.0) -> None:
+    rows = pd.DataFrame([synthetic.daily_row(symbol, d, 2.0, f=f) for d in days])
+    synthetic.write_daily(root, rows)
+    synthetic.write_volume_daily(root / "v", rows)
+
+
+def _invoke(inputs: ReplayScreenInputs, call: str, d: date) -> object:
+    if call == "daily_before":
+        return inputs.daily_before(d, 45)
+    if call == "premarket_before":
+        return inputs.premarket_before(d, et_to_utc(d, "09:25"))
+    return getattr(inputs, call)(d)
+
+
+def test_daily_before_excludes_session_date(tmp_path: Path) -> None:
+    _write_days(tmp_path, "A", [date(2024, 3, 1), D])
+    df = ReplayScreenInputs(tmp_path, tmp_path / "v").daily_before(date(2024, 3, 4), 45)
+    assert df["date"].max() == pd.Timestamp("2024-03-01") and set(df.columns) >= {"volume_unadj_v", "close_v"}
+
+
+def test_daily_reads_across_year_boundary(tmp_path: Path) -> None:
+    _write_days(tmp_path, "A", [date(2023, 12, 27), date(2023, 12, 28), date(2023, 12, 29),
+                                date(2024, 1, 2)])
+    df = ReplayScreenInputs(tmp_path, tmp_path / "v").daily_before(date(2024, 1, 2), 45)
+    assert list(df["date"].dt.day) == [27, 28, 29] and df["date"].min().year == 2023
+
+
+def test_duplicate_daily_row_raises(tmp_path: Path) -> None:
+    rows = pd.DataFrame([synthetic.daily_row("A", date(2024, 3, 1), 2.0)] * 2)
+    synthetic.write_daily(tmp_path, rows)
+    synthetic.write_volume_daily(tmp_path / "v", rows.iloc[:1])
+    with pytest.raises(ValueError, match="duplicate"):
+        read_daily(tmp_path, tmp_path / "v", date(2024, 3, 1), date(2024, 3, 5))
+
+
+def test_minute_cache_symbols_prefers_requested_json(tmp_path: Path) -> None:
+    synthetic.write_minute(tmp_path, D, synthetic.minute_rows("A", D, ["09:30"]), ("A", "B"))
+    assert ReplayScreenInputs(tmp_path, tmp_path / "v").minute_cache_symbols(D) == ("A", "B")
+
+
+def test_minute_cache_symbols_falls_back_to_present(tmp_path: Path) -> None:
+    rows = pd.concat([synthetic.minute_rows("B", D, ["09:30"]), synthetic.minute_rows("A", D, ["09:30"])])
+    synthetic.write_minute(tmp_path, D, rows, None)
+    assert minute_cache_membership(tmp_path, D) == ("A", "B")
+
+
+def test_premarket_before_drops_bars_ending_after_cutoff(tmp_path: Path) -> None:
+    synthetic.write_premarket(tmp_path, D, synthetic.minute_rows("A", D, ["09:23", "09:24", "09:25"]))
+    pm = ReplayScreenInputs(tmp_path, tmp_path / "v").premarket_before(D, et_to_utc(D, "09:25"))
+    assert list(pm["minute_et"]) == ["09:23", "09:24"]
+
+
+def test_session_factor_returns_factor_only(tmp_path: Path) -> None:
+    _write_days(tmp_path, "A", [date(2024, 3, 1), D], f=0.5)
+    f = ReplayScreenInputs(tmp_path, tmp_path / "v").session_factor(D)
+    assert isinstance(f, pd.Series) and f.name == "f" and f["A"] == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("call", ["daily_before", "session_factor", "premarket_before", "minute_cache_symbols"])
+def test_replay_screen_inputs_refuse_holdout_without_unseal(tmp_path: Path, call: str) -> None:
+    with pytest.raises(SealedHoldoutError):
+        _invoke(ReplayScreenInputs(tmp_path, tmp_path / "v"), call, date(2025, 8, 7))
