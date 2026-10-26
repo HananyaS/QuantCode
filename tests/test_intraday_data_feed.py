@@ -60,3 +60,97 @@ def test_counts_by_arm() -> None:
           Reject("coverage", "B", D, "not_requested", "no_selection:def:2024-03-04"),
           Reject("unadjust", "C", D, "open_mismatch", "screen:abc:2024-03-04")]
     assert counts_by_arm(rs, "coverage") == {"no_selection": 1, "screen": 1}
+
+
+# ---- Task 8: FeedAgent against a fake source ---------------------------------
+from dataclasses import dataclass, field  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
+
+from research.intraday.contracts.events import Bar, Candidates, ClockTick, Gap, Quote  # noqa: E402
+from research.intraday.contracts.fixtures import make_bar, make_quote  # noqa: E402
+from research.intraday.data.feed import FeedAgent, SessionData  # noqa: E402
+from research.intraday.engine.replay import clock_ticks  # noqa: E402
+
+_MIN = timedelta(minutes=1)
+
+
+@dataclass
+class FakeSource:
+    prices: dict[tuple[str, str], float]
+    quote_keys: set[tuple[str, str]] = field(default_factory=set)
+    feed: str = "sip"
+    calls: list[tuple[date, tuple[str, ...], str]] = field(default_factory=list)
+
+    def open_session(self, session_date: date, symbols: tuple[str, ...], screen_id: str) -> SessionData:
+        self.calls.append((session_date, symbols, screen_id))
+        bars = {}
+        for (sym, hhmm), price in sorted(self.prices.items()):
+            bs = et_to_utc(session_date, hhmm)
+            bars[(sym, bs)] = make_bar(ts=bs + _MIN, bar_start=bs, symbol=sym, feed="sip", open=price,
+                                       high=price, low=price, close=price, vwap=price)
+        quotes = {}
+        for sym, hhmm in sorted(self.quote_keys):
+            ts = et_to_utc(session_date, hhmm)
+            quotes[(sym, ts)] = make_quote(ts=ts, symbol=sym)
+        return SessionData(bars=bars, quotes=quotes, rejects=(), n_quotes_skipped=0)
+
+
+def _agent(prices: dict[tuple[str, str], float], quotes: set[tuple[str, str]] | None = None) -> FeedAgent:
+    return FeedAgent(FakeSource(prices, set(quotes or ())))
+
+
+def cands(*syms: str) -> Candidates:
+    return Candidates(ts=et_to_utc(D, "09:25"), screen_id="screen:abc:2024-03-04", symbols=syms)
+
+
+def tick(hhmm: str) -> ClockTick:
+    return ClockTick(ts=et_to_utc(D, hhmm))
+
+
+def test_tick_releases_bar_for_minute_just_closed() -> None:
+    agent = _agent({("A", "09:30"): 2.0}); agent.on_event(cands("A"))
+    (bar,) = agent.on_event(tick("09:31"))
+    assert isinstance(bar, Bar) and bar.bar_start == et_to_utc(D, "09:30")
+
+
+def test_bar_ts_is_bar_start_plus_one_minute() -> None:
+    agent = _agent({("A", "09:30"): 2.0}); agent.on_event(cands("A"))
+    (bar,) = agent.on_event(tick("09:31"))
+    assert bar.ts == bar.bar_start + timedelta(minutes=1) == et_to_utc(D, "09:31")
+
+
+def test_missing_minute_emits_gap_not_filled_bar() -> None:
+    agent = _agent({("A", "09:30"): 2.0}); agent.on_event(cands("A"))
+    agent.on_event(tick("09:31"))
+    (gap,) = agent.on_event(tick("09:32"))
+    assert isinstance(gap, Gap) and gap.missing_bar_start == et_to_utc(D, "09:31") and gap.ts == et_to_utc(D, "09:32")
+
+
+def test_every_candidate_minute_gets_exactly_one_bar_or_gap() -> None:
+    agent = _agent({("A", "09:30"): 2.0, ("B", "15:59"): 3.0}); agent.on_event(cands("A", "B"))
+    out = [e for t in clock_ticks(et_to_utc(D, "09:25"), et_to_utc(D, "16:02")) for e in agent.on_event(t)]
+    for sym in ("A", "B"):
+        starts = [e.bar_start if isinstance(e, Bar) else e.missing_bar_start for e in out if e.symbol == sym]
+        assert len(starts) == 390 == len(set(starts))
+
+
+def test_nothing_emitted_before_candidates() -> None:
+    assert _agent({("A", "09:30"): 2.0}).on_event(tick("09:31")) == ()
+
+
+def test_nothing_emitted_outside_session() -> None:
+    agent = _agent({("A", "09:29"): 2.0, ("A", "16:00"): 2.0}); agent.on_event(cands("A"))
+    assert agent.on_event(tick("09:30")) == () and agent.on_event(tick("16:01")) == ()
+
+
+def test_output_order_sorted_symbol_then_bar_then_quote() -> None:
+    agent = _agent({("A", "09:34"): 2.0, ("B", "09:34"): 3.0}, quotes={("A", "09:35"), ("B", "09:35")})
+    agent.on_event(cands("A", "B"))
+    assert [(type(e).__name__, e.symbol) for e in agent.on_event(tick("09:35"))] == [
+        ("Bar", "A"), ("Quote", "A"), ("Bar", "B"), ("Quote", "B")]
+
+
+def test_second_candidates_raises() -> None:
+    agent = _agent({}); agent.on_event(cands("A"))
+    with pytest.raises(ValueError):
+        agent.on_event(cands("A"))
