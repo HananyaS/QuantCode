@@ -1,7 +1,8 @@
 """One leg of the refit cost model (execution.md, Cost; penny etl/quotes.py::leg_cost_bps).
 
-The scalar wrapper feeds one-element Series into the penny frame function, so the
-two can never drift (pinned by a parity test).
+The scalar path is pure math (``leg_cost_bps_fast``), bit-identical to the penny
+frame function on a seeded grid with edge cases (tests/test_intraday_exec_costs_fast.py)
+and about three orders of magnitude faster than one-row Series.
 """
 from __future__ import annotations
 
@@ -10,12 +11,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from typing import Literal, Mapping, Protocol
 
-import numpy as np
-import pandas as pd
-
 from research.intraday.contracts.events import Quote
 from research.intraday.exec.config import SUMMARY_READY_ET, ExecConfig, to_et
-from research.penny.etl.quotes import leg_cost_bps
 
 Side = Literal["buy", "sell"]
 CostSource = Literal["quote", "summary", "default", "refit"]
@@ -161,16 +158,46 @@ def select_cost_book(side: Side, fill_instant: datetime, quote: Quote | None,
     return CostBook(config.default_half_spread_bps, None, "default")
 
 
+def leg_cost_bps_fast(order_notional: float, side_notional: float, half_spread_bps: float,
+                      volatility_daily: float, participation: float,
+                      impact_coefficient: float = 1.0, levels_penalty: float = 1.0) -> float:
+    """Pure-math twin of penny ``leg_cost_bps`` for one leg, bit-identical (parity test).
+
+    Mirrors ``impact_bps`` (sigma clipped below at 0, participation clipped to [0, 1],
+    ``coef * sigma * sqrt(p) * 1e4``) and ``depth_shortfall_bps`` (zero or NaN inside ->
+    no charge; ``max(order / inside - 1, 0) * penalty * half_spread``, NaN -> 0), with the
+    same operation order. NaN propagates where pandas' ``clip`` keeps it.
+    """
+    spread = float(half_spread_bps)
+    sigma = float(volatility_daily)
+    if sigma < 0.0:
+        sigma = 0.0
+    part = float(participation)
+    if part < 0.0:
+        part = 0.0
+    elif part > 1.0:
+        part = 1.0
+    impact = impact_coefficient * sigma * math.sqrt(part) * 10_000
+    inside = float(side_notional)
+    if inside == 0.0 or math.isnan(inside):
+        depth = 0.0
+    else:
+        excess = float(order_notional) / inside - 1.0
+        if excess < 0.0:
+            excess = 0.0
+        depth = excess * levels_penalty * spread
+        if math.isnan(depth):
+            depth = 0.0
+    return spread + impact + depth
+
+
 def leg_cost_bps_scalar(order_notional: float, side_notional: float | None,
                         half_spread_bps: float, sigma_daily: float, participation: float,
                         impact_coefficient: float, levels_penalty: float) -> float:
-    """Scalar wrapper over the penny frame function; ``None`` depth -> no shortfall charge."""
-    out = leg_cost_bps(
-        pd.Series([float(order_notional)]),
-        pd.Series([np.nan if side_notional is None else float(side_notional)]),
-        pd.Series([float(half_spread_bps)]), pd.Series([float(sigma_daily)]),
-        pd.Series([float(participation)]), impact_coefficient, levels_penalty)
-    return float(out.iloc[0])
+    """One leg; ``None`` depth -> no shortfall charge. Pure math (``leg_cost_bps_fast``)."""
+    return leg_cost_bps_fast(order_notional, math.nan if side_notional is None else side_notional,
+                             half_spread_bps, sigma_daily, participation,
+                             impact_coefficient, levels_penalty)
 
 
 def fill_cost_bps(side: Side, qty: int, price: float, fill_instant: datetime,
