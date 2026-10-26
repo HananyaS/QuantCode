@@ -274,6 +274,11 @@ class SimBroker:
                 del self._working[iid]
                 out.append(self._update(bar.ts, iid, "expired", "entry wait exceeded"))
                 continue
+            missing = self._missing_inputs(bar)
+            if missing is not None:
+                del self._working[iid]
+                out.append(self._update(bar.ts, iid, "cancelled", missing))
+                continue
             q = min(w.remaining, budget.left("buy"))
             del self._working[iid]
             if q == 0:
@@ -307,6 +312,18 @@ class SimBroker:
         if self._cfg.cost_book == "refit" and not inputs.has_refit_book:
             raise ValueError(f"no refit cost book for {symbol} on {session}")
         return fill_cost_bps(side, qty, price, fill_instant, quote, inputs, self._cfg)
+
+    def _missing_inputs(self, bar: Bar) -> str | None:
+        """Why this symbol cannot be costed on this bar (only when skipping is enabled), or None."""
+        if not self._cfg.skip_missing_cost_inputs:
+            return None
+        session = to_et(bar.bar_start).date()
+        inputs = self._inputs.get(bar.symbol, session)
+        if inputs is None:
+            return f"no cost inputs for {bar.symbol} on {session}"
+        if self._cfg.cost_book == "refit" and not inputs.has_refit_book:
+            return f"no refit cost book for {bar.symbol} on {session}"
+        return None
 
     # ---- helpers ------------------------------------------------------------
     def _next_seq(self) -> int:

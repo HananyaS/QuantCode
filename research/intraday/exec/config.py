@@ -40,12 +40,18 @@ class ExecConfig:
     """``"refit"`` (R16, UP-2): with no fresh quote the spread and inside notional come from
     the symbol-day's refit book (required), and every book's half-spread is floored at half a
     tick. ``"default"``: the 09:34 summary from 09:35 ET, else ``default_half_spread_bps``."""
+    skip_missing_cost_inputs: bool = False
+    """``True``: an entry whose symbol-day has no cost inputs (or, under ``"refit"``, no refit
+    book) is cancelled with ``no cost inputs ...`` instead of raising; the session goes on."""
 
     def __post_init__(self) -> None:
         for name in _FLOAT_FIELDS:
             v = getattr(self, name)
             if not isinstance(v, float) or not math.isfinite(v):
                 raise ValueError(f"ExecConfig.{name} must be a finite float, got {v!r}")
+        if type(self.skip_missing_cost_inputs) is not bool:
+            raise ValueError("ExecConfig.skip_missing_cost_inputs must be a bool, "
+                             f"got {self.skip_missing_cost_inputs!r}")
         for name in _INT_FIELDS:
             v = getattr(self, name)
             if type(v) is not int:
