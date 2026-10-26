@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 
+import pandas as pd
 import pytest
 
 from research.intraday.contracts.codec import to_record
@@ -9,6 +10,7 @@ from research.intraday.contracts.events import Bar, Event, Fill, OrderIntent, Or
 from research.intraday.contracts.fixtures import (
     T_DEV, make_bar, make_fill, make_halt, make_kill, make_order_update, make_quote, make_signal,
 )
+from research.intraday.risk import adv_shares
 from research.intraday.risk.agent import RiskAgent
 from research.intraday.risk.config import RiskConfig
 from research.intraday.risk.session import ET
@@ -237,3 +239,24 @@ def test_loss_limit_checked_after_fill() -> None:
     run(agent, bar("AAA", T_DEV, volume=1_000_000), sig("AAA", T_DEV), buy(1960, 1.02, ts=et(9, 32)))
     run(agent, sell(1960, 0.70, ts=et(9, 33)))     # realised loss 627.2, no bar needed
     assert agent.loss_limit_tripped
+
+
+def test_adv_shares_uses_prior_sessions_on_one_basis() -> None:
+    # Controller ruling P2-5 (design docs updated in e09aed7 on research/intraday): share volume
+    # is put on D's traded basis with the split-only factor s = volume / volume_unadj.
+    # 2:1 forward split inside the window (raw 1000 sh @ $2 -> 2000 sh @ $1), and a 1:10 reverse
+    # split after D that the fetch-date-anchored adjustment bakes into every row (adjusted close
+    # 10.0, adjusted volume 200 throughout). On D's traded basis the ADV is 2000 shares.
+    days = list(pd.bdate_range(end=pd.Timestamp(D) - pd.Timedelta(days=1), periods=25))
+    rows = [dict(date=d, close=10.0, close_unadj=2.0 if i < 15 else 1.0, volume=200,
+                 volume_unadj=1000 if i < 15 else 2000) for i, d in enumerate(days)]
+    rows += [dict(date=pd.Timestamp(D), close=10.0, close_unadj=1.0, volume=999_999, volume_unadj=999_999),
+             dict(date=pd.Timestamp(D) + pd.Timedelta(days=1), close=10.0, close_unadj=1.0,
+                  volume=999_999, volume_unadj=999_999)]
+    daily = pd.DataFrame(rows)
+    assert adv_shares(daily, D) == pytest.approx(2000.0)
+    assert adv_shares(daily.sample(frac=1.0, random_state=0), D) == pytest.approx(2000.0)   # order-free
+    with pytest.raises(ValueError):
+        adv_shares(daily.iloc[-8:], D)                      # fewer than 20 prior sessions
+    with pytest.raises(ValueError):
+        adv_shares(daily.drop(columns="volume_unadj"), D)   # no split-only factor available
