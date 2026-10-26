@@ -22,6 +22,7 @@ Every key those docs mark `R16` or `[research]` is fixed by name in §5.
 >   `conditional_on = U1`, and every table in the G2 report states it.
 > - **No R16 result is Gate-I evidence until the user confirms U1.** A development or holdout
 >   pass before that confirmation is recorded and nothing is built on it.
+> - **The holdout is not unsealed until the user has confirmed U1.**
 > - **If the user rejects U1, R16 is void as a test of the user's design.** Its numbers stay
 >   recorded as a test of the gated variant only. Testing the ungated design needs a new round with
 >   a download of pre-market and minute bars on the whole filtered universe, its own
@@ -37,7 +38,7 @@ Every key those docs mark `R16` or `[research]` is fixed by name in §5.
 >   (U2, information only).
 >
 > **Strata that are NOT tested:**
-> - |gap| < 3%, about 1.29M of 1.46M liquid low-priced symbol-days (P1), which is most of the market;
+> - |gap| < 3%, except post-crash entry sessions: about 1.29M of 1.46M liquid low-priced symbol-days (P1), which is most of the market;
 > - +3% ≤ gap < +10% with ADV $1M–$5M;
 > - gap < −10%, except names that also meet the post-crash rule;
 > - the live 09:25 screen ranking the **whole** filtered market. Here the percentiles and `top_n`
@@ -245,7 +246,8 @@ in Amendment 0 **before** any minute return is read.
    A symbol-day whose pre-market data was *not requested* (as opposed to requested with no bars)
    is removed from the universe of **every** arm, so that Main and C_a differ only by ranking and
    `top_n`. "Requested, no bars" stays, and is skipped by the screen as a live screen would skip
-   it.
+   it. A symbol-day whose minute presence is admissible but whose pre-market presence is only C2
+   or U (after step 4a) is removed from every arm and counted.
 2b. **Basis check:** if the pre-market cache's last close before 09:25, × f_{D−1}, differs by
    more than a factor of 1.5 from the D minute-cache first regular open × f_D, or if the
    `feed.md` un-adjustment check fails, the symbol-day is excluded from every arm (both inputs
@@ -286,7 +288,7 @@ on an R16 result.
 The R16 universe is exactly G(D) ∩ cache under the §4.4 filter: gap ≥ +10% (any ADV ≥ $1M);
 +3% ≤ gap < +10% only with ADV ≥ $5M; −10% ≤ gap ≤ −3%; and post-crash entry sessions.
 `hyp_pool` contributes pre-market coverage only. Its minute contribution is measured in
-Amendment 0. |gap| < 3% and +3–10% gaps with ADV of $1M–$5M are not in the universe. G3
+Amendment 0. |gap| < 3% (except post-crash entry sessions) and +3–10% gaps with ADV of $1M–$5M are not in the universe. G3
 implements this G(D) exactly and may not redefine it. A different gate is a new round.
 
 Amendment 0 reports |G ∩ cache| / |G| per year and per bracket (daily data only), and reports
@@ -434,7 +436,7 @@ The same frozen artifact scores the main arm and C_a, so Main − C_a isolates t
 | `position_notional_usd` | `2_000` | scale of the cost measurements (P6) |
 | `max_open_positions` | `5` | frozen |
 | `max_entries_per_symbol` | `1` | frozen |
-| `entry_threshold` | model: the 0.90 quantile of scores on the inner validation block (the last 20% of the fold's training dates, date-blocked; the same split the CNN uses), from a model fit on the first 80%. The deployed fold model is then refit on 100% of the training dates with the threshold held fixed. random: **`0.90`** (the same entry-eligible rate in expectation, with no data used). constant: **`1.0`** (first window) | matched entry rates without looking at test data |
+| `entry_threshold` | model: the 0.90 quantile of scores on the inner validation block (the last 20% of the fold's training dates, date-blocked; the same split the CNN uses), from a model fit on the first 80%. The deployed fold model is then refit on 100% of the training dates with the threshold held fixed; the CNN's 100% refit trains for the epoch count chosen by early stopping on the 80/20 split. random: **`0.90`** (the same entry-eligible rate in expectation, with no data used). constant: **`1.0`** (first window) | matched entry rates without looking at test data |
 | `exit_mode` | factor: `{"time_stop", "fixed_pct", "atr"}` | spec |
 | `hold_min` | `h` | spec §4 |
 | `time_stop` | `min(ts + h, 15:55)` in **every** exit arm | the exit factor changes only the bracket |
@@ -639,6 +641,9 @@ paired with.
     sessions 2025-01-02 .. 2025-08-06 and the **whole holdout** (from 2025-08-07) are not covered.
     For those days the SPY comparison is reported as missing. Nothing is fetched. The SPY
     comparison is reported only and does not gate, so the gap changes no decision.
+  - *Controller addition (R8, symbol/date columns only):* `data/research_breakout/daily/bars_2025.parquet`
+    holds SPY for 2025-01-02 .. 2025-08-06 (rows before the holdout). Those 2025 dev sessions use
+    it (open→close, basis-invariant within a day), so SPY covers the whole dev period. No fetch.
 
 ---
 
@@ -796,7 +801,7 @@ substituted later.
   studies (2026 outcomes). `pm_rvol` was chosen with that result known. None asked R16's question
   (a minutes-ahead model with brackets), so it is sealed **for this question**, as the spec states.
 - **Read exactly once**, after the critic's G2 sign-off on the development result, and only if
-  some cell passed development. Read: the selected cell and its controls C_a, C_b (20 seeds), C_c
+  some cell passed development. The holdout is not unsealed until the user has confirmed U1. Read: the selected cell and its controls C_a, C_b (20 seeds), C_c
   and C_0. The model is retrained once on **all** dev dates with the frozen configuration. The
   threshold is the 0.90 quantile on the inner validation block of the dev dates (their last 20%,
   from a fit on the first 80%), by the same rule as in each fold (§5.5). Both are frozen with `model_hash` before
@@ -831,7 +836,7 @@ after Gate I passes and G3 signs off. It is not part of this round's work (§13)
   not read as skill.
 - Joint scale-invariance test on every feature (`price × 750`, `volume ÷ 750`).
 - Assertions: no input after the decision `ts`; no daily row ≥ D in a filter except the factor
-  ratio for the split flag and D's official open in G(D) (§4.4 step 1b); no field of D other than
+  ratio for the split flag, f_D for step 2b and the feed un-adjustment check, and D's official open in G(D) (§4.4 step 1b); no field of D other than
   the open is read by G; no session ≥ `holdout_start` without `unseal`.
 - Determinism: the engine replay of 5 fixed days run twice gives identical event-log hashes.
 
@@ -1059,3 +1064,5 @@ controller correction (V1). Amendments made after G1 sign-off still go under "Am
 | E20 | §12 | Runs refuse a dirty tree under `research/`; SHA and clean flag tagged (N9) |
 | V1 | §4.4, §5.1, §9.1, §9.3, §4.6, §14 | Volume converted with split-only s = volume / volume_unadj from `research_breakout/daily` (price factor must agree within 2%, else `no_volume_factor`); ADV = close_unadj × volume_unadj |
 | — | header, §11.1.3, §10.4 | Status set to Revision 1; N = 404 replaced by N = 4,248 throughout |
+| R8 | §7 | SPY 2025 dev sessions from `research_breakout/daily` (no fetch) |
+| C1–C5 | box, §4.4, §4.5, §5.5, §10.6, §10.7 | G1 re-check changes: no unseal before U1; f_D in the assertion; C2/U pre-market removed; CNN refit epochs; post-crash exception |
