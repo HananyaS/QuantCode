@@ -12,7 +12,7 @@ from typing import Literal
 from research.intraday.contracts.events import (
     Bar, ClockTick, Fill, Halt, Kill, OrderIntent, OrderUpdate, Quote,
 )
-from research.intraday.exec.book import Lot, WorkingOrder
+from research.intraday.exec.book import ExitReason, Lot, PendingExit, WorkingOrder
 from research.intraday.exec.broker import ExecEvent
 from research.intraday.exec.config import ExecConfig, to_et
 from research.intraday.exec.costs import CostInputsSource, fill_cost_bps
@@ -56,6 +56,7 @@ class SimBroker:
         self._halted: set[str] = set()
         self._closed = False
         self._counts: dict[str, int] = {k: 0 for k in SOURCE_KEYS}
+        self._exit_log: list[tuple[str, ExitReason]] = []
 
     # ---- queries ------------------------------------------------------------
     def position(self, symbol: str) -> int:
@@ -63,6 +64,10 @@ class SimBroker:
 
     def source_counts(self) -> dict[str, int]:
         return dict(self._counts)
+
+    def exit_log(self) -> tuple[tuple[str, ExitReason], ...]:
+        """(entry id, reason) of every exit decision, in decision order."""
+        return tuple(self._exit_log)
 
     def sellable_qty(self, symbol: str) -> int:
         free = sum(lot.open_qty for lot in self._lots.values()
@@ -101,7 +106,11 @@ class SimBroker:
         if sym not in self._halted and not self._closed:
             budget = _BarBudget(bar, fresh_quote(self._quote.get(sym), bar.bar_start, self._cfg),
                                 self._cfg)
+            out.extend(self._fill_exits(bar, budget))
+            out.extend(self._fill_sells(bar, budget))
             out.extend(self._fill_buys(bar, budget))
+        if not self._closed:
+            self._check_brackets(bar)
         self._last_close[sym] = bar.close
         self._last_start[sym] = bar.bar_start
         return tuple(out)
@@ -112,6 +121,9 @@ class SimBroker:
             if w.deadline is not None and tick.ts > w.deadline:
                 del self._working[w.intent.intent_id]
                 out.append(self._update(tick.ts, w.intent.intent_id, "expired", "entry wait exceeded"))
+        for lot in self._sorted_lots():
+            if lot.exit is None and lot.time_stop is not None and lot.time_stop <= tick.ts:
+                self._decide_exit(lot, "time", tick.ts)
         return tuple(out)
 
     def on_halt(self, halt: Halt) -> tuple[ExecEvent, ...]:
@@ -119,6 +131,71 @@ class SimBroker:
 
     def on_kill(self, kill: Kill) -> tuple[ExecEvent, ...]:
         return ()
+
+    # ---- exits --------------------------------------------------------------
+    def _decide_exit(self, lot: Lot, reason: ExitReason, not_before: datetime) -> None:
+        if lot.exit is not None:
+            raise AssertionError(f"lot {lot.entry_id} already has a pending exit")
+        lot.exit = PendingExit(reason=reason, not_before=not_before,
+                               client_order_id=client_order_id(lot.entry_id, "exit"))
+        self._exit_log.append((lot.entry_id, reason))
+
+    def _check_brackets(self, bar: Bar) -> None:
+        """Stop first (conservative), then target; decided at bar.ts, the fill bar included."""
+        for lot in self._symbol_lots(bar.symbol):
+            if lot.exit is not None or lot.stranded:
+                continue
+            if lot.stop_loss is not None and bar.low <= lot.stop_loss:
+                self._decide_exit(lot, "stop", bar.ts)
+            elif lot.take_profit is not None and bar.high >= lot.take_profit:
+                self._decide_exit(lot, "target", bar.ts)
+
+    def _fill_exits(self, bar: Bar, budget: _BarBudget) -> list[ExecEvent]:
+        out: list[ExecEvent] = []
+        for lot in self._symbol_lots(bar.symbol):
+            if lot.exit is None or lot.exit.not_before > bar.bar_start:
+                continue
+            q = min(lot.open_qty, budget.left("sell"))
+            if q == 0:
+                continue  # retry on the next bar
+            out.append(self._fill(budget, lot.entry_id, "sell", q))
+            self._reduce(lot, q)
+        return out
+
+    def _fill_sells(self, bar: Bar, budget: _BarBudget) -> list[ExecEvent]:
+        out: list[ExecEvent] = []
+        for w in self._symbol_working(bar.symbol, "sell"):
+            if w.not_before > bar.bar_start:
+                continue
+            iid = w.intent.intent_id
+            q = min(w.remaining, budget.left("sell"), self.position(bar.symbol))
+            if q > 0:
+                out.append(self._fill(budget, iid, "sell", q))
+                w.remaining -= q
+                self._reduce_oldest_first(bar.symbol, q)
+            if w.remaining == 0:
+                del self._working[iid]
+            elif self.position(bar.symbol) == 0:
+                del self._working[iid]
+                out.append(self._update(bar.ts, iid, "cancelled", "position closed"))
+        return out
+
+    def _reduce(self, lot: Lot, qty: int) -> None:
+        if not 0 < qty <= lot.open_qty:
+            raise AssertionError(f"cannot sell {qty} of lot {lot.entry_id} ({lot.open_qty} open)")
+        lot.open_qty -= qty
+        if lot.open_qty == 0:
+            del self._lots[lot.entry_id]
+
+    def _reduce_oldest_first(self, symbol: str, qty: int) -> None:
+        for lot in self._symbol_lots(symbol):
+            if qty == 0:
+                break
+            take = min(qty, lot.open_qty)
+            self._reduce(lot, take)
+            qty -= take
+        if qty != 0:
+            raise AssertionError(f"sell of {symbol} exceeded the position by {qty}")
 
     # ---- fills --------------------------------------------------------------
     def _fill_buys(self, bar: Bar, budget: _BarBudget) -> list[ExecEvent]:
@@ -171,6 +248,13 @@ class SimBroker:
     def _symbol_working(self, symbol: str, side: Side) -> list[WorkingOrder]:
         return sorted((w for w in self._working.values()
                        if w.symbol == symbol and w.intent.side == side), key=lambda w: w.seq)
+
+    def _symbol_lots(self, symbol: str) -> list[Lot]:
+        return sorted((lot for lot in self._lots.values() if lot.symbol == symbol),
+                      key=lambda lot: lot.seq)
+
+    def _sorted_lots(self) -> list[Lot]:
+        return sorted(self._lots.values(), key=lambda lot: (lot.symbol, lot.seq))
 
     def _sorted_working(self, side: Side) -> list[WorkingOrder]:
         return sorted((w for w in self._working.values() if w.intent.side == side),

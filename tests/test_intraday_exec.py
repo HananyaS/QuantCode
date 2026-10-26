@@ -133,3 +133,99 @@ def test_missing_cost_inputs_raises() -> None:
     ex.on_event(make_order_intent(ts=at(1)))              # symbol TEST has no inputs
     with pytest.raises(ValueError, match="no cost inputs for TEST"):
         ex.on_event(bar(1))
+
+
+# ---- Task 6: exits ----------------------------------------------------------
+def enter(ex: ExecutionAgent, symbol: str = "TEST", intent_id: str = "intent-1", **bracket: Any) -> Fill:
+    ex.on_event(make_order_intent(ts=at(1), symbol=symbol, intent_id=intent_id, **bracket))
+    (f,) = ex.on_event(bar(1, symbol=symbol, open=1.00, high=1.01, low=0.99, close=1.00))
+    assert isinstance(f, Fill) and f.side == "buy" and f.qty == 100
+    return f
+
+
+def test_stop_triggered_on_entry_fill_bar() -> None:
+    ex, broker = make_exec()
+    ex.on_event(make_order_intent(ts=at(1), stop_loss=0.95, take_profit=1.20))
+    (f,) = ex.on_event(bar(1, open=1.00, high=1.01, low=0.93, close=0.96))   # buy only, no same-bar sell
+    assert f.side == "buy" and broker.exit_log() == (("intent-1", "stop"),)
+    (s,) = ex.on_event(bar(2, open=0.96, high=0.97, low=0.95, close=0.96))
+    assert (s.side, s.price, s.ts) == ("sell", 0.96, at(3))
+
+
+def test_zero_cap_exit_retries_next_bar() -> None:
+    ex, _ = make_exec(); enter(ex, time_stop=at(5))
+    ex.on_event(make_clock_tick(ts=at(5)))
+    assert ex.on_event(bar(5, volume=0)) == ()               # cap 0: no fill, no update
+    (f,) = ex.on_event(bar(6))
+    assert (f.side, f.qty) == ("sell", 100)
+
+
+def test_stop_fills_at_next_bar_open_including_gap_down() -> None:
+    ex, _ = make_exec(); enter(ex, stop_loss=0.95, take_profit=1.20)
+    assert ex.on_event(bar(2, open=0.99, high=1.00, low=0.94, close=0.95)) == ()   # trigger only
+    (f,) = ex.on_event(bar(3, open=0.80, high=0.82, low=0.78, close=0.81))
+    assert (f.ts, f.side, f.qty, f.price, f.intent_id) == (at(4), "sell", 100, 0.80, "intent-1")
+
+
+def test_stop_never_fills_at_stop_level() -> None:
+    ex, _ = make_exec(); enter(ex, stop_loss=0.95, take_profit=1.20)
+    ex.on_event(bar(2, open=0.99, high=1.00, low=0.90, close=0.96))
+    (f,) = ex.on_event(bar(3, open=0.97, high=0.98, low=0.94, close=0.95))
+    assert f.price == 0.97 and f.price != 0.95
+
+
+def test_take_profit_fills_at_next_bar_open() -> None:
+    ex, broker = make_exec(); enter(ex, stop_loss=0.95, take_profit=1.20)
+    ex.on_event(bar(2, open=1.10, high=1.21, low=1.09, close=1.19))
+    (f,) = ex.on_event(bar(3, open=1.18, high=1.19, low=1.15, close=1.16))
+    assert f.price == 1.18 and broker.exit_log() == (("intent-1", "target"),)
+
+
+def test_stop_wins_when_bar_hits_both() -> None:
+    ex, broker = make_exec(); enter(ex, stop_loss=0.95, take_profit=1.20)
+    ex.on_event(bar(2, open=1.00, high=1.25, low=0.90, close=1.00))
+    assert broker.exit_log() == (("intent-1", "stop"),)
+
+
+def test_time_stop_exit_at_bar_starting_at_tick() -> None:
+    ex, _ = make_exec(); enter(ex, time_stop=at(10))
+    assert ex.on_event(make_clock_tick(ts=at(10))) == ()
+    assert ex.on_event(bar(9)) == ()                       # bar_start at(9) < decision at(10)
+    (f,) = ex.on_event(bar(10, open=1.04, high=1.05, close=1.04))
+    assert (f.ts, f.price, f.side) == (at(11), 1.04, "sell")
+
+
+def test_exit_remainder_stays_pending() -> None:
+    ex, broker = make_exec(); enter(ex, time_stop=at(5))
+    ex.on_event(make_clock_tick(ts=at(5)))
+    (f1,) = ex.on_event(bar(5, volume=2_500))              # sell cap 50
+    (f2,) = ex.on_event(bar(6))
+    assert (f1.qty, f2.qty, broker.position("TEST")) == (50, 50, 0)
+
+
+def test_oversized_sell_rejected() -> None:
+    ex, _ = make_exec(); enter(ex)
+    assert ex.on_event(make_order_intent(ts=at(3), intent_id="s-1", side="sell", qty=150))[0].detail == "sell exceeds position"
+    assert ex.on_event(make_order_intent(ts=at(3), intent_id="s-2", side="sell", qty=60))[0].status == "accepted"
+    (f,) = ex.on_event(bar(3))
+    assert (f.intent_id, f.side, f.qty) == ("s-2", "sell", 60)
+
+
+def test_fill_at_0934_open_does_not_use_summary() -> None:
+    ci = CostInputs(sigma_daily=0.05, adv_shares=1e6, half_spread_bps=50.0, ask_notional=5e3, bid_notional=5e3)
+    ex, broker = make_exec(inputs={"TEST": ci})
+    ex.on_event(make_order_intent(ts=at(3)))
+    (f,) = ex.on_event(bar(3, open=1.00))                   # bar_start 09:34, Fill.ts 09:35
+    assert f.cost_bps == pytest.approx(leg_cost_bps_scalar(100.0, None, 100.0, 0.05, 1e-4, 1.0, 1.0))
+    assert broker.source_counts()["cost:default"] == 1
+
+
+def test_0934_summary_not_used_before_0935() -> None:
+    ci = CostInputs(sigma_daily=0.05, adv_shares=1e6, half_spread_bps=50.0, ask_notional=5e3, bid_notional=5e3)
+    ex, broker = make_exec(inputs={"TEST": ci})
+    ex.on_event(make_order_intent(ts=at(2)))
+    ex.on_event(bar(2))                                     # bar_start 09:33: default
+    ex.on_event(make_order_intent(ts=at(4), intent_id="intent-2"))
+    (f,) = ex.on_event(bar(4, open=1.00))                   # bar_start 09:35: summary
+    assert f.cost_bps == pytest.approx(leg_cost_bps_scalar(100.0, 5e3, 50.0, 0.05, 1e-4, 1.0, 1.0))
+    assert (broker.source_counts()["cost:default"], broker.source_counts()["cost:summary"]) == (1, 1)
