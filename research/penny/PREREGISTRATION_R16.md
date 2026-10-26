@@ -1512,6 +1512,43 @@ and item 2 is kept.
   §10, so it selects nothing and adds **no trials** to the DSR count. A kept speed change that
   touches audit inputs triggers the audit rerun above.
 
+### Amendment 1 (2026-10-26)
+
+Recorded before any full-run minute return was read. The full run at 05a29ad was stopped 45
+minutes in, during `universe_pre`, so no stage past the universe had run. What was seen before
+this amendment: the smoke run's validity flags only. The smoke `evaluate` stage recorded null
+(a)'s account as failed. No smoke return, AUC or account value was used to write this text.
+Source: the critic's G2 pre-check, `research/intraday/docs/critiques/G2-R16-precheck.md` (B1,
+W1–W3). The audit inputs, `c_label`, the universe and the 54-cell grid do not change, so
+Amendment 0's §A0.1 and the sha256 of its inputs stand.
+
+- **P3-22 (critic B1). Null (a)'s account joins the P3-12 family.** P3-4 as written ran one
+  two-sided 95% test per main cell and voided the run if any failed. With 54 main cells, a
+  spurious void is almost certain: about 94% if the tests were independent. The permuted-label
+  null model can also tilt toward day-level effects, such as busy or volatile days, that have
+  nothing to do with leakage. P3-12 put every other voiding null under one family-wise 5% band
+  (user-approved 2026-10-26: "a multiplicity correction across the null tests"), and this test
+  was left out of it. Now:
+  - Null (a)'s account statistic per main cell is z = mean(paired daily difference) / its
+    bootstrap SE, with the same B, seed and iid days as P3-4.
+  - It is **one-sided**: the run is void iff z > z\*. Leakage through the permuted labels can only
+    make the null model look better than C_b. A null model doing worse is reported, not voided,
+    as PREREG:834 says.
+  - **m = 36 + n_main_cells = 90 in full**, so **z\* = Φ⁻¹(1 − 0.05/90) = 3.2608** for every voiding
+    test: null (b), the martingale and the null (a) account. Smoke: m = 2 + its main-cell count.
+  - This replaces P3-4's "passes iff its 95% CI contains 0" and the m and z\* values of P3-12 and
+    P3-15. The CI is still reported.
+- **P3-23 (critic W1, W2). A void must be visible and cannot pass empty.**
+  - `results.json` carries a `validity` block: `void` (bool), the failing voiding tests (name,
+    z, z\*), and whether §11.1.6 holds.
+  - In full mode, a voiding test that cannot be computed (no rows, z not finite) voids the run,
+    as the martingale "no windows" case already does. Smoke reports such a test and goes on.
+- **P3-24 (critic W3). A void run is recorded.** A full run that exits void appends one line to
+  the trial ledger (`status = "void"`, its SHA and the failing tests). The preflight's
+  empty-ledger guard then refuses any later full run until a new dated amendment explains it.
+- *Cost if wrong:* the leak guard is weaker, with z\* moving from 2.99 to 3.26. The user can
+  restore P3-4's per-cell rule, which would make a void close to certain.
+
 ---
 
 ## Changes after G1
