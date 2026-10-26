@@ -122,6 +122,12 @@ agent decides.
 - Gap inference (off by default) halts at the 5th consecutive `Gap`, with that `Gap`'s ts, and
   resumes on the next `Bar`. A repeated halt row, or a resume with no prior halt, is skipped and counted.
 - The halt-log file loader is deferred to Phase 5; replay uses an empty `RecordedHaltLog(())`.
+- A halt-log halt takes over a symbol already halted by gap inference (the log owns it; no
+  inferred resume follows). A `Candidates` or `ClockTick` on another New York date than the
+  session raises ("one run is one session").
+- The stale window is ticks 09:31–16:00 ET, computed per session date (follows daylight saving);
+  last-seen coverage never precedes the baseline.
+- Rule order on the order flow: `unknown_intent`, `fill_after_close`, `overfill`, `short_sell`.
 
 ## Open questions
 
