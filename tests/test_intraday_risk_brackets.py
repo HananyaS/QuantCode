@@ -44,3 +44,16 @@ def test_zero_atr_bracket_is_bad() -> None:
 def test_atr_stop_at_or_below_zero_is_bad() -> None:
     wide = RiskConfig(exit_mode="atr", tp_atr=2.0, sl_atr=30.0, atr_period=3)
     assert make_bracket(1.05, 0.04, wide) == "bad_bracket"
+
+
+ATR_FLOOR = RiskConfig(exit_mode="atr", tp_atr=2.0, sl_atr=1.0, atr_period=3, atr_floor=0.01)
+
+def test_atr_floor_lifts_zero_atr_to_a_valid_bracket() -> None:
+    b = make_bracket(1.05, 0.0, ATR_FLOOR)
+    assert b.take_profit == pytest.approx(1.07) and b.stop_loss == pytest.approx(1.04)
+
+def test_atr_floor_below_mean_true_range_changes_nothing() -> None:
+    assert make_bracket(1.05, 0.04, ATR_FLOOR) == make_bracket(1.05, 0.04, ATR)
+
+def test_atr_floor_does_not_end_warmup() -> None:
+    assert make_bracket(1.05, None, ATR_FLOOR) == "atr_warmup"

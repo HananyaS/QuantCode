@@ -1,6 +1,7 @@
 """RiskAgent configuration: validated at construction, one exit-grid cell per instance."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import time
 from typing import Literal, get_args
@@ -40,6 +41,7 @@ class RiskConfig:
     tp_atr: float | None = None
     sl_atr: float | None = None
     atr_period: int = 14
+    atr_floor: float | None = None
     hold_min: int | None = None
     quote_size_frac: float = 1.0
     quote_max_age_min: int = 5
@@ -78,6 +80,9 @@ class RiskConfig:
         for name in ("quote_size_frac", "bar_participation_cap"):
             if not 0 < getattr(self, name) <= 1:
                 raise ValueError(f"RiskConfig.{name} must be in (0, 1], got {getattr(self, name)}")
+        if self.atr_floor is not None and not (
+                isinstance(self.atr_floor, float) and math.isfinite(self.atr_floor) and self.atr_floor > 0):
+            raise ValueError(f"RiskConfig.atr_floor must be None or a finite float > 0, got {self.atr_floor!r}")
         if not 0 < self.daily_loss_limit_pct < 1:
             raise ValueError(f"RiskConfig.daily_loss_limit_pct must be in (0, 1), got {self.daily_loss_limit_pct}")
 

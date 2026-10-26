@@ -48,6 +48,8 @@ def _atr(ref: float, atr: float | None, cfg: RiskConfig) -> Bracket | SkipReason
     assert cfg.tp_atr is not None and cfg.sl_atr is not None
     if atr is None:
         return "atr_warmup"
+    if cfg.atr_floor is not None:
+        atr = max(atr, cfg.atr_floor)   # R16 §5.5: one tick, so a flat window still has a bracket
     return Bracket(ref + cfg.tp_atr * atr, ref - cfg.sl_atr * atr)
 
 
