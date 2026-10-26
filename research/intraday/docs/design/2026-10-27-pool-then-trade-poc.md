@@ -1,0 +1,213 @@
+# Pool-then-trade proof of concept: design (draft for user approval)
+
+Status: DRAFT, 2026-10-27. Nothing is built until the user approves this document.
+Calls marked **[my call]** were made by Claude, not by the user; each can be overridden.
+
+## 1. Intent
+
+The user's direction (2026-10-27): for a proof of concept, first build the **pooling** stage, which
+each morning selects stocks with a large room for intraday trading, using labels built from
+minute data aggregated to the day. Then build a model that **sets one entry and one exit per
+selected stock per day**, trained on the pooled subset, so that what it learns is conditioned on
+the pool, as it would be in production. It must be **much faster** than R16 (hours, not days),
+and it needs a **strong evaluation system**.
+
+Why: R16 (still running, ~2 days) ranks the pool by gap and pre-market volume, not by predicted
+room; trains its model on all names, not the pool; and makes per-minute "up in h minutes?" calls
+rather than a daily entry/exit plan. This POC tests the user's own decomposition directly.
+
+## 2. Goals, non-goals, anti-goals
+
+Goals
+- G1. Stage 1: a pre-open pool whose names have measurably more intraday room than the universe
+  and than a naive "yesterday was volatile" pick.
+- G2. Stage 2: inside the pool, a daily entry + exit policy whose **net, compounded** account
+  return beats its controls and SPY, with a day-clustered CI.
+- G3. One evaluation harness that both stages and every later idea plug into, giving the same
+  report and charts every time.
+- G4. Full development run under **2 hours** on this machine (16 GB, ≤ 4 workers, ≤ 3 GB RAM
+  while R16 runs).
+
+Non-goals
+- No live feed, no broker, no paper trading in this POC. No downloads.
+- No change to R16, its prereg, its data or its running process.
+
+Anti-goals (a "success" that would still be a failure)
+- A pool that only rediscovers "volatile stocks stay volatile" and is called an edge. Stage 1 is
+  judged against that naive baseline.
+- A Stage-2 profit that comes from look-ahead (adjusted prices in a filter, the day's own high/low
+  in a feature, a label leaking into an entry rule), or that disappears after costs.
+- Reading the sealed holdout (dates ≥ 2025-08-07).
+
+## 3. Constraints (inherited, binding)
+
+- Data: cached only. Daily bars `data/research_penny/daily/bars_YYYY.parquet` (whole market,
+  ~3,900 symbols/day, raw + unadjusted columns). Minute bars `data/research_penny/minute/dt=*/`
+  (~420 symbols/day; the names earlier rounds requested, mostly gap days). Pre-market bars
+  `premarket/dt=*/` (same requested set). Quote samples `quotes_r4/`, `quotes_rev/`.
+- Holdout ≥ 2025-08-07 stays sealed; a guard test asserts no touched date ≥ it.
+- Unadjusted prices in every filter and screen; adjusted only for returns. Features pass the
+  joint rescale test (price × c, volume ÷ c).
+- No future data: every feature for day D uses data available at its decision time.
+- Compare against SPY (cached span ends 2024-12-30; later dev days are marked missing).
+- Tests never edited to pass; full suite passes before each commit. Python 3.13 at the full path.
+- Branch `research/poolpoc` cut from `research/intraday`, own worktree. Never merged to main,
+  never pushed.
+
+## 4. The data problem, and how the design handles it
+
+Minute bars exist only for ~420 names a day, chosen by earlier rounds' gap pools. So:
+- **Stage 1 runs on the whole market using daily bars**, where the day's room can be measured
+  for every name. [my call]
+- **Stage 2 can only trade pool names that also have minute bars.** The harness reports, per
+  day, how many pool names are in the minute cache. Stage-2 results are labelled
+  "pool ∩ minute cache". If that intersection is small (median < 5 names/day), Stage 2 is
+  reported as conditional, and getting minute bars for the full pool becomes a user decision
+  about the data budget (downloads are forbidden now).
+- Stage-1 labels that need the order of moves inside the day (§5.2) are computed on the covered
+  subset only and used as a check that the daily label tracks what is actually tradeable.
+
+## 5. Stage 1: pooling
+
+### 5.1 Universe and timing
+Every day D: symbols with prior unadjusted close in [$1, $10] and 20-day median dollar volume
+≥ $1M (R16's filter), excluding split days. Decision time 09:25 ET. [my call: same filter as
+R16 so results are comparable]
+
+### 5.2 Labels ("room")
+- **Primary, all names (daily bars):** `room_D = (high_D − low_D) / open_D`, unadjusted.
+- **Tradeable checks, covered names (minute bars, 09:35–15:55):**
+  - `best_long_D` = max over t1 < t2 of close(t2)/close(t1) − 1 (best buy-low-then-sell-high);
+  - `up_room_D` = max high after 09:35 / open(09:35) − 1;
+  - `down_room_D` = 1 − min low after 09:35 / open(09:35).
+- Reported: the correlation of `room_D` with `best_long_D` on covered days. If it is weak, the
+  pool is retrained on `best_long_D` over covered names. [my call: start with the label every
+  name has]
+
+### 5.3 Features (all known at 09:25)
+From daily bars up to D−1: ATR% over 5/20 days, realized volatility 5/20 days, mean `room` over
+5/20 days, last day's return and range, distance from the 20-day high/low, dollar-volume ratio
+(5d/20d), price level bucket, day-of-week. Pre-market gap and pre-market dollar volume only where
+pre-market bars exist, with a missing-flag. Cross-sectional ranks per day.
+
+### 5.4 Model and pick
+LightGBM regression on rank(room) per day (fast, deterministic with fixed seed). Pick top N = 10
+names per day. [my call: N = 10, like R16]
+
+### 5.5 Stage-1 pass bar (fixed before any run)
+Out-of-fold, on development days:
+- mean `room` of the picked 10 beats the **naive baseline** (top 10 by mean `room` over the last
+  20 days) with a day-clustered CI above zero, and beats the universe mean;
+- on covered days, picked names' mean `best_long` also beats the naive baseline's.
+
+## 6. Stage 2: daily entry and exit inside the pool
+
+### 6.1 What it decides
+For each pool name on day D, a **plan**: whether to trade, the entry trigger, and the exit levels
+(take-profit, stop-loss), plus a 15:55 time stop. Long only. [my call: shorting low-priced names
+has borrow problems that cached data cannot measure]
+
+### 6.2 Policy family (small, fixed grid)
+- Entry: at minute t ≥ 09:35, a classifier reads the last k = 15 bars and fires once per name per
+  day when P(reaching TP before SL) > threshold. Variants: threshold ∈ {0.5, 0.6}.
+- Exit levels from the **pool-conditional distribution of remaining room**: quantile regressions
+  predict, at entry, the q-quantile of up-move and down-move until 15:55; TP = up quantile q_tp,
+  SL = down quantile q_sl. Variants: (q_tp, q_sl) ∈ {(0.5, 0.5), (0.4, 0.7)}.
+- Grid size 2 × 2 = 4 cells, plus the controls in §7.3. The trial count is recorded and
+  Deflated Sharpe uses it.
+- Training rows: pool names only (out-of-fold pool picks on training dates), so the model learns
+  the pool's distribution.
+
+### 6.3 Fills and costs (same rules as R16's engine)
+One-bar latency; entry at the next bar's open; SL filled at the next bar's open, gaps included,
+never at the stop level; no fills in halts or missing minutes; round-trip cost from the refit cost
+model, with size capped by the quoted size. Sizing: equal weight, at most 5 open positions,
+$2,000 per position.
+
+## 7. Evaluation system (the core deliverable)
+
+One harness, `research/poolpoc/eval/`, used by both stages and all later ideas.
+
+7.1 **Splits.** Walk-forward by date: 6 expanding folds over 2016-02 to 2025-08-06, with a
+5-day embargo between train and test. The holdout is never loaded; a guard asserts it.
+
+7.2 **Metrics.**
+- Stage 1: per-day rank IC of score vs `room`; top-10 lift over the universe and over the naive
+  baseline; precision@10 for the top `room` decile; all by year.
+- Stage 2: net compounded account curve; total and per-year return; Sharpe; max drawdown; hit
+  rate; average win/loss; trades per day; turnover; cost share of gross; exposure.
+- Uncertainty: day-clustered bootstrap CIs (2,000 resamples) on every headline number.
+
+7.3 **Controls and baselines** (each must be beaten):
+- Stage 1: universe average; naive volatility persistence; random pick of 10.
+- Stage 2, same pool and same days: random entry minute with the same exit rule; buy at 09:35 and
+  hold to 15:55; fixed TP/SL (+3%/−3%) with the same entries; the same policy on non-pool
+  covered names (does pooling help?); SPY buy-and-hold over the same days.
+
+7.4 **Leak and sanity tests** (run on every report):
+- Shuffled labels within day → IC and account fall to the null band.
+- Synthetic martingale minute paths with the real volatility → no edge.
+- Joint price/volume rescale → identical outputs.
+- Point-in-time check: every feature for D is recomputed from data truncated at its decision time
+  and must match.
+- Determinism: two runs give identical output hashes.
+- Holdout guard: no date ≥ 2025-08-07 touched.
+
+7.5 **Report.** Every run writes one HTML report with charts (account vs controls vs SPY, lift
+by year, IC over time, cost breakdown, biggest trades table), a plain-words verdict line, and an
+MLflow run. Results are added to the morning report artifact.
+
+7.6 **Pre-declared bar.** The §5.5 and §7 thresholds above are frozen in the first commit, before
+any result is computed. A cell passes only if its net compounded account CI excludes zero and it
+beats every Stage-2 control, after Holm correction across the 4 cells.
+
+## 8. Speed
+
+- Vectorized pandas/numpy over a precomputed panel; no per-event engine replay in the research
+  loop. Built once and cached per stage as parquet with input hashes.
+- The event-bus engine replays the single best cell on a 50-day sample, as a parity check that the
+  vectorized simulator and the engine agree on fills.
+- Budget: Stage-1 panel + model < 20 min; Stage-2 full grid with controls and nulls < 90 min, at
+  ≤ 3 GB RAM while R16 runs. A smoke mode (1 year, 1 fold) runs in < 5 min and is in the tests.
+
+## 8b. Settled after the builder check [my calls]
+
+- **Stage-1 scores for Stage 2 (no leakage):** Stage 1 is walk-forward by year: the model scoring
+  year Y is trained only on years < Y (first scored year 2017). Stage 2 trains and tests only on
+  dates that have such scores, with its own 6 expanding folds and 5-day embargo.
+- **Pass thresholds:**
+  - Stage 1: the day-clustered 95% CI of (picked − naive) mean `room` has its lower bound > 0,
+    and likewise for (picked − universe).
+  - Stage 2: for each cell and each control, the paired day-clustered CI of (cell − control) net
+    daily return has its lower bound > 0, after Holm correction across all cell × control
+    contrasts (4 cells × 5 controls = 20). The account's own CI must also exclude zero.
+- **Entry target and TP/SL, without circularity:**
+  1. The quantile models are fitted first. They give each candidate minute its own TP and SL.
+  2. The classifier's target = 1 if TP is hit before SL under those levels, with the §6.3 fill
+     rules.
+  3. A bar that touches both counts as SL first (conservative).
+  4. If neither is hit by 15:55, the trade exits at the time stop, and the target = 1 only if the
+     net return > 0.
+- **Costs:** reuse the R16 refit `CostModel` (`research/penny/etl/quotes.py`, median round trip
+  55.4 bps). Names without quote samples use its prediction from price, ADV and volatility. The
+  size cap is the shares at the best quote where a quote sample exists; otherwise 5% of the entry
+  bar's dollar volume.
+- **SPY:** compared on dev days that have SPY (through 2024-12-30). The 2025 dev days are reported
+  separately, never filled.
+- **Parity:** the event-bus engine in `research/intraday` (`run_replay`) replays the best cell on
+  50 sampled days. If the adapter costs more than half a day, parity is deferred and the report
+  says so.
+- **Budget:** the 2-hour budget includes the bootstraps (2,000 resamples) and every null. The
+  martingale null runs on a one-year subsample; the shuffle null uses one seed per cell.
+
+## 9. Left to the builder
+
+File layout inside `research/poolpoc/`, LightGBM hyperparameters (fixed defaults, not tuned),
+chart styling, the exact cost-model call.
+
+## 10. Open for the user
+
+1. The Stage-1 label: day range for all names (current call), or the best long trade on covered
+   names only.
+2. Whether R16 keeps running alongside (current call: yes; the POC is sized to fit beside it).
+3. Long only (current call), or also short.
