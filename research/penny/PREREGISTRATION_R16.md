@@ -1,13 +1,47 @@
 # Round 16 Pre-Registration: the user's intraday design, tested against its own controls
 
-**Status: DRAFT for critic G1. Nothing has been run.** This document is committed before any
-round-16 result exists, and its commit hash is the timestamp. Constants may not be edited in
-place once G1 signs off. A change after sign-off is a dated **Amendment** appended at the end,
-and an amendment made after any R16 number has been seen counts as a trial (§6.3).
+**Status: REVISION 1, for critic G1 re-check. Nothing has been run.** The first draft (commit
+32c06c5) was blocked by G1 (`research/intraday/docs/critiques/G1-R16.md`, findings B1, B2, W1–W10,
+N1–N9). This revision applies G1's required edits E1–E20 and one controller correction (V1, the
+volume basis). The changes are listed at the end ("Changes after G1"). This document is committed
+before any round-16 result exists, and its commit hash is the timestamp. Constants may not be
+edited in place once G1 signs off. A change after sign-off is a dated **Amendment** appended at
+the end, and an amendment made after any R16 number has been seen counts as a trial (§6.3).
 
 Binding inputs: `docs/superpowers/specs/2026-10-26-intraday-system-design.md` (§1 priors, §4
 round 16), and the design docs `research/intraday/docs/design/{screener,feed,state,predictor,risk,execution,monitor}.md`.
 Every key those docs mark `R16` or `[research]` is fixed by name in §5.
+
+> ### Conditional on U1 (user decision, pending)
+>
+> **U1.** Is "09:25 pre-market score → 09:30 open-gap gate G(D) → `top_n` inside G" still the
+> user's design? This document is written **assuming U1 = yes**. The user forbade downloads, and
+> on cached data the gated variant is the only admissible universe (§4.2–§4.5, G1 ruling 1).
+>
+> - **Every R16 result is reported as conditional on U1.** Each MLflow run carries the tag
+>   `conditional_on = U1`, and every table in the G2 report states it.
+> - **No R16 result is Gate-I evidence until the user confirms U1.** A development or holdout
+>   pass before that confirmation is recorded and nothing is built on it.
+> - **If the user rejects U1, R16 is void as a test of the user's design.** Its numbers stay
+>   recorded as a test of the gated variant only. Testing the ungated design needs a new round with
+>   a download of pre-market and minute bars on the whole filtered universe, its own
+>   pre-registration and budget, and this round's trials counted.
+>
+> **Strata that ARE tested** (each only inside G(D) ∩ cache ∩ the §4.4 filter, i.e. $1–$10 prior
+> unadjusted close and ADV ≥ $1M, and only in the years its source pool covers):
+> - gap ≥ +10% (source pool R1–3; its own ADV ≥ $100k is implied by the $1M filter);
+> - +3% ≤ gap < +10% with ADV ≥ $5M (R4 definition);
+> - −10% ≤ gap ≤ −3% (R5 pool, ADV ≥ $1M);
+> - post-crash entry sessions: a fall ≥ 15% over the five sessions ending at close D−1 (R15
+>   rule). This bracket drops out if the R15 pool fails the completeness check of §4.3 step 4a
+>   (U2, information only).
+>
+> **Strata that are NOT tested:**
+> - |gap| < 3%, about 1.29M of 1.46M liquid low-priced symbol-days (P1), which is most of the market;
+> - +3% ≤ gap < +10% with ADV $1M–$5M;
+> - gap < −10%, except names that also meet the post-crash rule;
+> - the live 09:25 screen ranking the **whole** filtered market. Here the percentiles and `top_n`
+>   are taken inside G at 09:30 (§5.1), and `Candidates` is stamped 09:30, not 09:25.
 
 ---
 
@@ -19,7 +53,8 @@ pre-market features. A light model then reads the last k one-minute bars after t
 predicts the move over the next h minutes, and the RiskAgent enters with a TP/SL bracket.
 "Makes money" means the compounded account, not the per-trade mean (LOG §49). The design has
 to beat three controls that remove one part each: the screen, the model's information, and the
-model itself.
+model itself. As replayed, the screen ranks only inside the 09:30 open-gap gate G(D) (§4.4
+step 1b, §5.1), so every result is conditional on U1 (box above).
 
 This is the first test in the project of a model that reads **live bars after the open** and
 predicts **minutes ahead** (spec §1, row 4). Earlier rounds are priors for it, not verdicts
@@ -136,10 +171,10 @@ the provenance be rebuilt by joining on `(symbol, date)`:
 | Pool file | Rows | Rule | Membership known at | Class |
 |---|---|---|---|---|
 | `candidates.parquet` (R1–3) | 20,558 | opening gap ≥ +10%, prior unadjusted close $0.50–$10, ADV ≥ $100k (`etl/candidates.py`) | **09:30** (opening print; `etl/candidates.py:10`) | C1 |
-| `candidates_r4.parquet` | 44,136 | opening gap ≥ +3%, round-4 liquidity band | 09:30 | C1 |
+| `candidates_r4.parquet` | 44,136 | opening gap ≥ +3%, ADV ≥ $5M (round-4 definition; LOG.md:970) | 09:30 | C1 |
 | `candidates_rev.parquet`, `candidates_rev_probe.parquet` (R5) | 68,030 / 6,881 | gap ∈ [−10%, −3%], $0.50–$10, ADV ≥ $1M | 09:30 | C1 |
 | `candidates_r15.parquet` | 98,378 | fell ≥ 15% over 5 sessions, $0.50–$10, ADV ≥ $250k. Minute bars were fetched for the **signal session** (features up to its close) and for **entry sessions** (H5 entry prices) | signal session: **its own close** (outcome of D); entry session: before D's open | C2 on signal sessions, C0 on entry sessions |
-| `hyp_pool.parquet` (§60 pre-market study) | 420,446 | ADV $100k–$5M on `forensic_universe` (2025-02 .. 2026-08), split days removed | before D's open (the split flag is a pre-announced event) | C0 |
+| `hyp_pool.parquet` (§60 pre-market study) | 420,446 | ADV $100k–$5M on `forensic_universe` (2025-02 .. 2026-08), split days removed. A **pre-market** pool: minute bars were not fetched for it (`hypothesis_premarket.py:26-31`) | ADV band: before D's open. Split exclusion: `any_split` from D's open and open-to-high (`build_universe.py:124-129`) | Rows with open_unadj / prev_close_unadj ≥ 1.8 are **C2**; all other rows are **C0** |
 | `forensic_fetch.parquet`, `forensic_sample.parquet` | 23 / 10 | the ten most recent ≥ +50% close-to-close movers (`forensic_sample.py`, `forensic_movers.py`) | **after D's close** | C2 |
 | `top30_fetch.parquet`, `top30_sample.parquet` | 37 / 30 | the 30 largest close-to-close gainers of two months | after D's close | C2 |
 
@@ -149,6 +184,15 @@ k = 5; §8.1), so it does not leak a return. **C2** means membership is a functi
 or later, so it is outcome-selected. **U** means present in `requested.json` but in no pool file;
 its origin is unknown.
 
+*Note on `hyp_pool` (B2).* The split detector behind `any_split` reads D's open-to-high
+(`corporate_actions.py:49-60,94-105`). For gap multiples ≥ 1.8 it keeps the days that ran and
+drops the inert ones, so those rows are outcome-selected and are classed C2. Below a 1.8 multiple
+the detector does not depend on D's session, so those rows stay C0.
+
+*Note on `forensic_universe`.* It requires a finite close on D (`build_universe.py:152-157`).
+That is a same-day survivorship condition. Its effect is negligible (a symbol-day with no D close
+has no session to trade), but it is recorded here, and the G2 report states it.
+
 ### 4.3 The provenance audit (runs first, reads no return)
 
 Script `research/intraday/research/r16_provenance.py`. Its output
@@ -157,6 +201,10 @@ Script `research/intraday/research/r16_provenance.py`. Its output
 pre-market cache:
 
 1. Join every pool file in §4.2 on `(symbol, date)`.
+1a. **Pool reproducibility:** for each pool file, recompute its rule from the daily cache and
+   report the symmetric difference. A pool whose file differs from its rule by more than 1% of
+   rows is labelled U for the differing rows. (The R5 and R15 builders are not in the repository,
+   so for those pools this check is the only evidence of their rule.)
 2. For `candidates_r15`, recompute the R15 rule from daily rows (drop ≥ 15% over the five
    sessions ending at close D−1 ⇒ entry-session, C0; ending at close D ⇒ signal-session, C2).
    This uses daily data only and reads no minute return.
@@ -165,6 +213,11 @@ pre-market cache:
    C2 (a forensic mover that also gapped ≥ +3%) is admissible, because the C1 pool would have put
    it in the cache anyway, so its presence does not depend on the outcome. Symbol-days that are
    **only** C2 or U are **excluded** from every arm.
+4a. **Pool completeness:** for each C0/C1 pool, the share of its members on dev date D that
+   appear in that day's `requested.json` (or, where the sidecar is missing, in the parquet), by
+   pool and year. A C0/C1 attribution rescues a C2 or U symbol-day only in pool-years with
+   completeness ≥ 99%. Otherwise, such symbol-days are excluded from the primary universe and
+   appear in S1.
 5. Report counts by class, year and pool, and the share of each day's cache that is excluded.
 
 The audit reads only `symbol`, `date` and daily rows. It must be committed and its counts recorded
@@ -175,17 +228,52 @@ in Amendment 0 **before** any minute return is read.
 1. **Causal filter** on daily rows strictly before D, all on the unadjusted basis
    (`screener.md`, adjustment rule):
    - `min_price = 1.00`, `max_price = 10.00` on `close_unadj` of D−1;
-   - `min_adv_usd = 1_000_000`: 20-session median of `close_unadj × (volume ÷ f)` over the
-     20 sessions before D, each row converted with its own factor `f = close_unadj / close`;
+   - `min_adv_usd = 1_000_000`: 20-session median of `close_unadj × volume_unadj` (raw ×
+     raw) over the 20 sessions before D. `volume_unadj` comes from
+     `data/research_breakout/daily`, the only cache that stores it (see the volume-basis rule
+     below);
    - at least 20 prior daily rows;
    - `exclude_split_days = True`, detected from the factor step `f_{D−1} / f_D` only.
+1b. **Open-time pool gate G(D)**, evaluated on daily rows before D plus D's official open only:
+   G(D) = [gap ≥ +10%, ADV(R3 def.) ≥ $100k] ∪ [gap ≥ +3%, ADV(R4 def.) ≥ $5M] ∪ [−10% ≤ gap ≤
+   −3%, ADV(R5 def.) ≥ $1M] ∪ [the R15 crash rule at close D−1], where gap = open_D / close_{D−1}
+   − 1 on one basis, and each bracket uses its source pool's own ADV definition and year span as
+   recorded by the reproducibility check (E7). If E7 shows a pool's true rule differs, the
+   recorded rule replaces the bracket in Amendment 0, before any return is read.
 2. **Admissible minute coverage on D** (§4.3) (`restrict_to_minute_cache = True`).
+   admissible = passes step 1 ∧ G(D) ∧ in the cache ∧ C0/C1 provenance (§4.3).
+   A symbol-day whose pre-market data was *not requested* (as opposed to requested with no bars)
+   is removed from the universe of **every** arm, so that Main and C_a differ only by ranking and
+   `top_n`. "Requested, no bars" stays, and is skipped by the screen as a live screen would skip
+   it.
+2b. **Basis check:** if the pre-market cache's last close before 09:25, × f_{D−1}, differs by
+   more than a factor of 1.5 from the D minute-cache first regular open × f_D, or if the
+   `feed.md` un-adjustment check fails, the symbol-day is excluded from every arm (both inputs
+   are known by 09:30) and counted per year (S4).
 3. **Excluded sessions:** half days (13:00 close) and any session `>= holdout_start` unless
    unsealed (§10.6).
 
-The universe is never "every symbol in the cache that day". Steps 1 and 2 are counted
-separately per day and per arm. The count removed at step 2 and the count of coverage rejects
-(`feed.md`) are logged.
+The universe is never "every symbol in the cache that day". Steps 1, 1b, 2 and 2b are counted
+separately per day and per arm. The count removed at each step, the count of coverage rejects
+(`feed.md`) and the count of `no_volume_factor` rejects (below) are logged.
+
+**Volume-basis rule (V1, controller correction).** Alpaca `adjustment="all"` adjusts **volume
+for splits only, not for dividends**. So converting share volume with the price factor
+`f = close_unadj / close` is wrong whenever a dividend sits between D and the fetch date (for
+example BRSP 2024-03-04: f = 1.345, yet adjusted volume equals raw volume, 1,034,853 shares; the
+f-rule misses raw volume by more than 2% on 58%, 44% and 35% of symbol-days in 2017, 2021 and
+2024). Everywhere in this document:
+- the **split-only volume factor** is `s = volume / volume_unadj`, read from
+  `data/research_breakout/daily`. Raw shares = adjusted shares ÷ s;
+- s is used only where that file's price factor (`close_unadj / close`) agrees with the penny
+  daily f within 2% on the same symbol-date. Otherwise, or where the row is missing, the
+  symbol-day is rejected as **`no_volume_factor`** in every arm. Rejects are counted per year
+  and per arm and reported;
+- dollar ADV is raw × raw (`close_unadj × volume_unadj`), with no factor at all;
+- share counts used inside D (participation, minute and pre-market bar volume) are put on D's
+  traded basis with the single factor s_{D−1} (no split on D, by step 1).
+The `research_breakout` cache is used here as a volume-basis input only. Its trials are not in
+R16's family (§6.3).
 
 *Why $1–$10 and $1M.* The covered pools all use prior unadjusted close $0.50–$10, so an upper
 bound above $10 would claim coverage the cache does not have. Sub-dollar names have a tick that
@@ -195,19 +283,22 @@ on an R16 result.
 
 ### 4.5 What the universe actually is (stated so it is not over-read)
 
-Because the admissible cache is made of the C1 gap pools and the C0 crash-entry and `hyp_pool`
-pools, the R16 universe is in effect **"liquid $1–$10 names that opened with |gap| ≳ 3%, plus
-post-crash entry sessions and (from 2025-02) a broad ADV-band pool"**. It is **not** the whole
-liquid low-priced market. P1's daily table shows the |gap| < 3% bucket holds about 1.29M of
-1.46M symbol-days, and almost none of it is cached. The no-selection control (C_a, C_0) is
-therefore "no selection **within the covered pools**". Every result is labelled
-`universe = cache-pool-gated`.
+The R16 universe is exactly G(D) ∩ cache under the §4.4 filter: gap ≥ +10% (any ADV ≥ $1M);
++3% ≤ gap < +10% only with ADV ≥ $5M; −10% ≤ gap ≤ −3%; and post-crash entry sessions.
+`hyp_pool` contributes pre-market coverage only. Its minute contribution is measured in
+Amendment 0. |gap| < 3% and +3–10% gaps with ADV of $1M–$5M are not in the universe. G3
+implements this G(D) exactly and may not redefine it. A different gate is a new round.
+
+Amendment 0 reports |G ∩ cache| / |G| per year and per bracket (daily data only), and reports
+the minute and pre-market attributions separately. It is **not** the whole liquid low-priced
+market: P1's daily table shows the |gap| < 3% bucket holds about 1.29M of 1.46M symbol-days. The
+no-selection control (C_a, C_0) is therefore "no selection **within G(D) ∩ cache**". Every result
+is labelled `universe = G(D)-gated` and `conditional_on = U1`.
 
 Two consequences, both binding:
-- **Live reproducibility.** A live system cannot see cache membership. If Gate I passes, G3
-  must specify an explicit open-time pool gate that reproduces the C0/C1 rules on live data
-  (the 09:30 gap rule, the crash-entry rule) before any paper trading. Deciding that is outside
-  R16 (§13), but a pass is conditional on it.
+- **Live reproducibility.** The replayed system is "09:25 pre-market scores, 09:30 gate G, `top_n`
+  by score inside G" (§5.1). If Gate I passes, G3 builds exactly that G(D) on live data. G is
+  fixed here, before any result, so the live gate is not a post-result choice.
 - **Composition drift.** Pools cover different years: the R5 pool spans 2016–2026, the gap ≥ +10%
   and +3% pools were built over different spans, and `hyp_pool` starts in 2025-02. Results are
   reported per pool and per year.
@@ -216,9 +307,11 @@ Two consequences, both binding:
 
 - S1: universe including C2 and U symbol-days. If this looks materially better than the primary,
   that is the measured size of the outcome contamination.
-- S2: C1 pools only (pure open-gap gated).
-- S3: per pool (gap-up C1, gap-down C1, crash-entry C0, `hyp_pool` C0).
-- S4: symbol-days failing the un-adjustment check (`feed.md`, tolerance 0.02) reported per arm.
+- S2: the three gap brackets of G only (the crash bracket removed).
+- S3: per G bracket (gap ≥ +10%, +3..+10% at ADV ≥ $5M, −10..−3%, crash-entry), and the
+  `hyp_pool` pre-market attribution reported separately.
+- S4: symbol-days failing the un-adjustment check (`feed.md`, tolerance 0.02) or the step-2b
+  basis check, reported per arm and per year, together with the `no_volume_factor` rejects (V1).
   If the failure rate exceeds 2% of candidate symbol-days, it is weighed in the G2 report.
   There is no refetch.
 
@@ -238,20 +331,26 @@ Values not listed here keep their design-doc defaults, which are frozen at G1 by
 | `arm` | `"screen"` (main, C_b, C_c); `"no_selection"` (C_a, C_0) | spec §4 |
 | `min_price`, `max_price` | **`1.00`, `10.00`** (placeholder was `1.00`, `20.00`) | §4.4 |
 | `min_adv_usd` | `1_000_000` | §4.4 |
-| ranking features | `screen_score` = mean of the day's cross-sectional percentile ranks of `pm_gap` and `pm_rvol`, descending; ties by symbol | see below |
+| ranking features | `screen_score` = mean of the cross-sectional percentile ranks of `pm_gap` and `pm_rvol`, descending; ties by symbol. `screen_score` is computed at 09:25 from pre-market bars. The cross-sectional percentile ranks and the `top_n` cut are taken **within the G(D)-admissible set at 09:30**. Candidates are emitted at 09:30. The first decision is at 09:30 + k as before. | see below |
 | `top_n` | `10` | see below |
 | `exclude_split_days` | `True` | design |
 | `holdout_start` | **`2025-08-07`** (§10.6) | confirmed |
 | `unseal` | `False` until the single holdout read | spec |
-| `restrict_to_minute_cache` | `True`, **on the admissible set of §4.3** | user decision plus §4.3 |
+| `restrict_to_minute_cache` | `True`, **on the admissible set of §4.4 step 2** (G(D) ∩ cache ∩ C0/C1) | user decision plus §4.3, §4.4 |
+
+The `Candidates` event for the replay is stamped 09:30, and that is the system the live build must
+reproduce.
 
 - `pm_gap = pm_close_last × f_{D−1} / close_unadj_{D−1} − 1`, with `pm_close_last` the close of
   the last pre-market bar with `bar_start + 1 min ≤ 09:25`. Raw-to-raw.
-- `pm_rvol = Σ_{04:00 ≤ bar_start < 09:25} (close × volume)` on the traded basis, divided by the
-  `min_adv_usd` statistic of §4.4 (unadjusted). It is a dimensionless ratio.
+- `pm_rvol = Σ_{04:00 ≤ bar_start < 09:25} (close × volume)` on the traded basis (prices × f_{D−1},
+  shares ÷ s_{D−1}; V1, §4.4), divided by the `min_adv_usd` statistic of §4.4 (raw × raw). It is a
+  dimensionless ratio. Dollar volume is invariant to a split, so the s-conversion matters only
+  through the dividend case V1 describes.
 - Both features are invariant to `price × c`, `volume ÷ c` (§99). Symbols with no admissible
   pre-market bars are skipped (`screener.md`). Skips are counted separately as "requested, no
-  bars" (no pre-market activity) and "not requested" (coverage gap).
+  bars" (no pre-market activity; stays in the universe, skipped by the screen) and "not requested"
+  (coverage gap; removed from every arm, §4.4 step 2).
 - *Why these two.* "Rise potential" before the open is, in the day-trading folklore the user's
   design comes from and in the attention literature, a gap plus unusual pre-market volume (the
   "in play" idea round 1 used). The two are combined by rank-average so neither scale dominates.
@@ -300,13 +399,18 @@ CNN rather than a transformer, because it is smaller and deterministic on CPU, a
 well-posed at k = 5. R3's transformer advantage was an exploratory, post-hoc result (LOG §26)
 and is not a reason to prefer it. Logistic and transformer are **not run** (§13).
 
-**Label (per (k, h); exit-independent).** For the window ending at `ts = T`: entry
-`p_in = open` of the bar with `bar_start = T` (one-bar latency, §8.1), exit `p_out = open` of
-the bar with `bar_start = T + h` (the time-stop fill rule), or the 15:55 rule if `T + h > 15:55`.
+**Label (per (k, h); exit-independent).** For the window ending at `ts = T`: `p_in` = open of
+the first existing bar with `bar_start ≥ T` within `entry_max_wait_min = 2` (otherwise the window
+is dropped, as the entry would expire). `p_out` = open of the first existing bar with
+`bar_start ≥ min(T + h, 15:55)`. If none exists before `eod_et`, the last seen close (the
+execution EOD rule). These are the engine's fill rules applied to the label.
 `y = 1{p_out / p_in − 1 > c_label}`, with **`c_label` a single fixed constant**: the median refit
 round trip at $2,000 over the dev no-selection universe (§9.3). It is computed once, before any
 model is fit, and recorded in Amendment 0. It is never per-trade (LOG §34). Score =
-`P(y = 1)`. Windows with no `p_out` bar are dropped from training and never synthesised.
+`P(y = 1)`. No price is ever synthesised.
+
+**CNN determinism.** `torch.use_deterministic_algorithms(True)`, `torch.set_num_threads(1)`,
+seeds fixed for Python, NumPy and torch.
 
 **Features.** From `Window.bars` only. All are ratios and must pass the joint rescale test
 (`price × 750`, `volume ÷ 750`, §99).
@@ -330,13 +434,14 @@ The same frozen artifact scores the main arm and C_a, so Main − C_a isolates t
 | `position_notional_usd` | `2_000` | scale of the cost measurements (P6) |
 | `max_open_positions` | `5` | frozen |
 | `max_entries_per_symbol` | `1` | frozen |
-| `entry_threshold` | model: **in-fold 0.90 quantile** of the training-fold scores over training windows (the top decile). random: **`0.90`** (the same entry-eligible rate in expectation, with no data used). constant: **`1.0`** (first window) | matched entry rates without looking at test data |
+| `entry_threshold` | model: the 0.90 quantile of scores on the inner validation block (the last 20% of the fold's training dates, date-blocked; the same split the CNN uses), from a model fit on the first 80%. The deployed fold model is then refit on 100% of the training dates with the threshold held fixed. random: **`0.90`** (the same entry-eligible rate in expectation, with no data used). constant: **`1.0`** (first window) | matched entry rates without looking at test data |
 | `exit_mode` | factor: `{"time_stop", "fixed_pct", "atr"}` | spec |
 | `hold_min` | `h` | spec §4 |
 | `time_stop` | `min(ts + h, 15:55)` in **every** exit arm | the exit factor changes only the bracket |
 | `tp_pct`, `sl_pct` (by h) | h=5: `0.0375`, `0.025`; h=15: `0.06375`, `0.0425`; h=30: `0.09`, `0.06` | below |
 | `tp_atr`, `sl_atr` (by h) | h=5: `2.10`, `1.40`; h=15: `3.63`, `2.42`; h=30: `5.13`, `3.42` | below |
 | `atr_period` | **`5`** bars (design default 14 overridden) | below |
+| `atr_floor` | one tick (`$0.01`) on the traded basis. ATR = max(mean TR, $0.01), so an ATR bracket is never invalid where the fixed-% bracket is valid. Entries skipped for an invalid bracket are counted per exit arm. They must be 0 for the ATR arm at G2. | equal entry sets across exit arms (`risk.md:50,140`) |
 | `quote_size_frac` | **`0.5`** | §9.2 |
 | `quote_max_age_min` | `5` | frozen |
 | `bar_participation_cap` | `0.02` | frozen; the replay binding cap (§9.2) |
@@ -415,15 +520,48 @@ factor needs no refit).
 ### 6.3 Trial count, declared
 
 - **R16's own family: N₁₆ = 54.** Only main-arm cells can be selected.
-- **Prior project trials:** 287 through R15 Part I (LOG §88: `search_trials.jsonl` 195 +
-  `PRIOR_TRIALS` 72 + R15 cells). R15 Part II (H2–H5) added more, and its exact count is not
-  tabulated in the log. **`PRIOR_TRIALS_R16 = 350`** is a conservative upper bound (it allows up
-  to 63 Part II cells; a larger N only deflates harder).
-- **Deflated Sharpe trial count N = 350 + 54 = 404** (binding). DSR at N = 54 is also reported.
+- **Prior project trials are tabulated before the run** and recorded in Amendment 0, from:
+  `search_trials.jsonl` line count; `PRIOR_TRIALS` constants and cell counts per round
+  (`run_round3/4/6_study.py`, `compare_strategies.py`); the §56 grid (441 cells) unless it is
+  shown to be inside `search_trials.jsonl`; rounds 11–14 sweeps; and R15 Part II from the
+  `cumulative_trials` field of the R15 result artifacts (`r15_intraday.py:306`).
+  `PRIOR_TRIALS_R16 = max(350, tally)`. Binding N = PRIOR_TRIALS_R16 + 54. The tabulation reads
+  ledgers and result metadata only, never a return.
+- **Tally made for this revision** (ledger lines, constants, cell counts and `*trial*` fields of
+  result JSONs only; no return field was read). Counting generously is the conservative
+  direction, so no overlap is assumed between rows unless a source says so:
+
+  | # | Source | Trials | Evidence |
+  |---|---|---|---|
+  | 1 | Rounds 2–3 | 72 | `PREREGISTRATION_R4.md:70`, LOG:814 (R3 itself: 27 prior + its cells, `run_round3_study.py:66`) |
+  | 2 | Round 4 eligible cells | 17 | `PREREGISTRATION_R5.md:141` (72 → 89) |
+  | 3 | Round 5 escalation + horizon study | 2 | `PREREGISTRATION_R5.md:230` (89 → 90), `PREREGISTRATION_R6.md:99` (→ 91) |
+  | 4 | Round 6 added sizes and follow-up | 5 | `PREREGISTRATION_R6.md:190,261` (91 → 94 → 96; `run_round6_study.py:77`) |
+  | 5 | Round 6 eligible cells | 30 | `PREREGISTRATION_R6.md:208,286` |
+  | 6 | §56 hypothesis grid | 441 | LOG:1653; `hypothesis_grid.json` `n_cells_tested` = 441. Not inside `search_trials.jsonl` (441 > 195; a different round and engine) |
+  | 7 | §65 long-side triple-barrier calibration | 3,300 | LOG:2005 ("across 3,300 cells"). It selected the long strategy later retracted in §72, so it is inside the family |
+  | 8 | Round 9 automated search | 195 | `search_trials.jsonl`: 195 lines (LOG:2604) |
+  | 9 | Round 12 configurations | 84 | LOG:2989 ("2 of 84 configurations admissible") |
+  | 10 | R15 Part I own cells | 20 | 287 − 195 − 72 (LOG:3467; `battery_dev.json` `n_trials` = 287) |
+  | 11 | R15 Part II H3 | 28 | `r15_intraday_dev.json` `cumulative_trials` = 315 = 287 + 28 |
+  | | **Tally (lower bound)** | **4,194** | |
+
+  **Not tabulable from disk, so not in the tally:** rounds 10, 11 (the veto), 13 and 14 (slot
+  and target sweeps; `compare_strategies.py:68-71` names them, but no count is recorded), R15
+  Part II H1, H2, H4 and H5 (their result files carry no trial field), and the §60–§63 and §70–§71
+  side studies. The tally is therefore a **lower bound**. A later tabulation may only raise it,
+  and it must be done before the run.
+- **`PRIOR_TRIALS_R16 = max(350, 4,194) = 4,194`. Binding Deflated Sharpe trial count
+  N = 4,194 + 54 = 4,248.** DSR at N = 54 is also reported. Deflation grows like √(2 ln N): the
+  expected-maximum term is about 4.08 at N = 4,248, against 3.46 at the first draft's N = 404.
 - Every amendment made after an R16 number has been seen adds 1. Every holdout read is
   recorded (the R16 holdout is read at most once).
-- The breakout lab's trials (`research/breakout`) are a different question on a different branch
-  and are excluded. This is flagged for the critic.
+- **Family principle.** The trial family is every search on the `research_penny` data lineage
+  whose winner could have been deployed as a penny/intraday strategy. The breakout lab
+  (`research/breakout`, `data/research_breakout`) is outside it. Sensitivity, reported and never
+  gating: DSR with the breakout ledger's line count added to N (the count is recorded in
+  Amendment 0). Using `data/research_breakout/daily` as a volume-basis input (V1) does not bring
+  its searches into the family: no breakout spec competes with an R16 cell.
 
 ### 6.4 Resource estimate
 
@@ -431,17 +569,30 @@ GBDT fits are seconds each. The CNN takes minutes per fit on CPU, so 54 fits is 
 Replays: (54 + 54 + 1,080 + 27 + 27) = 1,242 cell-runs × about 1,870 OOS days. The engine runs
 one session per run and is too slow for the full grid, so the grid uses a **vectorised research
 simulator** that implements §8 exactly. It must pass a **parity test against the engine**
-before any grid result is read: on 50 fixed dev days per arm (seeded draw, seed 16), fills,
-quantities, costs and daily P&L must be identical to the cent. The selected cell and its four
-controls are then replayed **in the engine** on every OOS day, and the engine numbers are the
-ones Gate I reads. The event-log hashes come from these engine replays. Storage: under 5 GB
+before any grid result is read.
+
+Parity configurations: every (exit × h × scorer ∈ {model-gbdt, model-cnn, random seed 0,
+constant} × arm ∈ {screen, no_selection}) at k = 15, plus each k at (h = 15, time_stop, gbdt,
+screen). Parity days: 50 dev days (seed 16), of which at least 10 each contain a gap-through
+stop, a partial fill, an EOD-forced exit and an un-adjustment reject, drawn by stratified seeded
+sampling. Pass = fills, quantities, costs and daily P&L identical to the cent on every
+configuration-day.
+
+The selected cell and its four controls are then replayed **in the engine** on every OOS day,
+and the engine numbers are the ones Gate I reads. If the full-period engine replay differs on any
+day, the grid is void. The simulator is fixed, re-verified on the parity set plus every
+mismatching day, and the whole grid is rerun with §10.5 unchanged. This is logged as an
+amendment. It counts as a trial only if the selected cell changes, in which case both selections
+are reported. The event-log hashes come from these engine replays. Storage: under 5 GB
 under `data/research_intraday/`.
 
 ### 6.5 Execution order
 
 1. G1 sign-off on this document.
-2. Provenance audit (§4.3), then Amendment 0: class counts, `c_label`, cost-refit
-   coefficients, coverage per year. No return is read.
+2. Provenance audit (§4.3, including pool reproducibility and completeness), G(D) coverage
+   |G ∩ cache| / |G| per year and bracket, the `no_volume_factor` and basis-check counts, the
+   prior-trial tabulation (§6.3), the SPY span (§7), then Amendment 0: class counts, `c_label`,
+   cost-refit coefficients, coverage per year. No return is read.
 3. Cost refit (§9.3), using quotes only and no strategy returns.
 4. Null battery and leakage guards on one fold (§10.7).
 5. Vectorised-to-engine parity test.
@@ -464,14 +615,30 @@ paired with.
   uniform(seed, symbol, ts) (`predictor.md`) and `entry_threshold = 0.90`, the same top-decile
   entry rate as the model in expectation. 20 seeds. Main − C_b = the value of the model's
   information at matched turnover.
-- **C_c, screen alone.** `scorer = constant`: each screened name is entered at its first window
-  (09:30 + k), then the same exit. Main − C_c = the value of the model given the screen.
-- **C_0, nothing.** No selection, constant scorer: what an account earns by buying covered liquid
-  names at 09:30 + k. It is the anchor for H2 and P1.
+- **C_c, screen alone.** `scorer = constant`: each screened name becomes entry-eligible at its
+  first window (09:30 + k), then the same exit. Main − C_c = the value of the model given the
+  screen.
+- **C_0, nothing.** No selection, constant scorer. It is the anchor for H2 and P1.
+- **Entry order in C_c and C_0 (N4).** C_c/C_0 enter in sorted-symbol order as the 5 slots free
+  up. Ties in any arm break by symbol. So C_0 enters the alphabetically first 5 admissible names
+  at 09:30 + k and later names only as positions close. It is not "buying every covered name at
+  09:30 + k". The rule is deterministic and independent of outcomes.
+- **Random-control behaviour check (N5).** C_b OOF AUC and IC against the label are reported per
+  seed and must lie within the shuffled-label null band; a seed outside it voids the run.
 - **SPY.** The project rule requires a SPY comparison. Report the same-day SPY open→close return
-  from the daily cache (it is reported only and is not a control the gate reads, since the account
-  is flat overnight), and each arm's daily correlation and alpha against it. If SPY is absent from
-  the daily cache, that is reported and nothing is fetched.
+  (it is reported only and is not a control the gate reads, since the account is flat overnight),
+  and each arm's daily correlation and alpha against it. SPY is not in `research_penny/daily`
+  (that cache's universe drops ARCA and names containing 'ETF/Trust', `etl/universe.py:44,112`).
+  Use `C:/Users/Shachar/Desktop/PythonProjects/QuantCode/data/cache/SPY.parquet`, which is already
+  on disk. Its date span and columns are recorded in Amendment 0 from the schema and the min/max
+  date only. SPY open→close is basis-invariant within a day. Dev days it does not cover are listed.
+  Nothing is fetched.
+  - *Recorded for this revision (schema and index min/max only):* columns `Open`, `High`, `Low`,
+    `Close`, `Volume` (all float64) with a pandas `timestamp[ns]` index; 2,263 rows; index span
+    **2016-01-04 .. 2024-12-30**. So SPY covers the dev period through 2024-12-30 only. Dev
+    sessions 2025-01-02 .. 2025-08-06 and the **whole holdout** (from 2025-08-07) are not covered.
+    For those days the SPY comparison is reported as missing. Nothing is fetched. The SPY
+    comparison is reported only and does not gate, so the gap changes no decision.
 
 ---
 
@@ -516,8 +683,13 @@ caused the decision can never fill it. Earliest decision 09:35 (k = 5), 09:45 (k
 
 One leg (`etl/quotes.py::leg_cost_bps`) = half-spread + `Y σ √participation` + depth shortfall,
 with `Y = 1.0`, `levels_penalty = 1.0`, `σ` = the trailing 20-session daily return σ before D, and
-participation = fill qty / 20-session median unadjusted share volume before D. Every level is
-unadjusted (`execution.md`). Entry pays on the ask side and exit on the bid side. Costs are
+participation = fill qty / the 20-session median share volume before D, every session converted
+to D's traded basis with a single factor (`risk.md:103-107`). Under V1 (§4.4) that factor is the
+split-only volume factor s_{D−1}, not f_{D−1}: shares_t on D's basis = volume_t / s_{D−1}, with
+`volume` the split-adjusted daily volume and s_{D−1} = volume_{D−1} / volume_unadj_{D−1}, both
+read from `data/research_breakout/daily`. A symbol-day without a valid s is a `no_volume_factor` reject.
+Every price level is unadjusted (`execution.md`). Minute-bar volume used by
+`bar_participation_cap` is converted the same way (÷ s_{D−1}). Entry pays on the ask side and exit on the bid side. Costs are
 charged once per leg, separately from the bar reference price, and auditable per fill.
 
 ### 9.2 Inputs
@@ -531,7 +703,7 @@ a tick: `0.5 × $0.01 / price × 10⁴` bps.
 - **Fit set:** dev-period symbol-days in the R16 **no-selection universe** (§4.4) that have cached
   quote summaries at 09:34/09:35 and/or 15:55. Coverage is reported.
 - **Models (OLS, specification fixed now):** `log(half_spread_bps)`, `log(ask_notional)` and
-  `log(bid_notional)` each regressed on `log(close_unadj_{D−1})`, `log(adv20_usd)`,
+  `log(bid_notional)` each regressed on `log(close_unadj_{D−1})`, `log(adv20_usd)` (raw × raw, V1),
   `log(σ_20d)`, a window indicator (open = 09:34/35, close = 15:55), and year dummies.
   All regressors are known before D.
 - **Time of day:** a leg at minute t uses the open-window prediction for t ≤ 09:35, the
@@ -543,6 +715,9 @@ a tick: `0.5 × $0.01 / price × 10⁴` bps.
   either exceeds the refit by more than 50% at the median in a bucket, the G2 report flags it.
 - **Fixed outputs:** coefficients, R², the median round trip at $2,000 (which becomes
   `c_label`), recorded in Amendment 0.
+- **Year dummies:** holdout legs use the 2025 dummy (the last dev year). There is no refit on
+  holdout quotes. `c_label` and the refit use all dev years, including later test folds. This is
+  cost data, not returns, and is fixed in Amendment 0.
 - **Sensitivity, reported and never a trial:** all legs × 1.5.
 
 ---
@@ -579,7 +754,12 @@ days; Politis & Romano 1994) is reported beside it.
 - Sharpe (annualised √252), Mertens/Lo SE, PSR, MinTRL, max drawdown against its Magdon-Ismail &
   Atiya expectation (`eval/battery.py`);
 - cap binding counts (§8.3), the cost decomposition per leg, quote-source usage, coverage
-  rejects, the un-adjustment failure rate, and how often `top_n` binds;
+  rejects, the un-adjustment failure rate, the basis-check and `no_volume_factor` rejects, and
+  how often `top_n` binds;
+- realised entry-eligible window rate, per arm and per cell;
+- C_b's OOF AUC and IC per seed against the shuffled-label null band (§7);
+- count and age distribution of EOD-forced fills, per arm;
+- invalid-bracket entry skips, per exit arm (§5.5 `atr_floor`);
 - per year, per pool (S3), and gross alongside net;
 - the SPY comparison (§7).
 
@@ -587,7 +767,9 @@ days; Politis & Romano 1994) is reported beside it.
 
 - For each of the 54 main cells, a one-sided day-clustered bootstrap p-value for mean daily net
   return > 0. **Holm** step-down over the 54 at family-wise α = 0.05.
-- **Deflated Sharpe** (Bailey & López de Prado 2014) at **N = 404**. `Var(SR_n)` = the variance
+- Holm uses arithmetic-mean p-values while the account gate uses the geometric mean; both must
+  pass.
+- **Deflated Sharpe** (Bailey & López de Prado 2014) at **N = 4,248** (§6.3). `Var(SR_n)` = the variance
   of annualised Sharpe **across the 54 main cells** (the harsher choice, LOG §88), with the
   seed-to-seed variance of C_b reported as the alternative. Gate threshold: DSR ≥ 0.95.
 - H2–H4 contrasts are explanatory and are reported with BH-FDR (q = 0.05) within their own
@@ -608,12 +790,16 @@ substituted later.
   2025-08-07 only.
 - **Disclosure:** this window was **not** clean in the project's history. R5 Gate R read
   09:31–11:00 → 15:55 returns on all reversal-pool sessions through 2026, and R15 H3/H5 read
-  minute features and 10:00 entry prices in 2024–2026. None asked R16's question (a minutes-ahead
-  model with brackets), so it is sealed **for this question**, as the spec states.
+  minute features and 10:00 entry prices in 2024–2026. Also read in the holdout window: §60
+  (`hypothesis_premarket.py`), pre-market dollar volume / ADV against open→close, 2025-02 to
+  2026-08, which is R16's `pm_rvol` concept (result negative); and the forensic / top-30 mover
+  studies (2026 outcomes). `pm_rvol` was chosen with that result known. None asked R16's question
+  (a minutes-ahead model with brackets), so it is sealed **for this question**, as the spec states.
 - **Read exactly once**, after the critic's G2 sign-off on the development result, and only if
   some cell passed development. Read: the selected cell and its controls C_a, C_b (20 seeds), C_c
-  and C_0. The model is retrained once on **all** dev dates with the frozen configuration, the
-  threshold quantile is recomputed on those dev dates, and both are frozen with `model_hash` before
+  and C_0. The model is retrained once on **all** dev dates with the frozen configuration. The
+  threshold is the 0.90 quantile on the inner validation block of the dev dates (their last 20%,
+  from a fit on the first 80%), by the same rule as in each fold (§5.5). Both are frozen with `model_hash` before
   `unseal=True`. The unseal is recorded (who, when, `config_hash`) in MLflow and as an
   amendment.
 - **Holdout pass (all required):** (i) the compounded net return's day-clustered 95% CI excludes
@@ -631,16 +817,22 @@ after Gate I passes and G3 signs off. It is not part of this round's work (§13)
 
 ### 10.7 Nulls and guards (preconditions; a failure voids the run, not the hypothesis)
 
-- `eval/nulls.py::run_all` on one fold per (k, h, model): shuffled label, date shift, the feature
-  timing tripwire and constant return must destroy performance. A null "failing" by improving
-  means negative skill, not leakage (LOG §35), and is reported as such.
+- R16-specific nulls, implemented in `research/intraday/research/r16_nulls.py` (because
+  `eval/nulls.py::run_all` is a veto-set battery with a fixed 09:35 tripwire and does not apply):
+  (a) labels permuted within day, model retrained, OOF AUC and grid account must fall to the null;
+  (b) labels taken from the day 20 sessions later, same symbol slot; (c) a per-window tripwire:
+  max bar `ts` in the window ≤ the window's `ts`, and no input after the decision `ts`; (d)
+  constant return through the simulator gives zero dispersion across cells. They run on one fold
+  per (k, h, model). A null "failing" by improving means negative skill, not leakage (LOG §35),
+  and is reported as such.
 - **Martingale-calibrated IC/AUC null** (memory: rank IC against a forward return is not centred
   on zero): the classifier's out-of-fold AUC is compared with its AUC on synthetic minute paths
   that keep each symbol-day's realised minute σ but have zero drift, so sigma-correlated scores do
   not read as skill.
 - Joint scale-invariance test on every feature (`price × 750`, `volume ÷ 750`).
 - Assertions: no input after the decision `ts`; no daily row ≥ D in a filter except the factor
-  ratio for the split flag; no session ≥ `holdout_start` without `unseal`.
+  ratio for the split flag and D's official open in G(D) (§4.4 step 1b); no field of D other than
+  the open is read by G; no session ≥ `holdout_start` without `unseal`.
 - Determinism: the engine replay of 5 fixed days run twice gives identical event-log hashes.
 
 ---
@@ -654,13 +846,14 @@ after Gate I passes and G3 signs off. It is not part of this round's work (§13)
 2. **Controls:** paired daily-difference CI lower bound > 0 against **each** of C_a, C_b (the
    20-seed mean daily return) and C_c. Also, the cell's compounded return exceeds the **95th
    percentile** of the 20 C_b seeds' compounded returns.
-3. **Multiple testing:** Holm-adjusted p < 0.05 over the 54 cells, **and** DSR ≥ 0.95 at N = 404.
+3. **Multiple testing:** Holm-adjusted p < 0.05 over the 54 cells, **and** DSR ≥ 0.95 at N = 4,248.
 4. **Robustness:** the compounded return point estimate stays > 0 after removing the top 1% of
    trades by P&L. The median trade is reported, and a negative median with a positive mean is
    flagged in the G2 report.
 5. **Power floor:** ≥ 300 OOS trades on ≥ 150 distinct days.
-6. **Validity:** §10.7 passes, the parity test passes, and the engine replay of the cell agrees
-   with the vectorised result.
+6. **Validity:** §10.7 passes, the parity test passes, and the engine replay of the cell is
+   identical to the cent, on every OOS day, to the vectorised result. If it differs on any day,
+   §6.4's void-and-rerun rule applies.
 
 ### 11.2 Then
 
@@ -700,7 +893,10 @@ on counts only.
   `c_label`, cost-refit coefficient hash, prereg commit hash. **Metrics:** everything in §10.2–10.4.
   **Tags:** the **event-log hash** (sha256 over the ordered per-session log hashes of the engine
   replay; for vectorised runs, the parity-test log hash plus the simulator's trade-file sha256),
-  the provenance-audit sha256, git commit, `universe = cache-pool-gated`, `period = dev | holdout`.
+  the provenance-audit sha256, git commit, `universe = G(D)-gated`, `conditional_on = U1`,
+  `period = dev | holdout`.
+- Every run asserts `git status --porcelain` is empty for tracked code under `research/`.
+  Otherwise it refuses to run. The SHA and the clean flag are MLflow tags.
 - The trial ledger `data/research_intraday/r16_trials.jsonl` gets one line per main cell. Its
   line count must equal 54 at G2.
 
@@ -716,18 +912,19 @@ on counts only.
 - No pre-market or daily features inside the model.
 - No use of C2 or U symbol-days in any primary number (they appear only in S1).
 - No holdout read before G2, and at most one ever.
-- No live feed, no broker connection, no paper trading, no open-time pool gate build (G3's job if
-  Gate I passes).
+- No live feed, no broker connection, no paper trading, no live build of the open-time gate. If
+  Gate I passes (and U1 is confirmed), G3 builds exactly the G(D) of §4.4 step 1b and may not
+  redefine it.
 - No per-trade-mean verdicts. The account decides.
 
 ---
 
 ## 14. Open risks
 
-1. **The universe is gated by open-time pool rules, not by the screen** (§4.5). Replay results
-   apply to a universe a live system would have to rebuild explicitly at 09:30. If the critic
-   rules this a mismatch with the user's design, the only fixes are data (a download) or an
-   explicit pool gate. Neither is in this round.
+1. **The universe is the open-time gate G(D), not the whole market** (§4.4 step 1b, §4.5). G is
+   written down now, so a live system can rebuild it at 09:30 exactly. Whether the gated variant
+   is still the user's design is U1 (box at the top). If the user rejects U1, R16 is void as a
+   test of that design, and only a download round can test it.
 2. **Pre-market coverage is thin and changes over time** (median 13 per day; `hyp_pool` densifies
    it only from 2025-02). The screen may mostly rank cache membership. Mitigated by reporting the
    `top_n`-binding share and S3, not removed.
@@ -742,8 +939,15 @@ on counts only.
 5. **Halts are invisible** in historical replay (an empty halt log). They appear as gaps, and
    fills move to the next bar. LULD halts on the names that move most make the stop fill price
    the most model-dependent number in the round.
-6. **Prior trial count is a bound, not a tally** (§6.3). If the critic requires the exact R15
-   Part II count, it must be tabulated before the run, and only an increase is allowed.
+6. **The prior trial tally (4,194) is a lower bound** (§6.3). Rounds 10, 11, 13, 14, most of R15
+   Part II and several side studies have no count on disk. A later tabulation may only raise N,
+   and only before the run.
+10. **The volume basis depends on a second cache** (V1, §4.4). Symbol-days where
+    `research_breakout/daily` has no row, or disagrees with the penny factor by more than 2%, are
+    rejected. If that reject share is large in a year, it is reported per year and per arm. It is
+    not repaired.
+11. **SPY covers dev only through 2024-12-30** (§7). The SPY comparison is missing for 2025 dev
+    days and for the whole holdout. It does not gate.
 7. **Survivorship.** The cache keeps delisted symbols only where they were requested before
    delisting. Coverage of names that later delisted is reported per year.
 8. **Holdout non-virginity** (§10.6). Disclosed, not fixable.
@@ -818,5 +1022,40 @@ own rounds weigh more than the literature here.
 
 ## Amendments
 
-*(none; Amendment 0 records the provenance-audit counts, `c_label` and the cost-refit
-coefficients before any return is read)*
+*(none; Amendment 0 records the provenance-audit counts, pool reproducibility and completeness,
+G(D) coverage per year and bracket, the basis-check and `no_volume_factor` counts, the prior-trial
+tabulation, the breakout ledger line count, the SPY span, `c_label` and the cost-refit
+coefficients, all before any return is read)*
+
+---
+
+## Changes after G1
+
+Source: `research/intraday/docs/critiques/G1-R16.md` (BLOCK; B1, B2, W1–W10, N1–N9) and one
+controller correction (V1). Amendments made after G1 sign-off still go under "Amendments" above.
+
+| Edit | Section changed | Change |
+|---|---|---|
+| U1 | header box, §1, §4.5, §12, §13, §14.1 | "Conditional on U1" box: every result conditional on U1, not Gate-I evidence until confirmed, void if U1 is rejected; tested and untested strata listed |
+| E1 | §4.4 step 1b, step 2 | Open-time gate G(D) written as an explicit formula; admissible = step 1 ∧ G(D) ∧ cache ∧ C0/C1 (B1) |
+| E2 | §5.1 | Percentiles and `top_n` taken within G at 09:30; `Candidates` stamped 09:30 (B1) |
+| E3 | §4.5, §4.2 R4 row, §4.6 S2/S3 | Universe stated as exactly G(D) ∩ cache; `hyp_pool` is pre-market only; G3 may not redefine G; coverage per year and bracket (B1, W2) |
+| E4 | §4.4 step 2, §5.1 | "Not requested" pre-market symbol-days removed from every arm; "requested, no bars" stays |
+| E5 | §4.4 step 2b, §4.6 S4 | Pre-market vs minute basis check (factor 1.5), excluded from every arm, counted (W1) |
+| E6 | §4.2 `hyp_pool` row, note | `hyp_pool` rows with open/prev close ≥ 1.8 are C2, the rest C0; `forensic_universe` finite-close note (B2) |
+| E7 | §4.3 steps 1a, 4a | Pool reproducibility (1% rule) and completeness (≥ 99% to rescue C2/U) (W3) |
+| E8 | §6.3 | Prior trials tabulated from disk: tally 4,194 (lower bound); `PRIOR_TRIALS_R16 = max(350, tally)` = 4,194; binding N = 4,248 (W7) |
+| E9 | §6.3 | Trial-family principle written; breakout ledger added to N as a non-gating sensitivity |
+| E10 | §5.5 | `atr_floor` = $0.01; invalid-bracket skips counted, 0 required for ATR arm |
+| E11 | §5.5, §10.3, §10.6 | Threshold from the inner validation block, model refit on 100%; realised entry-eligible rate reported (W4) |
+| E12 | §5.4 | Label uses the engine's fill rules (next existing bar, 2-min entry expiry, EOD close) (W5) |
+| E13 | §6.4, §11.1.6 | Parity configurations and stratified days defined; identical to the cent; void-and-rerun rule (W6) |
+| E14 | §10.6 | Disclosure adds §60 `pm_rvol` study and forensic/top-30 studies (W8) |
+| E15 | §9.3 | Holdout uses the 2025 year dummy, no refit on holdout quotes; dev-wide cost data stated (W9, N3) |
+| E16 | §7 | SPY from `QuantCode/data/cache/SPY.parquet`; span 2016-01-04 .. 2024-12-30 recorded; nothing fetched (N2) |
+| E17 | §9.1 | Participation share volume on D's basis with a single factor (`risk.md:103-107`), as amended by V1 (N1) |
+| E18 | §10.7, §5.4 | R16-specific nulls in `r16_nulls.py` replace `eval/nulls.py::run_all`; torch determinism flags named (W10) |
+| E19 | §7, §10.3, §10.4 | Sorted-symbol entry order for C_c/C_0; C_b null-band check; Holm-arithmetic vs geometric note; EOD-forced fill counts (N4–N7) |
+| E20 | §12 | Runs refuse a dirty tree under `research/`; SHA and clean flag tagged (N9) |
+| V1 | §4.4, §5.1, §9.1, §9.3, §4.6, §14 | Volume converted with split-only s = volume / volume_unadj from `research_breakout/daily` (price factor must agree within 2%, else `no_volume_factor`); ADV = close_unadj × volume_unadj |
+| — | header, §11.1.3, §10.4 | Status set to Revision 1; N = 404 replaced by N = 4,248 throughout |
