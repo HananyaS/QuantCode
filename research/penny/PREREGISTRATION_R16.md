@@ -1046,7 +1046,7 @@ are seeded, or how a check that should find nothing is scored so that it really 
 None of these decisions was made after seeing a result, because no result exists yet. Writing
 them down now means they cannot be adjusted later to make the strategy look better. The user
 has confirmed that the gated version is a fair test of the design (U1 = yes). Two small edits
-made to the frozen text during the build are disclosed in §A0.6.
+made to the frozen text during the build are disclosed in §A0.6, and one of them is reversed.
 
 **Status and trial effect.** This amendment is recorded after G1 sign-off (cff3c76) and before
 any minute return, label or R16 metric has been read. Under §6.3, only an amendment made after an
@@ -1072,15 +1072,15 @@ unsealed (§10.6), on top of G2 sign-off.
 
 | Field | Value | Source / check |
 |---|---|---|
-| audit code | `0457541` (output dir `data/research_intraday/r16/04575419fd76/audit`) | git HEAD of the `audit --refit` run. Later commits must not touch the audit stages (universe, provenance, gate, costs, `c_label`); if one does, the audit is rerun (§A0.5). An earlier audit at 4155601 was superseded by the P3-10 and P3-11 code changes and is not used |
-| audit output sha256 | `2e80cc0e89ccec032762c5316ff8f466882c21cda4efca6d4bcba14d83f499ab` | sha256 of the bytes of `data/research_intraday/r16/amendment0_inputs.json` (53,616 bytes, byte-identical to the copy under `04575419fd76/audit/`). `run_r16` preflight refuses smoke and full unless this hex appears in the prereg at HEAD under this heading |
+| audit code | `a69f23c` (output dir `data/research_intraday/r16/a69f23c75491/audit`) | git HEAD of the `audit --refit` run. Later commits must not touch the audit stages (universe, provenance, gate, costs, `c_label`); if one does, the audit is rerun (§A0.5). The earlier audits at 4155601 and 0457541 were superseded (P3-10/P3-11, then P3-16 to P3-18) and are not used |
+| audit output sha256 | `9ae0d051fa094a63dbe9f147a4f1b7358667c45b0022b788c6162c7cdee8c9b2` | sha256 of the bytes of `data/research_intraday/r16/amendment0_inputs.json` (53,613 bytes, byte-identical to the copy under `a69f23c75491/audit/`). `run_r16` preflight refuses smoke and full unless this hex appears in the prereg at HEAD under this heading |
 | audit scope | counts, cost refit and c_label | as required (§A0.5) |
 | dev sessions | 2,358, 2016-02-17 .. 2025-08-06 | `dev_last` < 2025-08-07; `day_errors` empty |
 | `c_label` | 0.005537 (55.4 bps) | §5.4, §9.3 |
-| refit digest | `b7da07e5e958265b76c1d67b92a882488a8892f8bae5c6085b529ffa45228c6c` | the §12 cost-refit coefficient hash; years 2016–2025, base year 2016; coefficients below |
-| refit rows | fit 94,988; books 34,051; CostInputs 34,051 | no-selection symbol-days 34,051, of which 32,014 have a quote summary (share 0.940) |
+| refit digest | `02e335e74ead155304992f32dd2d960627f69582241be9c6cbbac773723d697e` | the §12 cost-refit coefficient hash; years 2016–2025, base year 2016; coefficients below |
+| refit rows | fit 94,993; books 34,053; CostInputs 34,053 | no-selection symbol-days 34,053, of which 32,016 have a quote summary (share 0.940) |
 | infeasibility median (final admissible count per day) | 16 (after step 1 only: 484) | §11.4 as amended (§A0.4 item 10): floor 3 |
-| C_0 trade bound | 34,051 symbol-days on 2,305 days | §11.4 floor: 300 trades on 150 days |
+| C_0 trade bound | 34,053 symbol-days on 2,305 days | §11.4 floor: 300 trades on 150 days |
 | §11.4 verdict | **feasible** (`infeasible` = False) | `r16_amendment0.infeasible` on the file |
 | brackets dropped (P3-9/P3-11) | `crash` in 2020, 2021, 2022, 2023, 2024, 2025 (R15 pre-market completeness < 0.99) | to S1 |
 | `top_n` binding share | 0.329 of days | §10.3 |
@@ -1154,7 +1154,7 @@ Final no-selection counts per bracket are not disjoint: after the P3-11 drop, ev
 | 2018 | 222 / 915 / 1,092 / 0 | 219 / 876 / 0 / 0 |
 | 2019 | 262 / 1,048 / 1,392 / 0 | 253 / 1,021 / 0 / 0 |
 | 2020 | 1,613 / 8,297 / 8,431 / 7,822 | 1,472 / 8,028 / 0 / 1,859 |
-| 2021 | 911 / 4,459 / 4,858 / 3,841 | 856 / 4,262 / 0 / 734 |
+| 2021 | 911 / 4,459 / 4,858 / 3,841 | 856 / 4,264 / 0 / 735 |
 | 2022 | 470 / 4,160 / 7,271 / 7,187 | 438 / 4,041 / 0 / 864 |
 | 2023 | 450 / 2,679 / 2,858 / 3,807 | 419 / 2,614 / 0 / 320 |
 | 2024 | 774 / 3,543 / 4,045 / 4,940 | 736 / 3,467 / 0 / 576 |
@@ -1169,12 +1169,12 @@ Final no-selection counts per bracket are not disjoint: after the P3-11 drop, ev
 | 2018 | 71,755 | 12 | 409 | 2,263 | 66,987 | 0 | 10 | 0 | 2,074 | 1,064 | 0 | 0 | 7 | 1,003 | 838 |
 | 2019 | 83,646 | 9 | 501 | 2,325 | 78,285 | 0 | 4 | 0 | 2,522 | 1,350 | 0 | 0 | 21 | 1,151 | 961 |
 | 2020 | 121,837 | 21 | 425 | 4,188 | 92,757 | 7,648 | 6 | 1 | 16,791 | 8,191 | 67 | 0 | 74 | 8,459 | 2,145 |
-| 2021 | 130,364 | 92 | 1,505 | 4,611 | 108,511 | 6,302 | 89 | 4 | 9,250 | 4,664 | 3 | 1 | 44 | 4,538 | 2,023 |
+| 2021 | 130,364 | 92 | 1,505 | 4,611 | 108,511 | 6,302 | 89 | 4 | 9,250 | 4,664 | 3 | 1 | 42 | 4,540 | 2,023 |
 | 2022 | 134,112 | 48 | 414 | 3,898 | 107,969 | 10,350 | 48 | 2 | 11,383 | 7,116 | 12 | 0 | 41 | 4,214 | 1,713 |
 | 2023 | 127,379 | 22 | 165 | 3,903 | 111,827 | 5,865 | 23 | 3 | 5,571 | 2,761 | 11 | 0 | 15 | 2,784 | 1,736 |
 | 2024 | 133,409 | 22 | 19 | 4,478 | 114,115 | 7,118 | 25 | 2 | 7,630 | 3,876 | 9 | 0 | 19 | 3,726 | 2,017 |
 | 2025 | 97,014 | 39 | 36 | 3,484 | 78,300 | 5,884 | 22 | 5 | 9,244 | 3,544 | 0 | 0 | 17 | 5,683 | 1,456 |
-| total | 1,033,393 | 280 | 4,076 | 33,807 | 882,416 | 43,167 | 239 | 17 | 69,391 | 34,980 | 102 | 1 | 257 | 34,051 | 14,811 |
+| total | 1,033,393 | 280 | 4,076 | 33,807 | 882,416 | 43,167 | 239 | 17 | 69,391 | 34,980 | 102 | 1 | 255 | 34,053 | 14,811 |
 
 **Daily medians per year.**
 
@@ -1189,24 +1189,24 @@ Final no-selection counts per bracket are not disjoint: after the P3-11 drop, ev
 
 | Regressor | log half-spread (bps) | log ask notional | log bid notional |
 |---|---|---|---|
-| `const` | +8.8694 | -2.6772 | -2.4512 |
+| `const` | +8.8691 | -2.6769 | -2.4513 |
 | `log_adv20` | -0.2882 | +0.6437 | +0.6351 |
-| `log_close_prev` | -0.3041 | -0.7508 | -0.7679 |
+| `log_close_prev` | -0.3041 | -0.7507 | -0.7679 |
 | `log_sigma` | +0.2813 | -0.7471 | -0.7270 |
-| `window_close` | -0.5355 | +1.5073 | +1.4640 |
+| `window_close` | -0.5355 | +1.5073 | +1.4639 |
 | `year_2017` | +0.0638 | -0.0091 | +0.0009 |
 | `year_2018` | +0.0479 | -0.2776 | -0.2507 |
 | `year_2019` | +0.0151 | -0.3149 | -0.2612 |
 | `year_2020` | +0.0872 | -0.5900 | -0.5767 |
-| `year_2021` | +0.1243 | -0.5682 | -0.5347 |
+| `year_2021` | +0.1243 | -0.5685 | -0.5348 |
 | `year_2022` | +0.0807 | -0.5443 | -0.5307 |
 | `year_2023` | +0.0292 | -0.5763 | -0.5430 |
 | `year_2024` | +0.1152 | -0.6221 | -0.5735 |
 | `year_2025` | +0.3249 | -0.8528 | -0.8360 |
-| R² | 0.496 | 0.565 | 0.552 |
+| R² | 0.496 | 0.565 | 0.551 |
 
 **What the counts say, in plain English.** The development period has 2,358 sessions, and about a
-million stock-days pass the price and liquidity filter, but only 34,051 stock-days on 2,305
+million stock-days pass the price and liquidity filter, but only 34,053 stock-days on 2,305
 sessions survive into the test universe, because the gate keeps only names that gapped at the
 open and the cache holds only names an earlier study saved. The primary test is therefore mostly
 gap-up stocks: post-crash names enter only when they also gapped (the post-crash bracket itself
@@ -1214,7 +1214,7 @@ moves to the S1 side study), and gap-down names appear only in 2025, the one yea
 pre-market data. A typical day has 3 to 5 tradable names in 2016–2019 and 8 to 25 from 2020 on.
 In 2017 and 2018 the median is 3 final names a day, which sits exactly on the §11.4 floor of 3
 (the floor itself is applied to the admissible count, §A0.4 item 10).
-That clears the §11.4 floor (median admissible 16 ≥ 3; at most 34,051 C_0 trades on 2,305 days,
+That clears the §11.4 floor (median admissible 16 ≥ 3; at most 34,053 C_0 trades on 2,305 days,
 against 300 on 150), so the round is **feasible on cached data** (U1 confirmed). The audit's three open findings
 (O1–O3) are closed by controller rulings P3-8 to P3-11 (§A0.3).
 
@@ -1240,7 +1240,7 @@ Each is pinned by a test in the model worktree. "Why" applies to the whole row.
 | 14 | S1, S2 and cost × 1.5 are re-simulated grids. S3 attributes the primary trades to G brackets with no re-simulation. | S3 is an attribution, not a new universe. | fills §4.6, §9.3 |
 | 15 | The pool rules of G(D) are frozen constants (`POOL_RULES`). If §A0.1's reproducibility shows a different true rule (§4.4 1b, E7), the change is a new reviewed code task recorded in a further amendment before any return, not a config edit. | Keeps G(D) out of reach of configuration. | fills §4.4 1b |
 
-#### A0.3 Controller rulings P3-1 .. P3-14
+#### A0.3 Controller rulings P3-1 .. P3-18
 
 - **P3-1 (process).** The audit runs once as `audit --refit` (a superset of the counts-only
   audit), and only that run's sha goes in §A0.1. *Why:* the counts-only audit leaves `c_label` and
@@ -1333,7 +1333,8 @@ Each is pinned by a test in the model worktree. "Why" applies to the whole row.
   another bracket stays. In 2016–2024 the drop removes nothing from the final universe, because
   the surviving post-crash members also qualify for another bracket. **Its own share is 1,139
   final symbol-days, all in 2025.** No key in the audit file holds this number. It is derived from
-  two audits: the 2025 `n_no_selection` falls from 6,822 (4155601) to 5,683 (0457541), a
+  two audits: the 2025 `n_no_selection` falls from 6,822 (4155601) to 5,683 (0457541; still 5,683
+  at a69f23c), a
   difference of 1,139, and that difference also contains any P3-10 removal in 2025. The P3-10
   share is derived the same way (P3-13 below). Its per-year differences, 1 / 2 / 0 / 0 / 0 / 8 /
   3 / 1 / 0 for 2016–2024, already add up to all 15 symbol-days that lacked CostInputs at
@@ -1352,15 +1353,17 @@ Each is pinned by a test in the model worktree. "Why" applies to the whole row.
   counted as `zero_adj_volume`, if the median of its last 20 daily split-adjusted volumes
   (`volume_v`, rows strictly before D) is not positive.* *Why:* the 15 no-selection symbol-days
   that lacked CostInputs in the 4155601 audit all had adjusted volume rounded to 0 after very large
-  reverse splits. At 0457541 it removes 4,076 step-1 symbol-days (§A0.1, where it sits ahead of
-  the gate). Books and CostInputs now match (34,051 each). This adds a step to §4.4 step 1. Its
+  reverse splits. At a69f23c (as at 0457541) it removes 4,076 step-1 symbol-days (§A0.1, where it sits ahead of
+  the gate). Books and CostInputs now match (34,053 each at a69f23c). This adds a step to §4.4 step 1. Its
   causality is ruled by P3-13 below.
 - **P3-7 (process, merge hold).** Amendment 0 is not merged into the model branch until §A0.1 is
   filled. *Why:* the `### Amendment 0` heading unskips the real-day parity test, which reads
   minute prices (§4.3 forbids that before Amendment 0 is recorded).
 - **P3-12 (user-approved 2026-10-26; critic A2, A6). Null void rule and multiplicity.** The
-  martingale AUC null is a **hard void condition**. It is computed with the P3-2 within-stratum
-  statistic, real OOF AUC against the AUC on the zero-drift synthetic paths. Every void-capable
+  martingale AUC null is a **hard void condition**. It is the model's P3-2 within-stratum AUC on
+  the zero-drift synthetic paths alone, tested against 0.5 (z > z\* voids), as coded at d55dda2
+  (`_martingale_gap` in `r16_pipeline.py`). The real-minus-synthetic AUC gap stays an H3
+  diagnostic, report-only. Every void-capable
   null AUC test uses one one-sided band: **the run is void iff z > z\*, with z\* = Φ⁻¹(1 −
   0.05/m)**, so the family-wise false-void rate is 5%. **m counts only the null AUC tests that can
   void the run (P3-15):** null (b) and the martingale null, one of each per (k, h, model) key.
@@ -1379,11 +1382,34 @@ Each is pinned by a test in the model worktree. "Why" applies to the whole row.
   causal" is struck. The rule is kept, labelled a **non-causal exclusion**. It removes about 15
   final symbol-days: 1, 2, 0, 0, 0, 8, 3, 1, 0 and 0 in 2016–2025, from the two-audit difference
   of P3-11 above. Its step-1 removals are in §A0.1. *Bias:* it drops names whose future includes
-  a large reverse split, so it can only raise absolute returns. It applies equally to every arm
+  a large reverse split, so it is expected to raise absolute returns. It applies equally to every arm
   and variant, so paired comparisons (Main − C_a, C_b, C_c) are unaffected to first order. Its
   removals are reported with the results.
 - **P3-14 (critic A1).** The two in-place edits are disclosed as §A0.6 items, and the s_D and
-  s_{D−1} reconciliation is stated there.
+  s_{D−1} reconciliation is stated there. P3-16 to P3-18 supersede that reconciliation.
+- **P3-15 (critic A6 follow-up).** m counts only the void-capable null AUC tests: null (b) and the
+  martingale null, one each per (k, h, model) key. Null (a)'s AUC is report-only, so it is not
+  in m. Full run m = 36, z\* = 2.9913; smoke m = 2, z\* = 1.960 (logged in `nulls.json` under
+  `"multiplicity"`; P3-12).
+- **P3-16 (reverts 4fa3cee in effect).** The R16 feed un-adjusts D's minute volumes with
+  **s_{D−1}**, not s_D. *Why:* the s_D = s_{D−1} guard of §A0.6 cannot hold. Over 35,205
+  admitted symbol-days, s_D drifts from s_{D−1} on 7,996 (169 by more than 2%, at most 0.86),
+  from integer rounding of the adjusted volume plus vendor drift. On a non-split day the true
+  factor is the same on D−1 and D, so the gap is noise, and it depends on D's end-of-day volume.
+  That makes it a look-ahead channel into `vol_rel` and the bar-volume fill cap. s_{D−1} is known
+  before the open. This also settles critic re-check R1: no s_D guard is needed, because s_D no
+  longer reaches R16. **Prices keep f_D**, because D's bars are on D's dividend basis and the
+  price-parity rule pins it. The residual is the rounding of D's adjusted close (about 1e-4 of
+  the close), which §4.4 allows. *Cost if wrong:* minute volumes are off by the s noise
+  (typically < 0.2%), the same basis as the decisions.
+- **P3-17 (data module).** `ReplayFeed(volume_factor_basis="prior" | "same_day")` is opt-in.
+  Its default stays `"same_day"`, so the existing feed tests are unchanged. R16 passes
+  `"prior"`. Whether live use flips the default is a later user decision.
+- **P3-18 (model module).** The same opt-in pattern applies one level up: `audit_feed_rejects`,
+  `run_engine_session` and `make_replay_feed` default to `"same_day"`. Every R16 pipeline stage
+  and `run_r16` pass `R16_VOLUME_FACTOR_BASIS` = `"prior"` (`r16_config.py`) explicitly, and a
+  guard test (`tests/test_intraday_model_r16_feed_basis.py`) pins the R16 call sites to
+  `"prior"`. The feed change touches `audit_feed_rejects`, so the audit was rerun at a69f23c.
 
 #### A0.4 Other rulings from the model reviews (`model-review-2.md`, `model-report-3.md`, `model-rereview-2.md`)
 
@@ -1437,26 +1463,29 @@ Each is pinned by a test in the model worktree. "Why" applies to the whole row.
 #### A0.6 In-place edits to the frozen text (P3-14; critic A1)
 
 The header (lines 7–9) forbids in-place edits after G1 sign-off (cff3c76). Two were made anyway.
-Both were made during the build, before any return, label or R16 metric existed. Both are kept,
-and are recorded here as Amendment 0 items.
+Both were made during the build, before any return, label or R16 metric existed. The frozen
+lines stay as they are now, and this amendment governs them: item 1 is **reverted in effect**,
+and item 2 is kept.
 
 1. **4fa3cee (2026-10-26 02:20:19 +0200, 13 s after the cff3c76 sign-off), §10.7 assertion
-   (line 842).** Old: "f_D for step 2b and the feed un-adjustment check". New: "f_D for step 2b
-   and f_D, s_D for the feed un-adjustment of D's own bars (they rebuild the tape as it traded;
-   no other field of D is read)". This reverses G1 re-check note R6, which required s_{D−1}.
-   *Reason:* the feed (`replay_feed.py`) un-adjusts D's own minute bars with D's daily row.
-   *Reconciliation with §4.4 (lines 275–276) and §9.1:* **s_{D−1} is used for every decision**,
-   meaning the screener (`pm_rvol`, participation), the RiskAgent, ADV and every share count
-   used inside D. **s_D only inverts the adjustment of D's own minute bars in the feed**, which
-   rebuilds D's tape on its traded basis, and it is never a decision input. Step 1 excludes
-   split days (factor step f_{D−1}/f_D), and s changes only at a split, so s_D = s_{D−1} on every
-   symbol-day that passes step 1. A guard assertion of that equality is requested from the
-   builder; it is not yet in code. *Same-day condition:* s_D and f_D need D's own daily row (with
-   a valid volume factor). A symbol-day without one is rejected by the feed in every arm. This
-   is a D-row existence condition, recorded as a same-day universe condition, as §4.2 does for
-   `forensic_universe`. Its count is inside `feed_reject` per year (§A0.1): 14, 5, 7, 21, 74, 44,
-   41, 15, 19 and 17 in 2016–2025, 257 in all. That is an upper bound, because `feed_reject` also
-   holds the other feed rejects.
+   (line 842): REVERTED in effect (P3-16 to P3-18).** Old: "f_D for step 2b and the feed
+   un-adjustment check". New, as edited in place: "f_D for step 2b and f_D, s_D for the feed
+   un-adjustment of D's own bars (they rebuild the tape as it traded; no other field of D is
+   read)". That edit reversed G1 re-check note R6. **From this amendment on, line 842 is read
+   with "s_D" struck.** The frozen R6 rule is restored: D's minute volumes are un-adjusted with
+   s_{D−1}, as §4.4 (lines 275–276) and §9.1 already say, so s_{D−1} is the only volume factor
+   in R16, for decisions and feed alike. f_D stays for D's prices (P3-16), so line 842's "f_D"
+   for the feed stands. The frozen text is not edited. *Same-day condition, which remains:* f_D
+   needs D's own daily row, and a symbol-day without one is rejected by the feed in every arm.
+   This is a D-row existence condition, recorded as a same-day universe condition, as §4.2 does
+   for `forensic_universe`. Its count is inside `feed_reject` per year (§A0.1): 14, 5, 7, 21,
+   74, 42, 41, 15, 19 and 17 in 2016–2025, 255 in all, an upper bound because `feed_reject` also
+   holds the other feed rejects. Against the 0457541 audit, the switch to s_{D−1} changed only
+   2021: `feed_reject` 44 → 42, so 2 symbol-days re-entered the final universe (4,538 → 4,540;
+   `gap3` 4,262 → 4,264 and `crash` double-qualifiers 734 → 735). The total went from 34,051 to
+   34,053 and the total feed rejects from 257 to 255. Through the refit those 2 symbol-days move
+   `c_label` from 0.0055374 to 0.0055375 (55.4 bps either way) and change the refit digest; every
+   other count is unchanged.
 2. **d881b22 (2026-10-26 02:45:52 +0200), §10.6 (lines 804–807).** Inserted: "Before the
    unseal, the quote-size unit is made date-dependent: Alpaca reports CTA/UTP sizes in round lots
    until 2025-11-02 and in shares from 2025-11-03 (procedural; it changes no development number,
@@ -1466,11 +1495,11 @@ and are recorded here as Amendment 0 items.
 
 #### A0.5 Process
 
-- Amendment 0 is written from an `audit --refit` run. The audit code is 0457541 (§A0.1). Later
+- Amendment 0 is written from an `audit --refit` run. The audit code is a69f23c (§A0.1). Later
   commits, including the P3-7 merge and any kept autoresearch change, must not touch the audit
   stages; if one does, the audit is rerun. The audit at 6057180 predates P3-5, and the audit at 4155601 predates
-  P3-10 and P3-11; neither is used, and Amendment 0 was refreshed in place for 0457541 before any
-  minute return was read. Under P3-7 it is not merged into the model branch until §A0.1 is filled,
+  P3-10 and P3-11, and the audit at 0457541 predates P3-16 to P3-18. None of them is used, and
+  Amendment 0 was refreshed in place for a69f23c before any minute return was read. Under P3-7 it is not merged into the model branch until §A0.1 is filled,
   because its heading unskips the real-day parity test. If any later
   code change affects an audit output (universe, provenance, gate, costs, `c_label`), the audit is
   rerun at the new SHA and §A0.1 is replaced in a dated amendment before any minute return is
