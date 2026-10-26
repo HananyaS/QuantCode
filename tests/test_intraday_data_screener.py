@@ -127,3 +127,72 @@ def test_symbol_without_prior_session_row_excluded() -> None:
 
 def test_short_adv_history_excluded() -> None:
     assert _universe(_daily(["A"], young={"NEW": 10})).symbols == ("A",)
+
+
+# ---- Task 5: pre-market conversion and ranking ------------------------------
+from research.penny.features.premarket import premarket_features  # noqa: E402
+
+from research.intraday.data.ranking import convert_premarket, rank_symbols  # noqa: E402
+
+
+def _prior(**spec: dict) -> pd.DataFrame:
+    return pd.DataFrame.from_dict(spec, orient="index")[["close_unadj", "f", "f_v", "s"]]
+
+
+def _pm(symbol: str, close: float = 2.0, volume: float = 100.0, minute: str = "09:00") -> pd.DataFrame:
+    return pd.DataFrame({"symbol": [symbol], "minute_et": [minute], "open": [close], "high": [close],
+                         "low": [close], "close": [close], "vwap": [close], "volume": [volume]})
+
+
+def _pm_gaps(**gaps: float) -> pd.DataFrame:
+    """Traded-basis pre-market bars whose close is 1 + gap (prev close 1.0)."""
+    frames = [_pm(sym, close=1.0 + g) for sym, g in gaps.items()]
+    if not frames:
+        return _pm("X").iloc[0:0]
+    return pd.concat(frames, ignore_index=True)
+
+
+def _prev(close: float, *symbols: str) -> pd.Series:
+    return pd.Series({s: close for s in symbols}, dtype=float)
+
+
+def test_conversion_uses_prior_day_factor() -> None:
+    prior = _prior(A=dict(close_unadj=2.0, f=0.5, f_v=0.5, s=0.5))  # D's own factor is 1.0, never passed
+    out, dropped = convert_premarket(_pm("A", close=4.0, volume=100.0), prior, 0.02)
+    assert out["close"].iloc[0] == 2.0 and out["volume"].iloc[0] == 200.0 and dropped == ()
+
+
+def test_premarket_bars_converted_to_traded_basis() -> None:
+    # dividend-only factor (f=0.9, s=1.0): adjusted 4.0 x 100 = $400, traded 3.6 x 100 = $360;
+    # the design's "volume / f" would give 3.6 x 111.1 = $400, the adjusted number again
+    prior = _prior(A=dict(close_unadj=3.0, f=0.9, f_v=0.9, s=1.0))
+    out, _ = convert_premarket(_pm("A", close=4.0, volume=100.0), prior, 0.02)
+    feats = premarket_features(out, prev_close=pd.Series({"A": 3.0}))
+    assert feats.loc[0, "pm_dollar_volume"] == pytest.approx(360.0)
+    assert feats.loc[0, "pm_gap"] == pytest.approx(3.6 / 3.0 - 1)
+
+
+def test_unconvertible_premarket_symbol_skipped() -> None:
+    prior = _prior(A=dict(close_unadj=2.0, f=0.5, f_v=0.25, s=0.25))   # sources disagree
+    out, dropped = convert_premarket(_pm("A"), prior, 0.02)
+    assert out.empty and dropped == ("A",)
+
+
+def test_symbols_sorted_unique_and_cut_to_top_n_before_sorting() -> None:
+    pm = _pm_gaps(Z=0.30, A=0.20, M=0.10)              # rank order Z, A, M
+    sel, _ = rank_symbols(("A", "M", "Z"), pm, _prev(1.0, "A", "M", "Z"), ("pm_gap", "pm_dollar_volume"), 2)
+    assert sel == ("A", "Z")
+
+
+def test_symbol_without_premarket_bars_skipped() -> None:
+    sel, n_missing = rank_symbols(("A", "B"), _pm_gaps(A=0.1), _prev(1.0, "A", "B"), ("pm_gap",), 5)
+    assert sel == ("A",) and n_missing == 1
+
+
+def test_rank_with_no_premarket_bars_returns_empty() -> None:
+    assert rank_symbols(("A", "B"), _pm_gaps(), _prev(1.0, "A", "B"), ("pm_gap",), 5) == ((), 2)
+
+
+def test_rank_ties_broken_by_symbol() -> None:
+    sel, _ = rank_symbols(("B", "A", "C"), _pm_gaps(A=0.1, B=0.1, C=0.1), _prev(1.0, "A", "B", "C"), ("pm_gap",), 2)
+    assert sel == ("A", "B")
