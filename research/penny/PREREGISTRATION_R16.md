@@ -1361,14 +1361,17 @@ Each is pinned by a test in the model worktree. "Why" applies to the whole row.
 - **P3-12 (user-approved 2026-10-26; critic A2, A6). Null void rule and multiplicity.** The
   martingale AUC null is a **hard void condition**. It is computed with the P3-2 within-stratum
   statistic, real OOF AUC against the AUC on the zero-drift synthetic paths. Every void-capable
-  null AUC test (null (b), the martingale null and null (a), each per (k, h, model)) uses one
-  one-sided band: **the run is void iff z > z\*, with z\* = Φ⁻¹(1 − 0.05/m)**, where m is the
-  number of void-capable null AUC tests in the run. m and z\* are computed in code and logged by
-  the run, so the family-wise false-void rate is 5%. **z < −z\*** is reported as negative skill
-  and does not void the run, as PREREG:834 says ("a null 'failing' by improving means negative
-  skill, not leakage"). Null (a)'s AUC enters m only as the permutation sanity check of P3-2.
-  Null (a)'s grid account (P3-4) stays binding. This replaces P3-2's |z| ≤ 3 and A0.4 item 5,
-  and fills §10.7.
+  null AUC test uses one one-sided band: **the run is void iff z > z\*, with z\* = Φ⁻¹(1 −
+  0.05/m)**, so the family-wise false-void rate is 5%. **m counts only the null AUC tests that can
+  void the run (P3-15):** null (b) and the martingale null, one of each per (k, h, model) key.
+  Null (a)'s AUC is report-only (the permutation sanity check of P3-2), so it can never void the
+  run and is not in m. Full run: 18 keys, **m = 36, z\* = Φ⁻¹(1 − 0.05/36) = 2.9913**. Smoke:
+  m = 2, z\* = 1.960. The code at d55dda2 (`research/intraday-model`) logs these values in the
+  nulls stage's `nulls.json` under `"multiplicity"` (`m`, `z_star`, `alpha` = 0.05, `one_sided` =
+  true, and one entry per test under `tests`), written by `r16_pipeline.py`. **z < −z\*** is
+  reported as negative skill and does not void the run, as PREREG:834 says ("a null 'failing' by
+  improving means negative skill, not leakage"). Null (a)'s grid account (P3-4) stays binding.
+  This replaces P3-2's |z| ≤ 3 and A0.4 item 5, and fills §10.7.
 - **P3-13 (critic A3). `zero_adj_volume` is non-causal in its data.** The rule reads
   `volume_v` on rows before D, but those values are split-adjusted as of the fetch date. They
   therefore carry reverse splits dated after D, and a large later reverse split, itself a
