@@ -154,3 +154,181 @@ def test_second_candidates_raises() -> None:
     agent = _agent({}); agent.on_event(cands("A"))
     with pytest.raises(ValueError):
         agent.on_event(cands("A"))
+
+
+# ---- Task 9: ReplayFeed over synthetic caches --------------------------------
+from research.intraday.contracts.events import Event  # noqa: E402
+from research.intraday.data.errors import SealedHoldoutError  # noqa: E402
+from research.intraday.data.paths import daily_file  # noqa: E402
+from research.intraday.data.replay_feed import ReplayFeed  # noqa: E402
+from research.intraday.engine.replay import run_replay  # noqa: E402
+
+SID = "screen:abc:2024-03-04"
+_ALL_MINUTES = [f"{h:02d}:{m:02d}" for h in range(9, 17) for m in range(60)
+                if "09:25" <= f"{h:02d}:{m:02d}" <= "16:05"]
+
+
+def _symbol_minutes(sym: str, price: float = 2.0, volume: float = 1000.0,
+                    closes: list[float] | None = None, bad_low: bool = False,
+                    duplicate_minute: str | None = None) -> pd.DataFrame:
+    if closes is None:
+        rows = synthetic.minute_rows(sym, D, _ALL_MINUTES, price=price, volume=volume)
+    else:
+        rows = pd.concat([synthetic.minute_rows(sym, D, [f"09:{30 + i:02d}"], price=c, volume=volume)
+                          for i, c in enumerate(closes)], ignore_index=True)
+    if bad_low:
+        i = rows.index[rows["minute_et"] == "09:31"][0]
+        rows.loc[i, "low"] = rows.loc[i, "close"] * 1.5
+    if duplicate_minute is not None:
+        rows = pd.concat([rows, rows[rows["minute_et"] == duplicate_minute]], ignore_index=True)
+    return rows
+
+
+def _root(tmp_path: Path, requested: tuple[str, ...] | None = None,
+          quotes: dict[str, str] | None = None, **symbols: dict) -> Path:
+    minute_frames, penny_rows, volume_rows = [], [], []
+    for sym, kw in symbols.items():
+        f = kw.get("f", 1.0)
+        f_open = kw.get("f_open", f)
+        f_v = kw.get("f_v", f)
+        s = kw.get("s", f)
+        rows = _symbol_minutes(sym, kw.get("price", 2.0), kw.get("volume", 1000.0), kw.get("closes"),
+                               kw.get("bad_low", False), kw.get("duplicate_minute"))
+        minute_frames.append(rows)
+        if kw.get("no_daily", False):
+            continue
+        session = rows[(rows["minute_et"] >= "09:30") & (rows["minute_et"] < "16:00")]
+        open_, close = float(session["open"].iloc[0]), float(session["close"].iloc[-1])
+        row = synthetic.daily_row(sym, D, close, f=f, s=s, open_=open_)
+        penny_rows.append({**row, "open_unadj": open_ * f_open})
+        volume_rows.append({**row, "close_unadj": close * f_v})
+    synthetic.write_minute(tmp_path, D, pd.concat(minute_frames, ignore_index=True),
+                           tuple(symbols) if requested is None else requested)
+    if penny_rows:
+        synthetic.write_daily(tmp_path, pd.DataFrame(penny_rows))
+        synthetic.write_volume_daily(tmp_path / "v", pd.DataFrame(volume_rows))
+    if quotes:
+        q = _summary(**{sym: dict(window=w) for sym, w in quotes.items()})
+        synthetic.write_quote_summaries(tmp_path, q, q.iloc[0:0])
+    return tmp_path
+
+
+def _daily_open_unadj(root: Path, symbol: str) -> float:
+    df = pd.read_parquet(daily_file(root, D.year))
+    return float(df.loc[df["symbol"] == symbol, "open_unadj"].iloc[0])
+
+
+def _run(feed: ReplayFeed, symbols: tuple[str, ...]) -> tuple[list[Event], FeedAgent]:
+    agent = FeedAgent(feed)
+    agent.on_event(Candidates(ts=et_to_utc(D, "09:25"), screen_id=SID, symbols=symbols))
+    events = [e for t in clock_ticks(et_to_utc(D, "09:25"), et_to_utc(D, "16:02")) for e in agent.on_event(t)]
+    return events, agent
+
+
+class ScreenlessCandidates:
+    """Emits a fixed Candidates on the 09:25 tick."""
+    subscribes = (ClockTick,)
+
+    def __init__(self, symbols: tuple[str, ...], name: str = "screenless") -> None:
+        self.symbols, self.name = symbols, name
+
+    def on_event(self, event: Event) -> tuple[Event, ...]:
+        if event.ts == et_to_utc(D, "09:25"):
+            return (Candidates(ts=event.ts, screen_id=SID, symbols=self.symbols),)
+        return ()
+
+
+def test_unadjust_scales_prices_by_factor_and_volume_inversely(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(f=0.1, s=0.1, price=20.0, volume=500.0))      # a 1:10 reverse split
+    bars = ReplayFeed(root, root / "v").open_session(D, ("A",), SID).bars
+    b = bars[("A", et_to_utc(D, "09:30"))]
+    assert b.close == pytest.approx(2.0) and b.volume == 5000
+
+
+def test_dividend_day_volume_unchanged(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(f=1.345, s=1.0, price=5.0, volume=1234.0))
+    b = ReplayFeed(root, root / "v").open_session(D, ("A",), SID).bars[("A", et_to_utc(D, "09:30"))]
+    assert b.volume == 1234 and b.close == pytest.approx(5.0 * 1.345)
+
+
+def test_unadjusted_first_open_matches_daily_open_unadj(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(f=0.5, price=4.0))
+    data = ReplayFeed(root, root / "v").open_session(D, ("A",), SID)
+    assert data.bars[("A", et_to_utc(D, "09:30"))].open == pytest.approx(_daily_open_unadj(root, "A"))
+    assert data.rejects == ()
+
+
+def test_factor_mismatch_symbol_day_becomes_gaps(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(f=0.5, f_open=0.4))                          # open and close factors disagree
+    events, agent = _run(ReplayFeed(root, root / "v"), ("A",))
+    assert all(isinstance(e, Gap) for e in events if e.symbol == "A") and len(events) == 390
+    assert [(r.kind, r.reason) for r in agent.rejects] == [("unadjust", "factor_mismatch")]
+
+
+def test_missing_daily_row_symbol_day_becomes_gaps(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(no_daily=True))
+    events, agent = _run(ReplayFeed(root, root / "v"), ("A",))
+    assert {type(e) for e in events} == {Gap} and agent.rejects[0].kind == "no_daily"
+
+
+def test_volume_factor_source_disagreement_becomes_gaps(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(f=0.5, f_v=0.25))
+    events, agent = _run(ReplayFeed(root, root / "v"), ("A",))
+    assert {type(e) for e in events} == {Gap} and agent.rejects[0].kind == "no_volume_factor"
+
+
+def test_intraday_returns_unchanged_by_unadjust(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(f=0.05, s=0.05, closes=[10.0, 11.0, 9.9]))
+    bars = sorted(ReplayFeed(root, root / "v").open_session(D, ("A",), SID).bars.values(), key=lambda b: b.bar_start)
+    assert [b.close / a.close for a, b in zip(bars, bars[1:])] == pytest.approx([1.1, 0.9])
+
+
+def test_zero_row_candidate_is_coverage_reject_not_only_gaps(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(), requested=("A", "B"))                     # B requested, no rows
+    events, agent = _run(ReplayFeed(root, root / "v"), ("A", "B"))
+    assert sum(1 for e in events if e.symbol == "B" and isinstance(e, Gap)) == 390
+    assert [(r.kind, r.symbol, r.reason) for r in agent.rejects] == [("coverage", "B", "requested_no_rows")]
+
+
+def test_coverage_rejects_counted_per_arm(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(), requested=("A", "B"))
+    a = ReplayFeed(root, root / "v").open_session(D, ("A", "B"), "screen:abc:2024-03-04").rejects
+    b = ReplayFeed(root, root / "v").open_session(D, ("A", "B", "C"), "no_selection:def:2024-03-04").rejects
+    assert counts_by_arm(a + b, "coverage") == {"no_selection": 2, "screen": 1}
+
+
+def test_quotes_suppressed_for_rejected_symbol_day(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(no_daily=True), quotes={"A": "decision"})
+    assert ReplayFeed(root, root / "v").open_session(D, ("A",), SID).quotes == {}
+
+
+def test_holdout_date_refused_without_unseal(tmp_path: Path) -> None:
+    with pytest.raises(SealedHoldoutError):
+        ReplayFeed(tmp_path, tmp_path / "v").open_session(date(2025, 8, 7), ("A",), SID)
+
+
+def test_invalid_cached_bar_raises(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(bad_low=True))                               # low > min(open, close)
+    with pytest.raises(ValueError, match="Bar.low"):
+        ReplayFeed(root, root / "v").open_session(D, ("A",), SID)
+
+
+def test_duplicate_cached_bar_raises(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(duplicate_minute="09:31"))
+    with pytest.raises(ValueError, match="duplicate"):
+        ReplayFeed(root, root / "v").open_session(D, ("A",), SID)
+
+
+def test_emitted_bar_fields_are_builtin_types(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(f=0.5))
+    b = next(iter(ReplayFeed(root, root / "v").open_session(D, ("A",), SID).bars.values()))
+    assert type(b.volume) is int and type(b.trade_count) is int and type(b.bar_start) is datetime
+    assert type(b.open) is float
+
+
+def test_replay_feed_is_deterministic(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(), B=dict(f=0.5), quotes={"A": "entry"})
+    h = [run_replay([ScreenlessCandidates(("A", "B")), FeedAgent(ReplayFeed(root, root / "v"))],
+                    [clock_ticks(et_to_utc(D, "09:25"), et_to_utc(D, "16:02"))], tmp_path / f"log{i}.jsonl")
+         for i in range(2)]
+    assert h[0] == h[1]

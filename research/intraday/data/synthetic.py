@@ -85,5 +85,6 @@ def write_premarket(root: Path, d: date, rows: pd.DataFrame) -> None:
 
 def write_quote_summaries(root: Path, r4: pd.DataFrame, rev: pd.DataFrame) -> None:
     p_r4, p_rev = quote_summary_files(root)
-    _write(p_r4, r4)
-    _write(p_rev, rev)
+    for path, frame in ((p_r4, r4), (p_rev, rev)):
+        # string dtype keeps a string schema even for an empty frame (object -> null)
+        _write(path, frame.astype({"symbol": "string", "window": "string"}))
