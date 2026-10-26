@@ -65,9 +65,15 @@ class ScreenerConfig:
             raise ValueError(f"rank_by names unknown features {unknown}")
 
 
+# Where the caches live is not part of the screen: excluding the roots keeps
+# screen_id machine-independent (the adapters are built from them, nothing else).
+HASH_EXCLUDED_FIELDS: tuple[str, ...] = ("data_root", "volume_daily_root")
+
+
 def config_hash(config: ScreenerConfig) -> str:
-    """sha256 of the canonical JSON of the configuration."""
-    blob = json.dumps(asdict(config), sort_keys=True, separators=(",", ":"),
+    """sha256 of the canonical JSON of the configuration, cache roots excluded."""
+    fields = {k: v for k, v in asdict(config).items() if k not in HASH_EXCLUDED_FIELDS}
+    blob = json.dumps(fields, sort_keys=True, separators=(",", ":"),
                       default=date.isoformat)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
@@ -162,4 +168,7 @@ class ScreenerAgent:
         traded, dropped = convert_premarket(pm, prior, cfg.unadjust_tolerance)
         selected, n_no_pm = rank_symbols(symbols, traded, prior["close_unadj"], cfg.rank_by,
                                          cfg.top_n)
+        # an unconvertible symbol has no traded-basis rows, so rank_symbols counted it too
+        n_no_pm -= len(dropped)
+        assert n_no_pm >= 0
         return selected, len(dropped), n_no_pm

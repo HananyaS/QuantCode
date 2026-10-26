@@ -24,6 +24,9 @@ class SessionData:
     quotes: Mapping[tuple[str, datetime], Quote]  # key (symbol, ts)
     rejects: tuple[Reject, ...]
     n_quotes_skipped: int
+    # the session's actual close (UTC) when the source knows it, e.g. 13:00 ET on a
+    # half day; the FeedAgent emits nothing for bar_start at or after it
+    session_close: datetime | None = None
 
 
 class BarSource(Protocol):
@@ -67,6 +70,8 @@ class FeedAgent:
         self._symbols = c.symbols
         self._open_utc = et_to_utc(d, self.session_open_et)
         self._close_utc = et_to_utc(d, self.session_close_et)
+        if self._data.session_close is not None:
+            self._close_utc = min(self._close_utc, self._data.session_close)
 
     def _release(self, t: datetime) -> tuple[Event, ...]:
         if self._data is None:

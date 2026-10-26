@@ -377,3 +377,24 @@ def test_report_records_cache_removals_per_arm() -> None:
     agent = ScreenerAgent(_good_inputs(cache_symbols=("A", "B")), ScreenerConfig(arm="no_selection"))
     agent.on_event(tick("09:25"))
     assert agent.report.n_removed_by_cache == 1 and agent.report.arm == "no_selection"
+
+
+# ---- Fix round 1 --------------------------------------------------------------
+def test_report_counts_unconvertible_and_no_premarket_separately() -> None:
+    inputs = _good_inputs()
+    a = inputs.daily["symbol"] == "A"
+    inputs.daily.loc[a, "close_unadj_v"] = inputs.daily.loc[a, "close_unadj_v"] * 2   # f_v disagrees with f
+    inputs.premarket = inputs.premarket[inputs.premarket["symbol"] != "B"].reset_index(drop=True)
+    agent = ScreenerAgent(inputs)
+    (c,) = agent.on_event(tick("09:25"))
+    assert (agent.report.n_unconvertible, agent.report.n_no_premarket) == (1, 1)
+    assert c.symbols == ("C",)
+
+
+def test_screen_id_independent_of_data_roots() -> None:
+    base = ScreenerConfig()
+    other = replace(base, data_root="D:/elsewhere", volume_daily_root="E:/elsewhere")
+    assert config_hash(base) == config_hash(other)
+    a = ScreenerAgent(_good_inputs(), base).on_event(tick("09:25"))
+    b = ScreenerAgent(_good_inputs(), other).on_event(tick("09:25"))
+    assert a == b

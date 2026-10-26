@@ -41,3 +41,16 @@ def write_rejects_jsonl(path: Path, rejects: Iterable[Reject]) -> None:
              for r in ordered]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+
+
+def read_rejects_jsonl(path: Path) -> tuple[Reject, ...]:
+    """Inverse of ``write_rejects_jsonl``."""
+    out: list[Reject] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line:
+            continue
+        obj = json.loads(line)
+        out.append(Reject(kind=obj["kind"], symbol=obj["symbol"],
+                          session_date=date.fromisoformat(obj["session_date"]),
+                          reason=obj["reason"], screen_id=obj["screen_id"]))
+    return tuple(out)

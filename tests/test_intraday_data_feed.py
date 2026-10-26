@@ -343,3 +343,72 @@ def test_symbol_with_only_post_close_rows_is_not_a_reject(tmp_path: Path) -> Non
     synthetic.write_minute(root, D, late, ("A",))
     data = ReplayFeed(root, root / "v").open_session(D, ("A",), SID)
     assert data.rejects == () and data.bars == {}
+
+
+# ---- Fix round 1 --------------------------------------------------------------
+import json  # noqa: E402
+from dataclasses import replace as _replace  # noqa: E402
+
+import numpy as np  # noqa: E402
+
+from research.intraday.data.paths import minute_file  # noqa: E402
+from research.intraday.data.rejects import read_rejects_jsonl, write_rejects_jsonl  # noqa: E402
+from research.intraday.data.sessions import NYSE_EARLY_CLOSES, session_close_et  # noqa: E402
+
+
+def test_write_rejects_jsonl_sorted_and_round_trips(tmp_path: Path) -> None:
+    rs = [Reject("unadjust", "B", date(2024, 3, 5), "open_mismatch", "screen:a:2024-03-05"),
+          Reject("coverage", "Z", D, "not_requested", "screen:a:2024-03-04"),
+          Reject("coverage", "A", D, "requested_no_rows", "no_selection:b:2024-03-04")]
+    path = tmp_path / "out" / "rejects.jsonl"
+    write_rejects_jsonl(path, rs)
+    text = path.read_text(encoding="utf-8")
+    assert [json.loads(line)["symbol"] for line in text.splitlines()] == ["A", "Z", "B"]
+    assert read_rejects_jsonl(path) == (rs[2], rs[1], rs[0])
+    write_rejects_jsonl(path, list(reversed(rs)))
+    assert path.read_text(encoding="utf-8") == text                  # canonical: input order irrelevant
+
+
+@pytest.mark.parametrize("col", ["volume", "trade_count"])
+def test_nonfinite_cached_volume_or_trade_count_raises(tmp_path: Path, col: str) -> None:
+    root = _root(tmp_path, A=dict())
+    minute = pd.read_parquet(minute_file(root, D))
+    minute.loc[minute["minute_et"] == "09:31", col] = np.nan
+    synthetic.write_minute(root, D, minute, ("A",))
+    with pytest.raises(ValueError, match=r"A.*09:31"):
+        ReplayFeed(root, root / "v").open_session(D, ("A",), SID)
+
+
+class HalfDaySource(FakeSource):
+    def open_session(self, session_date: date, symbols: tuple[str, ...], screen_id: str) -> SessionData:
+        data = FakeSource.open_session(self, session_date, symbols, screen_id)
+        return _replace(data, session_close=et_to_utc(session_date, "13:00"))
+
+
+def test_feed_stops_at_source_session_close() -> None:
+    agent = FeedAgent(HalfDaySource({("A", "12:59"): 2.0, ("A", "13:00"): 2.0}))
+    agent.on_event(cands("A"))
+    out = [e for t in clock_ticks(et_to_utc(D, "09:25"), et_to_utc(D, "16:02")) for e in agent.on_event(t)]
+    assert len(out) == 210 and max(e.ts for e in out) == et_to_utc(D, "13:00")
+    assert isinstance(out[-1], Bar) and out[-1].bar_start == et_to_utc(D, "12:59")
+
+
+def test_session_close_calendar() -> None:
+    assert session_close_et(date(2024, 7, 3)) == "13:00" and session_close_et(date(2024, 11, 29)) == "13:00"
+    assert session_close_et(date(2024, 7, 2)) == "16:00"
+    assert date(2019, 12, 24) in NYSE_EARLY_CLOSES and date(2020, 7, 3) not in NYSE_EARLY_CLOSES
+
+
+def test_replay_feed_half_day_closes_at_13(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict(f=0.5, price=4.0))
+    feed = ReplayFeed(root, root / "v", half_days=frozenset({D}))
+    data = feed.open_session(D, ("A",), SID)
+    assert data.session_close == et_to_utc(D, "13:00") and data.rejects == ()
+    assert max(bs for _, bs in data.bars) == et_to_utc(D, "12:59")
+    events, _ = _run(ReplayFeed(root, root / "v", half_days=frozenset({D})), ("A",))
+    assert len(events) == 210 and all(isinstance(e, Bar) for e in events)
+
+
+def test_replay_feed_full_day_reports_16_close(tmp_path: Path) -> None:
+    root = _root(tmp_path, A=dict())
+    assert ReplayFeed(root, root / "v").open_session(D, ("A",), SID).session_close == et_to_utc(D, "16:00")
