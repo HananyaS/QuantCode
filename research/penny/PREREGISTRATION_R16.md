@@ -1035,6 +1035,202 @@ G(D) coverage per year and bracket, the basis-check and `no_volume_factor` count
 tabulation, the breakout ledger line count, the SPY span, `c_label` and the cost-refit
 coefficients, all before any return is read)*
 
+### Amendment 0 (2026-10-26; DRAFT, audit fields pending)
+
+**In plain English.** Before the model sees a single minute of price movement, this amendment
+writes down two kinds of thing. First, the facts the counting audit found: how many stock-days
+are usable, how much of each gap bracket the cache covers, what trading costs look like, and the
+cost hurdle a trade must clear to count as a win. Second, about thirty small decisions that the
+pre-registration left open and the code had to settle (for example, exactly how "random" draws
+are seeded, or how a check that should find nothing is scored so that it really finds nothing).
+None of these decisions was made after seeing a result, because no result exists yet. Writing
+them down now means they cannot be adjusted later to make the strategy look better. Everything
+here stays conditional on the user confirming the design (U1).
+
+**Status and trial effect.** This amendment is recorded after G1 sign-off (cff3c76) and before
+any minute return, label or R16 metric has been read. Under §6.3, only an amendment made after an
+R16 number has been seen adds a trial, so it adds **0 trials**. N stays 4,248 unless §A0.1's
+prior-trial check raises the tally. Every `{{AUDIT:<key>}}` below is filled from
+`amendment0_inputs.json` (the dotted path names the JSON key). The frozen text above is unchanged.
+Where a ruling below changes a frozen sentence, the ruling governs from this amendment on.
+
+**Conditional on U1.** U1 is still pending. Every rule in the header box (all results conditional
+on U1, no Gate-I evidence and no unseal before confirmation, void as a test of the user's design
+if U1 is rejected) applies unchanged. Nothing in this amendment depends on the answer to U1.
+
+#### A0.1 Audit inputs (filled from the audit run; no return was read)
+
+| Field | Value | Source / check |
+|---|---|---|
+| audit git sha (code used by smoke and full) | `{{AUDIT:audit_git_sha}}` | git HEAD of the `audit --refit` run. Not a JSON key: it is the `<sha12>` of `data/research_intraday/r16/<sha12>/audit` |
+| audit output sha256 | `{{AUDIT:amendment0_inputs_sha256}}` | sha256 of the bytes of `amendment0_inputs.json`. Not a JSON key. `run_r16` preflight refuses smoke and full unless this exact hex appears under this heading |
+| audit scope | `{{AUDIT:audit_scope}}` | must read "counts, cost refit and c_label" (§A0.5, process) |
+| dev sessions | `{{AUDIT:n_dev_sessions}}`, `{{AUDIT:dev_first}}` .. `{{AUDIT:dev_last}}` | `dev_last` < 2025-08-07 |
+| `c_label` (return fraction) | `{{AUDIT:c_label}}` | §5.4, §9.3; median refit round trip at $2,000 over dev no-selection symbol-days |
+| refit coefficients | `{{AUDIT:refit.coef}}` | §9.3; one block per target (`half_spread_bps`, `ask_notional`, `bid_notional`) |
+| refit R² / digest / years | `{{AUDIT:refit.r2}}` / `{{AUDIT:refit.digest}}` / `{{AUDIT:refit.years}}` | the digest is the §12 "cost-refit coefficient hash" |
+| refit row counts | `{{AUDIT:refit_counts}}`, `{{AUDIT:cost_refit_inputs}}` | |
+| classes, minute cache: C0 / C1 / C2 / U | `{{AUDIT:audits.minute.counts.by_class.C0}}` / `{{AUDIT:audits.minute.counts.by_class.C1}}` / `{{AUDIT:audits.minute.counts.by_class.C2}}` / `{{AUDIT:audits.minute.counts.by_class.U}}` | §4.3 step 5; a symbol-day holding several classes is counted in each |
+| classes, pre-market cache: C0 / C1 / C2 / U | `{{AUDIT:audits.premarket.counts.by_class.C0}}` / `{{AUDIT:audits.premarket.counts.by_class.C1}}` / `{{AUDIT:audits.premarket.counts.by_class.C2}}` / `{{AUDIT:audits.premarket.counts.by_class.U}}` | §4.3 step 5 |
+| classes by year and pool | `{{AUDIT:audits.minute.counts.by_year}}`, `{{AUDIT:audits.minute.counts.by_pool_in_cache}}`, and the same under `audits.premarket` | §4.3 step 5 |
+| pool reproducibility (1% rule) | `{{AUDIT:audits.minute.reproducibility}}`, `{{AUDIT:audits.premarket.reproducibility}}` | §4.3 step 1a, §4.4 1b (see plan ambiguity 15) |
+| pool completeness (≥ 99% to rescue) | `{{AUDIT:audits.minute.completeness}}`, `{{AUDIT:audits.premarket.completeness}}` | §4.3 step 4a |
+| pool spans | `{{AUDIT:pool_spans}}` | §4.4 1b: each bracket fires only inside its pool's span |
+| \|G ∩ cache\| / \|G\| per year and bracket | `{{AUDIT:gate_coverage}}` (year → {gap10, gap3, rev, crash}) | §4.5. Numerator and denominator: `{{AUDIT:gate_cache_by_year_bracket}}`, `{{AUDIT:gate_members_by_year_bracket}}`; admissible and final: `{{AUDIT:gate_admissible_by_year_bracket}}`, `{{AUDIT:final_no_selection_by_year_bracket}}` |
+| short-history exclusions (< 21 prior daily rows) | `{{AUDIT:removals_by_year.<YYYY>.short_history}}` per dev year | §A0.3, P3-5 |
+| removals per step and year | `{{AUDIT:removals_by_year}}` | §4.4 (step 1, short history, `no_volume_factor`, gate, cache, provenance, pre-market, basis, feed) |
+| basis-check and `no_volume_factor` rejects per year | `{{AUDIT:basis_check_by_year}}`, `{{AUDIT:no_volume_factor_by_year}}` | §4.4 step 2b, V1 |
+| infeasibility median (final admissible count per day) | `{{AUDIT:median_admissible}}` (step 1 only: `{{AUDIT:median_admissible_after_step1}}`) | §11.4 as amended (§A0.4, item 10): infeasible if < 3 |
+| C_0 trade bound | `{{AUDIT:c0_trade_bound.symbol_days}}` symbol-days on `{{AUDIT:c0_trade_bound.days_nonempty}}` days | §11.4: infeasible if < 300 or < 150 |
+| `top_n` binding share | `{{AUDIT:top_n_binding_share}}` | §10.3 |
+| medians per year | `{{AUDIT:median_by_year}}` | |
+| day errors | `{{AUDIT:day_errors}}` | must be empty, or each day is listed here and excluded |
+| half days removed | `{{AUDIT:half_days}}` | §A0.4, item 11 |
+| SPY span | `{{AUDIT:spy}}` | §7, R8 |
+| prior-trial tabulation | found `{{AUDIT:prior_trials.found}}`; prereg `{{AUDIT:prior_trials.prereg}}`; match `{{AUDIT:prior_trials.matches_prereg}}`; lower bound `{{AUDIT:prior_trials.prereg_tally_lower_bound}}` | §6.3. If every row matches, `PRIOR_TRIALS_R16` = 4,194 and N = 4,248. A larger found value raises the tally by the difference before the run; a smaller one never lowers it |
+| breakout ledger lines | `{{AUDIT:prior_trials.breakout_ledger_lines}}` (also `{{AUDIT:breakout_ledger_lines}}`) | §6.3 non-gating DSR sensitivity |
+| `search_trials.jsonl` lines | `{{AUDIT:search_trials_lines}}` | §6.3 row 8 (195) |
+| provenance sha256 | `{{AUDIT:provenance_sha256}}` (combined: `{{AUDIT:provenance_sha256.combined}}`) | §12 tag |
+| §11.4 verdict | `{{AUDIT:infeasible}}` | computed by `r16_amendment0.infeasible` on the file, not a JSON key. True ⇒ the round is infeasible on cached data and no return is read |
+
+#### A0.2 Plan ambiguities (plan `2026-10-26-intraday-p3-model-r16.md`, items 1–15)
+
+Each is pinned by a test in the model worktree. "Why" applies to the whole row.
+
+| # | Ruling | Why | Fills / changes |
+|---|---|---|---|
+| 1 | Training subsample: per fit, the `GBDT_TRAIN_CAP` = 1,000,000 / `CNN_TRAIN_CAP` = 200,000 training windows with the smallest `subsample_key(symbol, ts)` (splitmix64, seed 16); `CNN_VAL_CAP` = 50,000 early-stopping windows by the same rule. Inference and thresholds use every window. | Compute on a 16 GB host. The key ignores outcomes, so the sample cannot select on the label; the samples are nested across folds. | fills §5.4 training population, §6.4 |
+| 2 | Training, validation, threshold and AUC use only windows with `ts` < 15:30 ET (`last_entry_et`). | A later window can never trade, so it would only dilute the label. | fills §5.4, §5.5 |
+| 3 | `ret_n = log(close[-1] / open[-n])`; `vol_rel` uses the window median volume, else the mean if the median is 0, else 0.0. | Keeps the k-bar return inside the window and defines the zero-volume case. | fills §5.4 features |
+| 4 | `c_label` round trip: entry leg = open-window refit prediction (ask side), exit leg = close-window prediction (bid side), at $2,000, as in `etl/quotes.py::round_trip_cost_bps`; median over dev no-selection symbol-days. | §9.3 names the median but not the legs. | fills §5.4, §9.3 |
+| 5 | Time-of-day interpolation is linear in level (bps, $ notional), not in log, in ET clock minutes between 09:35 and 15:55. | §9.3 says "linear interpolation in clock time" without the scale. | fills §9.3 |
+| 6 | C_b, C_c and C_0 do not depend on the model factor: 27 × 20 = 540 unique C_b runs serve all 54 main cells, reported as the 1,080 pairings. | The gbdt and cnn twins share every control input, so their controls are the same runs. | fills §6.2, §6.4 |
+| 7 | Null (a): permuted-label OOF AUC must fall to the null; null (b): the label of the same symbol and ET minute on the dev session 20 sessions later, dropped if absent; a session ≥ `holdout_start` is never read. The AUC statistic and the account half are **superseded by P3-2 and P3-4** (§A0.3). | §10.7 says "fall to the null" with no test. | fills §10.7 (a), (b) |
+| 8 | C_b null band (§7 N5): per seed, \|z\| ≤ Φ⁻¹(1 − 0.01/80) = 3.66 for AUC and for IC (Spearman of score against y); z from a day-clustered bootstrap SE (B = 200); Bonferroni over 20 seeds × 2 statistics. One-sided p (§10.4) = (1 + #{b: m*_b − m ≥ m}) / (B + 1), centred bootstrap. Scope: §A0.4 item 9. | §7 N5 names a band but not its width. | fills §7 N5, §10.4 |
+| 9 | DSR: `Var(SR_n)` across the 54 main cells is on the annualised scale and is passed to `eval/stats.py::deflated_sharpe_ratio` as var / 252. | That function works per period. | fills §10.4 |
+| 10 | Ties after §10.5's list: `fixed_pct` over `atr`, then smaller h. The C_b 95th percentile is `np.percentile(…, 95)` (linear). | §10.5 stops before breaking every tie. | fills §10.5, §11.1.2 |
+| 11 | Gross account = the net run's fills with `cost_bps` = 0 over the same E_{d−1}; trades are identical. | Gross and net must differ only by cost. | fills §10.3 |
+| 12 | Smoke runs are pipeline tests only: experiment `intraday-smoke`, their own folds, 60 dev sessions, no trial-ledger line, never cited as R16 evidence. | A smoke run must not become a trial. | fills §12 |
+| 13 | The engine full-period replay (§6.4, §11.1.6) runs only if some cell meets §11.1.1–5 (smoke: SMOKE_CELL always). If none does, H1 fails on development and the parity test is the validity evidence. The halt sensitivity and the engine-only parts of §10.7 run on that replay. | Nothing would be validated by replaying a failed grid. | fills §6.4, §11.1.6; see P3-4 |
+| 14 | S1, S2 and cost × 1.5 are re-simulated grids. S3 attributes the primary trades to G brackets with no re-simulation. | S3 is an attribution, not a new universe. | fills §4.6, §9.3 |
+| 15 | The pool rules of G(D) are frozen constants (`POOL_RULES`). If §A0.1's reproducibility shows a different true rule (§4.4 1b, E7), the change is a new reviewed code task recorded in a further amendment before any return, not a config edit. | Keeps G(D) out of reach of configuration. | fills §4.4 1b |
+
+#### A0.3 Controller rulings P3-1 .. P3-6
+
+- **P3-1 (process).** The audit runs once as `audit --refit` (a superset of the counts-only
+  audit), and only that run's sha goes in §A0.1. *Why:* the counts-only audit leaves `c_label` and
+  the refit null, and the costs and windows stages then refuse.
+- **P3-2 (controller ruling, pending user review). Nulls (a) and (b) comparator.** The statistic
+  is the within-stratum AUC: strata are (session date, symbol, 30-min ET bucket of the decision
+  time); only strata holding both classes count; AUC = ΣU / ΣP, the pair-weighted mean of the
+  stratum AUCs (ties count ½). SE comes from a day-clustered bootstrap (B = 200, seed 16, each day a
+  cluster). z = (AUC − 0.5)/SE. The null passes iff |z| ≤ 3. z < −3 is reported as negative skill
+  and does not pass. Strata, pair and day counts are recorded; the pooled AUC is report-only.
+  Fills §10.7 (a), (b) (the "falls to the null" test) and replaces ambiguity 7's pooled
+  statistic.
+  *Why, in plain words:* the pooled AUC compares every window with every other window across all
+  days, symbols and times. A model can then score above 0.5 on null labels with no leakage at all.
+  Under null (a), each day keeps its own share of winners, and busy days have both more
+  big-moving windows and more windows that clear `c_label`; a model that learns "volatile
+  window ⇒ volatile day" ranks windows of high-share days above those of low-share days, so the
+  pooled AUC beats 0.5. Under null (b), the label comes from the same symbol and minute 20
+  sessions later, and both a symbol's volatility and the early-session volatility persist, so a
+  model that recognises "volatile symbol" or "first half hour" predicts the shifted label honestly.
+  All of these use only past and present information, so they are not leakage, but a pooled AUC
+  test would wrongly void the run. Comparing windows only inside the same session, symbol and
+  half hour removes the day base rate, symbol volatility and coarse time of day, so what is left
+  is what a null should show: nothing. *If wrong:* the nulls are too lenient. If the user changes
+  this before any null result is read, the change is a further amendment and adds no trial;
+  after a null result is seen, it adds one (§6.3).
+- **P3-3. Null (b) labels** are read from the full windows-stage index at session d+20 (same
+  symbol, same ET minute) and require `valid_h`. Drops are counted under `beyond_last_session`,
+  `no_window_at_target` and `target_label_invalid`. *Why:* reading the training subsample would
+  drop most targets. Fills §10.7 (b).
+- **P3-4. Null (a)'s account half and the §5.6 halt sensitivity are run, not dropped.** *Why:*
+  §10.7 (a) and §5.6 require them. Null (a) account: the last fold, one null model per (k, h,
+  model) refit on 100% of the training dates, threshold = the 0.90 quantile of its own scores on
+  the training rows of the inner-validation block (in-sample for the null model), scored on the
+  last fold's OOS days. For every main cell, the paired daily-return difference against that
+  cell's C_b seed mean on the same days, B = `BOOT_B`, seed 16, iid days, passes iff its 95% CI
+  contains 0. In full mode a failure voids the run (exit 5). Halt sensitivity: the replayed main
+  cell (smoke: SMOKE_CELL) is replayed again with `infer_halts_from_gaps = True`, `gap_halt_min =
+  5`, report-only, never voiding. It therefore exists in full mode only when ambiguity 13's replay
+  runs. Fills §10.7 (a), §5.6.
+- **P3-5. Short history.** Names with fewer than **21** daily rows strictly before D in the
+  45-calendar-day lookback are excluded right after step 1 and counted as `short_history`
+  (count in §A0.1). A missing CostInputs for any primary or S1 universe symbol-day, either arm,
+  fails the costs stage. *Why:* the 20-session statistics (ADV, σ_20d, and 20 returns for the
+  cost regressors) need 21 rows. §4.4 step 1 says "at least 20", which leaves σ_20d undefined.
+  Changes §4.4 step 1 (20 → 21) and adds a count to §4.4. A name whose 20 prior closes are equal
+  (σ_20d = 0) fails the costs stage by design, and smoke will show whether that happens.
+- **P3-6. §12 MLflow layout.** One run per (cell or control, fold) plus an aggregate. Params: the
+  flattened §5 keys (`risk.*`, `exec.*`), `config_hash`, `model_hash` (or `random:<seed>` /
+  `constant`), fold, threshold. `event_log_hash` = sha256 over every parity config-day's engine log
+  hash. `git_clean` = HEAD equals the run's sha and the tree is clean. Replayed cells are tagged
+  `engine_log_hashes_sha`. Fills §12.
+
+#### A0.4 Other rulings from the model reviews (`model-review-2.md`, `model-report-3.md`, `model-rereview-2.md`)
+
+1. **Gate ADV versus screen ADV (M4).** The gate and pool ADV (adjusted close × volume, mean of
+   the last 20 rows including D−1, min_periods 5, which is the R3/R4 builders' `adv_20`) is used
+   **only** to replicate the source pools in G(D) and the audit. It is never used for
+   `min_adv_usd`. The screen's `min_adv_usd` is always the §4.4 step-1 statistic (20-session
+   median of `close_unadj × volume_unadj`, raw × raw, V1). *Why:* the pools were built with their
+   own ADV, but adjusted prices encode the future and are never a screen. Fills §4.4 1b.
+2. **Seeding (M-5).** No stdlib `random` is used anywhere (a guard test flags any call), so no
+   Python seed is set. The CNN worker calls `set_torch_determinism(42)` (with §5.4's
+   deterministic flags and one thread), and its epoch shuffles use `torch.Generator` seeded
+   42 + epoch. Every other draw uses a seeded `numpy.random.Generator`: bootstrap 16 (§10.2 and
+   all clustered SEs), nulls 16 (training labels) and 17 (OOF labels), subsample 16, parity days
+   16, martingale paths 16 + i. C_b scores are splitmix64(symbol, ts, seed), seeds 0–19. Fills
+   §5.4 "seeds fixed for Python, NumPy and torch".
+3. **Quote-size unit (Q1).** Dev uses `quote_size_scale = 1.0`: every dev date is before
+   2025-11-03, so the cached sizes are in round lots and are read as the feed defines them. This
+   was checked against the cache: the implied median touch is about 704 shares (~$2.8k) under the
+   lot reading. Holdout scaling (lots → shares from 2025-11-03) is deferred to the pre-unseal step
+   of §10.6 and changes no dev number.
+4. **Null (d).** "Exactly zero" means |pnl| ≤ 1e-9 × E_{d−1}, on one cell per (exit arm ×
+   gbdt / cnn / random / constant) over the first 5 OOS days. *Why:* constant prices with zero cost
+   leave about 4e-12 from the engine-identical cash arithmetic. Fills §10.7 (d).
+5. **Martingale AUC null** is report-only, not a void condition: every 10th OOS day of the last
+   fold, path seeds 16 + i. *Why:* §10.7 lists it with no pass rule. Fills §10.7.
+6. **Null retrain training set (M7).** Nulls (a) and (b) train on `store.train_rows`, the
+   union of the fit, full and validation caps, which is a superset of the fold model's own capped
+   set. *Why:* a larger set makes the null harder to fail by under-fitting. Fills §10.7.
+7. **Threshold population.** Every primary tradable window of the inner-validation block,
+   including label-invalid ones, scored per day. Fills §5.5 `entry_threshold`.
+8. **Grid threshold shortcut (M1)** is report-only: the grid passes each model cell the minimum
+   threshold over folds, which is equivalent because `score_oos` stores only scores at or above
+   their own fold's threshold. `below_threshold` skip counts therefore differ from the engine's,
+   and that count is not a parity field.
+9. **C_b band scope (M13).** Last fold only, on the 200k smallest-key no-selection OOF windows,
+   |z| ≤ 3.66 (ambiguity 8). C_b itself trades the screen arm. Fills §7 N5.
+10. **Infeasibility floor (I2).** §11.4's median is taken over the **final** admissible count
+    (step 1 ∧ short history ∧ G ∧ cache ∧ C0/C1), not the step-1 count of the §11.4 example.
+    Changes §11.4.
+11. **Half days (M-1).** Taken from the NYSE early-close calendar (`data.sessions`), 19 dev days
+    (§A0.1 `half_days`), instead of a minute-file 13:00 rule, which finds none because the cache
+    holds after-hours bars. This defines the dev-session list and the folds. Fills §4.4 step 3,
+    §10.1.
+12. **Non-finite Sharpe (M2).** A non-finite Sharpe in any main cell makes `Var(SR_n)` NaN, so
+    §11.1.3 fails for every cell. The failing cells are named in `evaluation.json`
+    `dsr_failure`. Fills §10.4.
+
+#### A0.5 Process
+
+- Amendment 0 is written from an `audit --refit` run at the code SHA that smoke and full will
+  use (§A0.1 `audit_git_sha`). The audit run at 6057180 predates P3-5 and is not used. If any later
+  code change affects an audit output (universe, provenance, gate, costs, `c_label`), the audit is
+  rerun at the new SHA and §A0.1 is replaced in a dated amendment before any minute return is
+  read. Preflight enforces the link: smoke and full refuse unless this heading carries the sha256
+  of the `amendment0_inputs.json` they load.
+- **Autoresearch (user decision, 2026-10-26).** Autoresearch is used only as a performance loop
+  (peak memory and wall time per stage, on the fixed 60-session smoke slice, ≤ 2024-12-31). A
+  change is kept only if every stage output sha256 is bit-identical to the baseline at the fixed
+  SHA and the full test suite passes. It never loops on returns, inner-fold AUC or any metric of
+  §10, so it selects nothing and adds **no trials** to the DSR count. A kept speed change that
+  touches audit inputs triggers the audit rerun above.
+
 ---
 
 ## Changes after G1
