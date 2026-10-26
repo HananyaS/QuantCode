@@ -159,7 +159,8 @@ class MonitorAgent:
         assert self._baseline is not None
         ref = now - _MIN  # the minute ending at `now` arrives after the tick (ADR-001)
         limit = timedelta(minutes=self._stale_after_min)
-        stale = [(s, self._last_seen.get(s, self._baseline)) for s in self._candidates]
+        base = self._baseline  # a Bar/Gap before Candidates never predates the baseline
+        stale = [(s, max(base, self._last_seen.get(s, base))) for s in self._candidates]
         stale = [(s, last) for s, last in stale if ref - last >= limit]
         if not stale:
             return ()
@@ -181,7 +182,9 @@ class MonitorAgent:
             return ()
         run = self._gap_run.get(sym, 0) + 1
         self._gap_run[sym] = run
-        if run == self._gap_halt_min and not self._halted.get(sym, False):
+        # >=, not ==: a run that crossed N while the halt log had the symbol halted
+        # still infers a halt once the log resumes it.
+        if run >= self._gap_halt_min and not self._halted.get(sym, False):
             self._halted[sym] = True
             self._inferred.add(sym)
             return (Halt(ts=event.ts, symbol=sym, halted=True,

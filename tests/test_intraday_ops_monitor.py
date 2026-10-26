@@ -255,3 +255,21 @@ def test_halt_log_halt_takes_over_inferred_halt() -> None:
     assert feed(mon, tick(6)) == []                     # duplicate halt: skipped, counted
     assert mon.counts["skipped_duplicate_halt"] == 1
     assert feed(mon, bar("AAA", 6)) == []               # the log, not a bar, ends this halt
+
+
+# --- Fix round 1 ---
+
+def test_bar_before_candidates_does_not_predate_baseline() -> None:
+    mon = monitor()
+    assert feed(mon, tick(-5), bar("AAA", -4), cands("AAA", m=-3), tick(1), tick(2)) == []
+    (k,) = feed(mon, tick(3))                                    # at(2) - baseline at(0) = 2
+    assert k.reason.startswith(f"stale_feed: AAA last={at(0).isoformat()}")
+
+
+def test_gap_inference_fires_on_run_crossing_threshold_after_log_resume() -> None:
+    rows = [HaltRow(at(3), "AAA", True, "LUDP"), HaltRow(at(6), "AAA", False, "LUDP")]
+    mon = monitor(rows, infer_halts_from_gaps=True, gap_halt_min=5)
+    evs = [tick(-5), cands("AAA")] + [e for m in range(1, 9) for e in (tick(m), gap("AAA", m))]
+    assert [(h.ts, h.halted, h.reason) for h in feed(mon, *evs)] == [
+        (at(3), True, "LUDP"), (at(6), False, "LUDP"),
+        (at(6), True, "inferred: 5 consecutive gaps")]       # run is 6 at gap(6): >= 5

@@ -232,3 +232,17 @@ def test_manifest_records_sha_config_and_model_hash(tmp_path: Path) -> None:
 def test_git_state_reports_sha_and_dirty() -> None:
     sha, dirty = git_state(Path(__file__).resolve().parents[1])
     assert re.fullmatch(r"[0-9a-f]{40}", sha) and isinstance(dirty, bool)
+
+
+# --- Fix round 1 ---
+
+def test_git_state_rejects_non_sha_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import subprocess
+
+    import research.intraday.ops.manifest as manifest_mod
+
+    def fake_run(args: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 0, stdout="not-a-sha\n", stderr="")
+    monkeypatch.setattr(manifest_mod.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="git sha"):
+        git_state(tmp_path)

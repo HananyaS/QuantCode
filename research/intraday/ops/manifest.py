@@ -43,7 +43,8 @@ def git_state(repo: Path) -> tuple[str, bool]:
         return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True,
                               text=True, encoding="utf-8").stdout
     sha = git("rev-parse", "HEAD").strip()
-    assert _GIT_SHA.fullmatch(sha), f"unexpected git sha {sha!r}"
+    if not _GIT_SHA.fullmatch(sha):  # not an assert: it must survive python -O
+        raise RuntimeError(f"git rev-parse HEAD returned an unexpected git sha {sha!r}")
     return sha, bool(git("status", "--porcelain").strip())
 
 
@@ -53,7 +54,11 @@ def manifest_path(log_path: Path) -> Path:
 
 def write_manifest(log_path: Path, *, git_sha: str, git_dirty: bool,
                    config: Mapping[str, object], model_hash: str, unseal: bool) -> Path:
-    """Write the manifest of a closed log (mode "x": never overwritten); return its path."""
+    """Write the manifest of a closed log (mode "x": never overwritten); return its path.
+
+    Call only after the recorder is closed: ``log_hash`` is read from the file on disk,
+    so an open (unflushed or still-growing) log would be hashed short.
+    """
     if not isinstance(git_sha, str) or not _GIT_SHA.fullmatch(git_sha):
         raise ValueError(f"git_sha must be 40 lowercase hex characters, got {git_sha!r}")
     if not isinstance(model_hash, str) or not model_hash:
