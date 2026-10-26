@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal, Mapping, Protocol
 
 import numpy as np
@@ -18,7 +18,12 @@ from research.intraday.exec.config import SUMMARY_READY_ET, ExecConfig, to_et
 from research.penny.etl.quotes import leg_cost_bps
 
 Side = Literal["buy", "sell"]
-CostSource = Literal["quote", "summary", "default"]
+CostSource = Literal["quote", "summary", "default", "refit"]
+REFIT_FIELDS = ("hs_open_bps", "hs_close_bps", "ask_notional_open", "ask_notional_close",
+                "bid_notional_open", "bid_notional_close")
+REFIT_OPEN_ET: time = time(9, 35)
+REFIT_CLOSE_ET: time = time(15, 55)
+TICK: float = 0.01
 
 
 def _finite_float(name: str, x: object) -> float:
@@ -36,16 +41,30 @@ class CostInputs:
     half_spread_bps: float | None = None
     ask_notional: float | None = None
     bid_notional: float | None = None
+    # UP-2 refit book: the symbol-day's predicted inside at 09:35 (open) and 15:55 (close)
+    hs_open_bps: float | None = None
+    hs_close_bps: float | None = None
+    ask_notional_open: float | None = None
+    ask_notional_close: float | None = None
+    bid_notional_open: float | None = None
+    bid_notional_close: float | None = None
+
+    @property
+    def has_refit_book(self) -> bool:
+        return self.hs_open_bps is not None
 
     def __post_init__(self) -> None:
         if _finite_float("sigma_daily", self.sigma_daily) < 0:
             raise ValueError(f"CostInputs.sigma_daily must be >= 0, got {self.sigma_daily}")
         if _finite_float("adv_shares", self.adv_shares) <= 0:
             raise ValueError(f"CostInputs.adv_shares must be > 0, got {self.adv_shares}")
-        for name in ("half_spread_bps", "ask_notional", "bid_notional"):
+        for name in ("half_spread_bps", "ask_notional", "bid_notional", *REFIT_FIELDS):
             v = getattr(self, name)
             if v is not None and _finite_float(name, v) <= 0:
                 raise ValueError(f"CostInputs.{name} must be None or > 0, got {v}")
+        present = [getattr(self, n) is not None for n in REFIT_FIELDS]
+        if any(present) and not all(present):
+            raise ValueError(f"CostInputs refit book needs all of {REFIT_FIELDS} or none")
 
 
 class CostInputsSource(Protocol):
@@ -85,9 +104,53 @@ def quote_half_spread_bps(quote: Quote) -> float:
     return float((quote.ask - quote.bid) / (2.0 * mid) * 10_000)
 
 
+def half_tick_floor_bps(price: float) -> float:
+    """Half a $0.01 tick in bps of the fill price: no inside is narrower than this."""
+    if not (math.isfinite(price) and price > 0):
+        raise ValueError(f"fill price must be finite and > 0, got {price}")
+    return 0.5 * TICK / price * 1e4
+
+
+def _clock_minutes(t: time) -> float:
+    return t.hour * 60 + t.minute + t.second / 60 + t.microsecond / 60e6
+
+
+def refit_interp(fill_instant: datetime, x_open: float, x_close: float) -> float:
+    """``x_open`` at or before 09:35 ET, ``x_close`` at or after 15:55, linear in clock minutes."""
+    t = _clock_minutes(to_et(fill_instant).time())
+    lo, hi = _clock_minutes(REFIT_OPEN_ET), _clock_minutes(REFIT_CLOSE_ET)
+    if t <= lo:
+        return float(x_open)
+    if t >= hi:
+        return float(x_close)
+    return float(x_open + (x_close - x_open) * (t - lo) / (hi - lo))
+
+
+def _refit_mode_book(side: Side, fill_instant: datetime, quote: Quote | None,
+                     inputs: CostInputs, fill_price: float | None) -> CostBook:
+    if fill_price is None:
+        raise ValueError("refit cost book needs the fill price (half-tick floor)")
+    floor = half_tick_floor_bps(fill_price)
+    if quote is not None:
+        notional = quote.ask * quote.ask_size if side == "buy" else quote.bid * quote.bid_size
+        return CostBook(max(quote_half_spread_bps(quote), floor), float(notional), "quote")
+    if not inputs.has_refit_book:
+        raise ValueError("no refit cost book in the cost inputs (cost_book='refit')")
+    hs = refit_interp(fill_instant, inputs.hs_open_bps, inputs.hs_close_bps)
+    if side == "buy":
+        notional = refit_interp(fill_instant, inputs.ask_notional_open, inputs.ask_notional_close)
+    else:
+        notional = refit_interp(fill_instant, inputs.bid_notional_open, inputs.bid_notional_close)
+    return CostBook(max(hs, floor), notional, "refit")
+
+
 def select_cost_book(side: Side, fill_instant: datetime, quote: Quote | None,
-                     inputs: CostInputs, config: ExecConfig) -> CostBook:
-    """Fresh quote, else the 09:34 summary (from 09:35 ET), else the default spread."""
+                     inputs: CostInputs, config: ExecConfig,
+                     fill_price: float | None = None) -> CostBook:
+    """Default mode: fresh quote, else the 09:34 summary (from 09:35 ET), else the default
+    spread. Refit mode (UP-2): fresh quote, else the refit book; both floored at half a tick."""
+    if config.cost_book == "refit":
+        return _refit_mode_book(side, fill_instant, quote, inputs, fill_price)
     if quote is not None:
         notional = quote.ask * quote.ask_size if side == "buy" else quote.bid * quote.bid_size
         return CostBook(quote_half_spread_bps(quote), float(notional), "quote")
@@ -115,7 +178,7 @@ def fill_cost_bps(side: Side, qty: int, price: float, fill_instant: datetime,
                   config: ExecConfig) -> tuple[float, CostSource]:
     if type(qty) is not int or qty <= 0:
         raise AssertionError(f"fill qty must be a positive int, got {qty!r}")
-    book = select_cost_book(side, fill_instant, quote, inputs, config)
+    book = select_cost_book(side, fill_instant, quote, inputs, config, fill_price=price)
     cost = leg_cost_bps_scalar(qty * price, book.side_notional, book.half_spread_bps,
                                inputs.sigma_daily, qty / inputs.adv_shares,
                                config.impact_coefficient, config.levels_penalty)

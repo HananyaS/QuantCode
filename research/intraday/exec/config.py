@@ -4,12 +4,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 ET: ZoneInfo = ZoneInfo("America/New_York")
 SUMMARY_READY_ET: time = time(9, 35)
 """The 09:34 quote summary covers quotes through 09:34 ET: causal from 09:35 ET."""
 HOLDOUT_START: date = date(2025, 8, 7)
+CostBookMode = Literal["default", "refit"]
 
 
 def to_et(ts: datetime) -> datetime:
@@ -34,6 +36,10 @@ class ExecConfig:
     impact_coefficient: float = 1.0
     levels_penalty: float = 1.0
     default_half_spread_bps: float = 100.0
+    cost_book: CostBookMode = "default"
+    """``"refit"`` (R16, UP-2): with no fresh quote the spread and inside notional come from
+    the symbol-day's refit book (required), and every book's half-spread is floored at half a
+    tick. ``"default"``: the 09:34 summary from 09:35 ET, else ``default_half_spread_bps``."""
 
     def __post_init__(self) -> None:
         for name in _FLOAT_FIELDS:
@@ -58,5 +64,7 @@ class ExecConfig:
         if self.default_half_spread_bps <= 0:
             raise ValueError(
                 f"ExecConfig.default_half_spread_bps must be > 0, got {self.default_half_spread_bps}")
+        if self.cost_book not in ("default", "refit"):
+            raise ValueError(f"ExecConfig.cost_book must be 'default' or 'refit', got {self.cost_book!r}")
         if type(self.eod_et) is not time or self.eod_et.tzinfo is not None:
             raise ValueError(f"ExecConfig.eod_et must be a naive time of day, got {self.eod_et!r}")

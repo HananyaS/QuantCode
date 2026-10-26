@@ -311,3 +311,24 @@ def test_sell_reduces_lots_without_pending_exit_first() -> None:
     assert (s.intent_id, s.qty) == ("s-1", 100)
     (x,) = ex.on_event(bar(3))                               # intent-1 keeps its lot and its exit
     assert (x.intent_id, x.side, x.qty) == ("intent-1", "sell", 100) and broker.position("TEST") == 0
+
+
+# ---- UP-2: refit cost book through the broker ---------------------------------
+REFIT_CI = CostInputs(sigma_daily=0.05, adv_shares=1e6, hs_open_bps=80.0, hs_close_bps=40.0,
+                      ask_notional_open=1_000.0, ask_notional_close=3_000.0,
+                      bid_notional_open=2_000.0, bid_notional_close=600.0)
+
+
+def test_refit_book_cost_through_broker() -> None:
+    ex, broker = make_exec(inputs={"TEST": REFIT_CI}, cost_book="refit")
+    ex.on_event(make_order_intent(ts=at(4)))
+    (f,) = ex.on_event(bar(4, open=1.00))                   # bar_start 09:35: the open end of the book
+    assert f.cost_bps == pytest.approx(leg_cost_bps_scalar(100.0, 1_000.0, 80.0, 0.05, 1e-4, 1.0, 1.0))
+    assert broker.source_counts()["cost:refit"] == 1
+
+
+def test_no_refit_book_for_symbol_day_raises() -> None:
+    ex, _ = make_exec(cost_book="refit")                    # INPUTS carry no refit book
+    ex.on_event(make_order_intent(ts=at(4)))
+    with pytest.raises(ValueError, match="no refit cost book for TEST"):
+        ex.on_event(bar(4))

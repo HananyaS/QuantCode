@@ -20,7 +20,7 @@ from research.intraday.exec.ids import client_order_id
 from research.intraday.exec.sizing import fill_cap, fresh_quote
 
 Side = Literal["buy", "sell"]
-SOURCE_KEYS = ("cap:quote", "cap:bar", "cost:quote", "cost:summary", "cost:default")
+SOURCE_KEYS = ("cap:quote", "cap:bar", "cost:quote", "cost:summary", "cost:default", "cost:refit")
 
 
 class _BarBudget:
@@ -304,6 +304,8 @@ class SimBroker:
         inputs = self._inputs.get(symbol, session)
         if inputs is None:
             raise ValueError(f"no cost inputs for {symbol} on {session}")
+        if self._cfg.cost_book == "refit" and not inputs.has_refit_book:
+            raise ValueError(f"no refit cost book for {symbol} on {session}")
         return fill_cost_bps(side, qty, price, fill_instant, quote, inputs, self._cfg)
 
     # ---- helpers ------------------------------------------------------------
