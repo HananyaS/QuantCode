@@ -91,6 +91,7 @@ Turn each `OrderIntent` into fills and order updates through a broker adapter, m
 | both TP and SL in one bar | stop wins | builder's call |
 | `impact_coefficient`, `levels_penalty` | `1.0`, `1.0` | spec §4 ("costs from the refit cost model"); the refit may change them |
 | `default_half_spread_bps` (no quote and no cost inputs) | `100.0` | builder's call; placeholder until the refit |
+| `skip_missing_cost_inputs` | `False` | ledger P2-13: `True` cancels an entry whose symbol-day has no cost inputs (`no cost inputs for S on D`) instead of raising; default keeps the raise |
 | broker | SimBroker now; AlpacaPaperBroker after Gate I with `paper=True` asserted | spec §2 |
 
 Cost inputs are not events: an injected per-symbol-day adapter supplies `sigma_daily` (trailing 20
