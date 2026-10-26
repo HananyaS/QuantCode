@@ -1062,17 +1062,18 @@ if U1 is rejected) applies unchanged. Nothing in this amendment depends on the a
 
 | Field | Value | Source / check |
 |---|---|---|
-| audit git sha (code used by smoke and full) | `4155601` (output dir `data/research_intraday/r16/41556014e62e/audit`) | git HEAD of the `audit --refit --workers 2` run |
-| audit output sha256 | `f0e912eb54b40597979dc5124bbf33f8ab2b0490f349cf105cea7856de7b49d8` | sha256 of the bytes of `data/research_intraday/r16/amendment0_inputs.json` (53,101 bytes, byte-identical to the copy under `41556014e62e/audit/`). `run_r16` preflight refuses smoke and full unless this hex appears in the prereg at HEAD under this heading |
+| audit git sha (code used by smoke and full) | `0457541` (output dir `data/research_intraday/r16/04575419fd76/audit`) | git HEAD of the `audit --refit` run. An earlier audit at 4155601 was superseded by the P3-10 and P3-11 code changes and is not used |
+| audit output sha256 | `2e80cc0e89ccec032762c5316ff8f466882c21cda4efca6d4bcba14d83f499ab` | sha256 of the bytes of `data/research_intraday/r16/amendment0_inputs.json` (53,616 bytes, byte-identical to the copy under `04575419fd76/audit/`). `run_r16` preflight refuses smoke and full unless this hex appears in the prereg at HEAD under this heading |
 | audit scope | counts, cost refit and c_label | as required (§A0.5) |
 | dev sessions | 2,358, 2016-02-17 .. 2025-08-06 | `dev_last` < 2025-08-07; `day_errors` empty |
-| `c_label` | 0.005718 (57.2 bps) | §5.4, §9.3 |
-| refit digest | `9b1d023b37211016d1b89563a690c77a1624b3810bd43b1bb3c7615cd01c8619` | the §12 cost-refit coefficient hash; years 2016–2025, base year 2016; coefficients below |
-| refit rows | fit 95,012; books 35,205; CostInputs 35,190 | no-selection symbol-days 35,205, of which 32,022 have a quote summary (share 0.910) |
-| infeasibility median (final admissible count per day) | 23 (after step 1 only: 484) | §11.4 as amended (§A0.4 item 10): floor 3 |
-| C_0 trade bound | 35,205 symbol-days on 2,305 days | §11.4 floor: 300 trades on 150 days |
+| `c_label` | 0.005537 (55.4 bps) | §5.4, §9.3 |
+| refit digest | `b7da07e5e958265b76c1d67b92a882488a8892f8bae5c6085b529ffa45228c6c` | the §12 cost-refit coefficient hash; years 2016–2025, base year 2016; coefficients below |
+| refit rows | fit 94,988; books 34,051; CostInputs 34,051 | no-selection symbol-days 34,051, of which 32,014 have a quote summary (share 0.940) |
+| infeasibility median (final admissible count per day) | 16 (after step 1 only: 484) | §11.4 as amended (§A0.4 item 10): floor 3 |
+| C_0 trade bound | 34,051 symbol-days on 2,305 days | §11.4 floor: 300 trades on 150 days |
 | §11.4 verdict | **feasible** (`infeasible` = False) | `r16_amendment0.infeasible` on the file |
-| `top_n` binding share | 0.332 of days | §10.3 |
+| brackets dropped (P3-9/P3-11) | `crash` in 2020, 2021, 2022, 2023, 2024, 2025 (R15 pre-market completeness < 0.99) | to S1 |
+| `top_n` binding share | 0.329 of days | §10.3 |
 | half days removed | 19: 2016-11-25, 2017-07-03, 2017-11-24, 2018-07-03, 2018-11-23, 2018-12-24, 2019-07-03, 2019-11-29, 2019-12-24, 2020-11-27, 2020-12-24, 2021-11-26, 2022-11-25, 2023-07-03, 2023-11-24, 2024-07-03, 2024-11-29, 2024-12-24, 2025-07-03 | §A0.4 item 11 |
 | SPY span | cache 2016-01-04 .. 2024-12-30 (2,263 rows); 2025 from `research_breakout/daily` 2025-01-02 .. 2025-08-06 (148 rows) | §7, R8 |
 | prior-trial tabulation | `search_trials.jsonl` 195 lines; `hypothesis_grid` 441; `battery_dev` 287; `r15_intraday_dev` 315. All four match the prereg | §6.3: `PRIOR_TRIALS_R16` = 4,194, binding **N = 4,248**, unchanged |
@@ -1134,93 +1135,76 @@ if U1 is rejected) applies unchanged. Nothing in this amendment depends on the a
 | 2024 | 0.997 (774 / 776) | 0.998 (3,543 / 3,551) | 0.995 (4,048 / 4,068) | 0.582 (4,940 / 8,493) |
 | 2025 | 0.994 (719 / 723) | 0.997 (3,831 / 3,843) | 0.998 (5,451 / 5,464) | 0.654 (5,156 / 7,889) |
 
-| Year | admissible: gap10 / gap3 / rev / crash | final no-selection: gap10 / gap3 / rev / crash |
+Final no-selection counts per bracket are not disjoint: after the P3-11 drop, every remaining `crash` symbol-day also qualifies for another bracket (it counts in both).
+
+| Year | admissible (before the crash drop): gap10 / gap3 / rev / crash | final no-selection: gap10 / gap3 / rev / crash |
 |---|---|---|
-| 2016 | 188 / 1,584 / 1,695 / 0 | 180 / 1,483 / 0 / 0 |
-| 2017 | 195 / 847 / 834 / 0 | 192 / 820 / 0 / 0 |
+| 2016 | 188 / 1,584 / 1,695 / 0 | 180 / 1,482 / 0 / 0 |
+| 2017 | 195 / 847 / 834 / 0 | 190 / 820 / 0 / 0 |
 | 2018 | 222 / 915 / 1,092 / 0 | 219 / 876 / 0 / 0 |
 | 2019 | 262 / 1,048 / 1,392 / 0 | 253 / 1,021 / 0 / 0 |
 | 2020 | 1,613 / 8,297 / 8,431 / 7,822 | 1,472 / 8,028 / 0 / 1,859 |
-| 2021 | 911 / 4,459 / 4,858 / 3,841 | 862 / 4,268 / 0 / 735 |
-| 2022 | 470 / 4,160 / 7,271 / 7,187 | 440 / 4,042 / 0 / 865 |
-| 2023 | 450 / 2,679 / 2,858 / 3,807 | 420 / 2,614 / 0 / 321 |
+| 2021 | 911 / 4,459 / 4,858 / 3,841 | 856 / 4,262 / 0 / 734 |
+| 2022 | 470 / 4,160 / 7,271 / 7,187 | 438 / 4,041 / 0 / 864 |
+| 2023 | 450 / 2,679 / 2,858 / 3,807 | 419 / 2,614 / 0 / 320 |
 | 2024 | 774 / 3,543 / 4,045 / 4,940 | 736 / 3,467 / 0 / 576 |
-| 2025 | 719 / 3,828 / 5,448 / 5,156 | 684 / 3,731 / 1,707 / 2,141 |
+| 2025 | 719 / 3,828 / 5,448 / 5,156 | 684 / 3,731 / 1,707 / 1,002 |
 
-**Universe steps per year (§4.4, symbol-days).** `step 1`, `admissible`, `final` and `screen` are the counts left after a stage; every other column is the count removed at that step. `step 1` = passes §4.4 step 1. `admissible` = step 1 minus short history, `no_volume_factor`, gate, cache and provenance (I2). `final` = the no-selection universe, i.e. `admissible` minus the pre-market, basis and feed steps. `screen` = after `top_n`.
+**Universe steps per year (§4.4, symbol-days).** `step 1`, `admissible`, `final` and `screen` are the counts left after a stage; every other column is the count removed at that step. `step 1` = passes §4.4 step 1. `admissible` = step 1 minus short history, `zero_adj_volume`, `no_volume_factor`, gate, the crash-bracket drop (P3-9/P3-11), cache and provenance (I2). `final` = the no-selection universe, i.e. `admissible` minus the pre-market, basis and feed steps. `screen` = after `top_n`.
 
-| Year | step 1 | short history (< 21 rows) | `no_volume_factor` | gate | cache | provenance | admissible | pm not requested | pm C2/U | basis check | feed reject | final | screen |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2016 | 64,593 | 3 | 2,435 | 58,957 | 4 | 0 | 3,194 | 1,608 | 0 | 0 | 14 | 1,572 | 1,091 |
-| 2017 | 69,284 | 12 | 2,792 | 64,734 | 8 | 0 | 1,738 | 809 | 0 | 0 | 5 | 924 | 833 |
-| 2018 | 71,755 | 12 | 2,670 | 66,989 | 10 | 0 | 2,074 | 1,064 | 0 | 0 | 7 | 1,003 | 838 |
-| 2019 | 83,646 | 9 | 2,821 | 78,289 | 4 | 0 | 2,523 | 1,351 | 0 | 0 | 21 | 1,151 | 961 |
-| 2020 | 121,837 | 21 | 4,590 | 92,776 | 3,730 | 1 | 20,719 | 12,119 | 67 | 0 | 74 | 8,459 | 2,145 |
-| 2021 | 130,364 | 92 | 6,028 | 108,553 | 4,040 | 4 | 11,647 | 7,053 | 3 | 1 | 44 | 4,546 | 2,027 |
-| 2022 | 134,112 | 48 | 4,276 | 107,984 | 5,552 | 2 | 16,250 | 11,980 | 12 | 0 | 41 | 4,217 | 1,714 |
-| 2023 | 127,379 | 22 | 4,062 | 111,830 | 2,995 | 3 | 8,467 | 5,656 | 11 | 0 | 15 | 2,785 | 1,737 |
-| 2024 | 133,409 | 22 | 4,497 | 114,115 | 3,447 | 2 | 11,326 | 7,572 | 9 | 0 | 19 | 3,726 | 2,017 |
-| 2025 | 97,014 | 39 | 3,515 | 78,301 | 2,642 | 5 | 12,512 | 5,669 | 0 | 0 | 21 | 6,822 | 1,464 |
-| total | 1,033,393 | 280 | 37,686 | 882,528 | 22,432 | 17 | 90,450 | 54,881 | 102 | 1 | 261 | 35,205 | 14,827 |
+| Year | step 1 | short history (< 21 rows) | `zero_adj_volume` | `no_volume_factor` | gate | crash bracket dropped | cache | provenance | admissible | pm not requested | pm C2/U | basis check | feed reject | final | screen |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2016 | 64,593 | 3 | 210 | 2,228 | 58,955 | 0 | 4 | 0 | 3,193 | 1,608 | 0 | 0 | 14 | 1,571 | 1,091 |
+| 2017 | 69,284 | 12 | 392 | 2,429 | 64,710 | 0 | 8 | 0 | 1,733 | 806 | 0 | 0 | 5 | 922 | 831 |
+| 2018 | 71,755 | 12 | 409 | 2,263 | 66,987 | 0 | 10 | 0 | 2,074 | 1,064 | 0 | 0 | 7 | 1,003 | 838 |
+| 2019 | 83,646 | 9 | 501 | 2,325 | 78,285 | 0 | 4 | 0 | 2,522 | 1,350 | 0 | 0 | 21 | 1,151 | 961 |
+| 2020 | 121,837 | 21 | 425 | 4,188 | 92,757 | 7,648 | 6 | 1 | 16,791 | 8,191 | 67 | 0 | 74 | 8,459 | 2,145 |
+| 2021 | 130,364 | 92 | 1,505 | 4,611 | 108,511 | 6,302 | 89 | 4 | 9,250 | 4,664 | 3 | 1 | 44 | 4,538 | 2,023 |
+| 2022 | 134,112 | 48 | 414 | 3,898 | 107,969 | 10,350 | 48 | 2 | 11,383 | 7,116 | 12 | 0 | 41 | 4,214 | 1,713 |
+| 2023 | 127,379 | 22 | 165 | 3,903 | 111,827 | 5,865 | 23 | 3 | 5,571 | 2,761 | 11 | 0 | 15 | 2,784 | 1,736 |
+| 2024 | 133,409 | 22 | 19 | 4,478 | 114,115 | 7,118 | 25 | 2 | 7,630 | 3,876 | 9 | 0 | 19 | 3,726 | 2,017 |
+| 2025 | 97,014 | 39 | 36 | 3,484 | 78,300 | 5,884 | 22 | 5 | 9,244 | 3,544 | 0 | 0 | 17 | 5,683 | 1,456 |
+| total | 1,033,393 | 280 | 4,076 | 33,807 | 882,416 | 43,167 | 239 | 17 | 69,391 | 34,980 | 102 | 1 | 257 | 34,051 | 14,811 |
 
 **Daily medians per year.**
 
 | Median per day | 2016 | 2017 | 2018 | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | 2025 |
 |---|---|---|---|---|---|---|---|---|---|---|
 | step 1 | 287 | 278 | 286 | 338.5 | 489.5 | 514 | 531 | 514 | 535 | 659 |
-| admissible | 11 | 6 | 6 | 7 | 40.5 | 33.5 | 45.5 | 28 | 37 | 55 |
-| final no-selection | 5 | 3 | 3 | 4 | 13.5 | 11 | 8 | 8 | 11 | 33 |
+| admissible | 11 | 6 | 6 | 7 | 32 | 24 | 28 | 17 | 22 | 36 |
+| final no-selection | 5 | 3 | 3 | 4 | 13.5 | 11 | 8 | 8 | 11 | 25 |
 | screen | 4 | 3 | 3 | 3 | 10 | 10 | 8 | 8 | 10 | 10 |
 
 **Cost refit (§9.3; OLS in logs; base year 2016; `window_close` = 1 for the 15:55 window).**
 
 | Regressor | log half-spread (bps) | log ask notional | log bid notional |
 |---|---|---|---|
-| `const` | +8.8688 | -2.6690 | -2.4424 |
-| `log_adv20` | -0.2882 | +0.6434 | +0.6347 |
-| `log_close_prev` | -0.3041 | -0.7503 | -0.7673 |
-| `log_sigma` | +0.2813 | -0.7463 | -0.7260 |
-| `window_close` | -0.5354 | +1.5069 | +1.4639 |
-| `year_2017` | +0.0638 | -0.0097 | +0.0007 |
-| `year_2018` | +0.0479 | -0.2782 | -0.2509 |
-| `year_2019` | +0.0151 | -0.3155 | -0.2613 |
-| `year_2020` | +0.0872 | -0.5909 | -0.5773 |
-| `year_2021` | +0.1241 | -0.5679 | -0.5341 |
-| `year_2022` | +0.0809 | -0.5446 | -0.5307 |
-| `year_2023` | +0.0292 | -0.5770 | -0.5432 |
-| `year_2024` | +0.1153 | -0.6229 | -0.5739 |
-| `year_2025` | +0.3249 | -0.8538 | -0.8365 |
-| R² | 0.496 | 0.565 | 0.551 |
+| `const` | +8.8694 | -2.6772 | -2.4512 |
+| `log_adv20` | -0.2882 | +0.6437 | +0.6351 |
+| `log_close_prev` | -0.3041 | -0.7508 | -0.7679 |
+| `log_sigma` | +0.2813 | -0.7471 | -0.7270 |
+| `window_close` | -0.5355 | +1.5073 | +1.4640 |
+| `year_2017` | +0.0638 | -0.0091 | +0.0009 |
+| `year_2018` | +0.0479 | -0.2776 | -0.2507 |
+| `year_2019` | +0.0151 | -0.3149 | -0.2612 |
+| `year_2020` | +0.0872 | -0.5900 | -0.5767 |
+| `year_2021` | +0.1243 | -0.5682 | -0.5347 |
+| `year_2022` | +0.0807 | -0.5443 | -0.5307 |
+| `year_2023` | +0.0292 | -0.5763 | -0.5430 |
+| `year_2024` | +0.1152 | -0.6221 | -0.5735 |
+| `year_2025` | +0.3249 | -0.8528 | -0.8360 |
+| R² | 0.496 | 0.565 | 0.552 |
 
 **What the counts say, in plain English.** The development period has 2,358 sessions, and about a
-million stock-days pass the price and liquidity filter, but only 35,205 stock-days on 2,305
-sessions survive into the test universe, because the gate keeps only names that gapped and the
-cache holds only names an earlier study saved. The cache covers 98–100% of the gate's gap-up and
-gap-down members but only 48–67% of the post-crash bracket, and gap-down names survive the
-pre-market step only in 2025. A typical day has 3 to 5 tradable names in 2016–2019 and 8 to 33
-from 2020 on. That clears the §11.4 floor (median admissible 23 ≥ 3; at most 35,205 C_0 trades on
-2,305 days, against 300 on 150), so the round is **feasible on cached data**. Three findings below
-still need a controller ruling before any return is read.
-
-**Open findings for the controller (recorded, not ruled on here).**
-- **O1. Pool reproducibility.** Four pools fail the 1% rule of §4.3 step 1a: `candidates_r15`
-  (1.120), `candidates_rev` (0.024), `candidates_rev_probe` (9.858) and `hyp_pool` (0.718). In
-  each, the coded rule (`POOL_RULES`) generates more rows than the file holds (n_rule > n_file),
-  so G(D) is wider than the cached pool. For the crash bracket, this is the 48–67% coverage above.
-  §4.4 1b says the recorded true rule replaces the bracket in Amendment 0, and plan ambiguity 15
-  makes that a new reviewed code task, so this needs a ruling and a re-audit, or an explicit
-  decision to keep the coded rules, before any return is read.
-- **O2. Pre-market completeness of the `rev` and `crash` sources.** `candidates_rev` and
-  `candidates_rev_probe` have pre-market completeness 0.000 in 2016–2024 (0.389 in 2025), and the
-  `rev` bracket's final no-selection count is 0 in every year before 2025 (1,707 in 2025).
-  `candidates_r15` has pre-market completeness 0.037–0.122 in 2020–2024 (0.543 in 2025), against
-  1.000 in the minute cache. The header box says the post-crash bracket drops out if the R15 pool
-  fails §4.3 step 4a (U2). Which cache that test refers to needs a ruling. Until then, the
-  untested-strata list of §4.5 is effectively extended by "−10% ≤ gap ≤ −3% before 2025".
-- **O3. Cost coverage.** The refit built 35,205 books but only 35,190 CostInputs, so 15
-  no-selection symbol-days lack CostInputs. If they are in the costs-stage universe,
-  `assert_cost_coverage` (P3-5) fails the costs stage, as P3-5 intends. Smoke will show whether
-  this happens. Only 32,022 of the 35,205 symbol-days (0.910) have a quote summary for the refit.
+million stock-days pass the price and liquidity filter, but only 34,051 stock-days on 2,305
+sessions survive into the test universe, because the gate keeps only names that gapped at the
+open and the cache holds only names an earlier study saved. The primary test is therefore mostly
+gap-up stocks: post-crash names enter only when they also gapped (the post-crash bracket itself
+moves to the S1 side study), and gap-down names appear only in 2025, the one year with their
+pre-market data. A typical day has 3 to 5 tradable names in 2016–2019 and 8 to 25 from 2020 on.
+That clears the §11.4 floor (median admissible 16 ≥ 3; at most 34,051 C_0 trades on 2,305 days,
+against 300 on 150), so the round is **feasible on cached data**. The audit's three open findings
+(O1–O3) are closed by controller rulings P3-8 to P3-11 (§A0.3).
 
 #### A0.2 Plan ambiguities (plan `2026-10-26-intraday-p3-model-r16.md`, items 1–15)
 
@@ -1244,7 +1228,7 @@ Each is pinned by a test in the model worktree. "Why" applies to the whole row.
 | 14 | S1, S2 and cost × 1.5 are re-simulated grids. S3 attributes the primary trades to G brackets with no re-simulation. | S3 is an attribution, not a new universe. | fills §4.6, §9.3 |
 | 15 | The pool rules of G(D) are frozen constants (`POOL_RULES`). If §A0.1's reproducibility shows a different true rule (§4.4 1b, E7), the change is a new reviewed code task recorded in a further amendment before any return, not a config edit. | Keeps G(D) out of reach of configuration. | fills §4.4 1b |
 
-#### A0.3 Controller rulings P3-1 .. P3-6
+#### A0.3 Controller rulings P3-1 .. P3-11
 
 - **P3-1 (process).** The audit runs once as `audit --refit` (a superset of the counts-only
   audit), and only that run's sha goes in §A0.1. *Why:* the counts-only audit leaves `c_label` and
@@ -1297,6 +1281,37 @@ Each is pinned by a test in the model worktree. "Why" applies to the whole row.
   `constant`), fold, threshold. `event_log_hash` = sha256 over every parity config-day's engine log
   hash. `git_clean` = HEAD equals the run's sha and the tree is clean. Replayed cells are tagged
   `engine_log_hashes_sha`. Fills §12.
+- **P3-8 (closes O1, pool reproducibility).** Four pools fail the 1% rule of §4.3 step 1a:
+  `candidates_r15` (1.120), `candidates_rev` (0.024), `candidates_rev_probe` (9.858) and
+  `hyp_pool` (0.718). In each, the coded rule produces more rows than the file holds. Ruling: the
+  coded `POOL_RULES` stay as G(D), because they are the gate of the user's design. Rows that
+  differ between file and rule are U per §4.3 step 1a (minute U = 566). Coverage below 100%
+  (`crash` 0.48–0.67) is disclosed in §A0.1, and results are also reported per bracket. *Why:*
+  §4.4 1b's "true rule" clause would change the user's gate to fit the cache. *If wrong:* the
+  covered part of a bracket is a non-random subset of G, and the per-bracket table exposes that.
+  This fills §4.4 1b and closes ambiguity 15 with no code change.
+- **P3-9 / P3-11 (closes O2, completeness and the U2 drop).** The header box's U2 drop of the
+  post-crash bracket is tested on the **pre-market** cache, because the screen needs pre-market
+  data and §4.4 step 2 removes symbol-days whose pre-market data was not requested from every
+  arm. Only the post-crash bracket is dropped as a bracket, and only in years where R15
+  pre-market completeness is < 0.99. That is data-driven, and here it covers 2020–2025, every
+  year the pool exists. The dropped bracket goes to S1. A symbol-day that also qualifies for
+  another bracket stays. In 2016–2024 the drop removes nothing from the final universe, because
+  the surviving post-crash members also qualify for another bracket. In 2025 it removes 1,139.
+  `gap10`, `gap3` and `rev` stay governed per symbol-day by §4.3 step 4a and §4.4 step 2.
+  `candidates_rev` has no pre-market data before 2025, so the `rev` bracket's final count is 0 in
+  2016–2024. **Added to the untested strata of the header box and §4.5:** −10% ≤ gap ≤ −3% before
+  2025, and post-crash entry sessions as a bracket in every dev year (S1 only). *Why:* the header
+  box names only the R15 pool, so a generic bracket drop would go beyond the frozen text
+  (P3-11 narrows P3-9). This fills the header box (U2) and §4.3 step 4a.
+- **P3-10 (closes O3, cost coverage).** New exclusion **`zero_adj_volume`**, applied right after
+  `short_history` in every arm: *a symbol is excluded from G(D) in every arm and variant, and
+  counted as `zero_adj_volume`, if the median of its last 20 daily split-adjusted volumes
+  (`volume_v`, rows strictly before D) is not positive.* *Why:* the 15 no-selection symbol-days
+  that lacked CostInputs in the 4155601 audit all had adjusted volume rounded to 0 after very large
+  reverse splits. The rule uses only rows before D, so it is causal. At 0457541 it removes 4,076
+  step-1 symbol-days (§A0.1, which also shows it ahead of the gate). Books and CostInputs now
+  match (34,051 each). This adds a step to §4.4 step 1.
 
 #### A0.4 Other rulings from the model reviews (`model-review-2.md`, `model-report-3.md`, `model-rereview-2.md`)
 
@@ -1335,7 +1350,8 @@ Each is pinned by a test in the model worktree. "Why" applies to the whole row.
 9. **C_b band scope (M13).** Last fold only, on the 200k smallest-key no-selection OOF windows,
    |z| ≤ 3.66 (ambiguity 8). C_b itself trades the screen arm. Fills §7 N5.
 10. **Infeasibility floor (I2).** §11.4's median is taken over the **final** admissible count
-    (step 1 ∧ short history ∧ G ∧ cache ∧ C0/C1), not the step-1 count of the §11.4 example.
+    (step 1 ∧ short history ∧ `zero_adj_volume` ∧ `no_volume_factor` ∧ G after the P3-11 bracket
+    drop ∧ cache ∧ C0/C1), not the step-1 count of the §11.4 example.
     Changes §11.4.
 11. **Half days (M-1).** Taken from the NYSE early-close calendar (`data.sessions`), 19 dev days
     (§A0.1 `half_days`), instead of a minute-file 13:00 rule, which finds none because the cache
@@ -1348,7 +1364,10 @@ Each is pinned by a test in the model worktree. "Why" applies to the whole row.
 #### A0.5 Process
 
 - Amendment 0 is written from an `audit --refit` run at the code SHA that smoke and full will
-  use (4155601, §A0.1). The audit run at 6057180 predates P3-5 and is not used. If any later
+  use (0457541, §A0.1). The audit at 6057180 predates P3-5, and the audit at 4155601 predates
+  P3-10 and P3-11; neither is used, and Amendment 0 was refreshed in place for 0457541 before any
+  minute return was read. Under P3-7 it is not merged into the model branch until §A0.1 is filled,
+  because its heading unskips the real-day parity test. If any later
   code change affects an audit output (universe, provenance, gate, costs, `c_label`), the audit is
   rerun at the new SHA and §A0.1 is replaced in a dated amendment before any minute return is
   read. Preflight enforces the link: smoke and full refuse unless this heading carries the sha256
