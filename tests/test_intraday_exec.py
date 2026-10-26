@@ -297,3 +297,17 @@ def test_one_exit_per_lot_when_triggers_overlap() -> None:
     ex.on_event(make_clock_tick(ts=at(3))); ex.on_event(make_kill(ts=at(3)))
     sells = [e for k in (3, 4, 5) for e in ex.on_event(bar(k)) if isinstance(e, Fill)]
     assert sum(f.qty for f in sells) == 100 and len(sells) == 1
+
+
+# ---- fix round 1 (controller review M2) ---------------------------------------
+def test_sell_reduces_lots_without_pending_exit_first() -> None:
+    ex, broker = make_exec()
+    ex.on_event(make_order_intent(ts=at(1), intent_id="intent-1", time_stop=at(3)))
+    ex.on_event(make_order_intent(ts=at(1), intent_id="intent-2"))
+    assert [e.intent_id for e in ex.on_event(bar(1))] == ["intent-1", "intent-2"]
+    assert ex.on_event(make_order_intent(ts=at(2), intent_id="s-1", side="sell", qty=100))[0].status == "accepted"
+    ex.on_event(make_clock_tick(ts=at(3)))                   # intent-1's time exit, not before at(3)
+    (s,) = ex.on_event(bar(2))                               # the sell fills; the exit cannot yet
+    assert (s.intent_id, s.qty) == ("s-1", 100)
+    (x,) = ex.on_event(bar(3))                               # intent-1 keeps its lot and its exit
+    assert (x.intent_id, x.side, x.qty) == ("intent-1", "sell", 100) and broker.position("TEST") == 0

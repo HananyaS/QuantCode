@@ -105,6 +105,8 @@ class SimBroker:
             raise ValueError(f"bar for {sym} out of order: bar_start {bar.bar_start} <= {last}")
         out: list[ExecEvent] = []
         if sym not in self._halted and not self._closed:
+            # feed.md emits each symbol's Bar before its Quote, so a quote stamped after
+            # bar_start here is look-ahead and fresh_quote raises.
             budget = _BarBudget(bar, fresh_quote(self._quote.get(sym), bar.bar_start, self._cfg),
                                 self._cfg)
             out.extend(self._fill_exits(bar, budget))
@@ -171,6 +173,8 @@ class SimBroker:
             if lot.stranded:
                 continue
             if lot.symbol in self._halted:
+                # expired here means the lot's EXIT went unfilled (halted at the close), not
+                # that the entry expired: the lot stays open in the record, marked stranded.
                 lot.stranded = True
                 out.append(self._update(tick.ts, lot.entry_id, "expired",
                                         "exit unfilled: halted at session end"))
@@ -247,7 +251,10 @@ class SimBroker:
             del self._lots[lot.entry_id]
 
     def _reduce_oldest_first(self, symbol: str, qty: int) -> None:
-        for lot in self._symbol_lots(symbol):
+        """A sell intent takes lots with no pending exit first (the qty it was checked
+        against), oldest first, then the oldest of the lots already exiting."""
+        lots = self._symbol_lots(symbol)
+        for lot in [x for x in lots if x.exit is None] + [x for x in lots if x.exit is not None]:
             if qty == 0:
                 break
             take = min(qty, lot.open_qty)

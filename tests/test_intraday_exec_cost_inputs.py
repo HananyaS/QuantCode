@@ -73,3 +73,33 @@ def test_short_history_symbol_omitted() -> None:
 def test_holdout_date_refused_without_unseal() -> None:
     with pytest.raises(ValueError):
         build_cost_inputs(panel, None, date(2025, 8, 7))
+
+
+# ---- fix round 1 (controller review I1, M1): risk.adv semantics ---------------
+def _with(rows: dict[int, dict[str, float]]) -> pd.DataFrame:
+    p = panel.copy()
+    for i, vals in rows.items():
+        for col, v in vals.items():
+            p.loc[i, col] = v
+    return p
+
+
+def test_zero_volume_prev_session_anchors_on_last_traded_row() -> None:
+    p = _with({24: dict(volume=0.0, volume_unadj=0.0)})      # D-1 did not trade
+    assert build_cost_inputs(p, None, D).get("AAA", D).adv_shares == pytest.approx(950.0)
+
+
+def test_all_zero_volume_window_raises() -> None:
+    p = _with({i: dict(volume=0.0, volume_unadj=0.0) for i in range(5, 25)})
+    with pytest.raises(ValueError, match="AAA"):
+        build_cost_inputs(p, None, D)
+
+
+def test_non_finite_split_factor_on_traded_row_raises() -> None:
+    p = _with({22: dict(volume=0.0)})                         # raw > 0, adjusted 0: s = 0
+    with pytest.raises(ValueError, match="AAA"):
+        build_cost_inputs(p, None, D)
+
+
+def test_fewer_than_window_prior_sessions_gets_no_entry() -> None:
+    assert build_cost_inputs(panel.tail(20), None, D).get("AAA", D) is None   # 19 prior sessions
