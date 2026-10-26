@@ -80,6 +80,16 @@ path: there is no other minute source (user decision 2026-10-26: no new minute d
 
 **Volume correction (data plan D1, verified on the cache):** Alpaca `adjustment="all"` adjusts share volume for splits only, not dividends (BRSP 2024-03-04: `f` = 1.345, adjusted volume == raw). Share volume is therefore converted with the split-only factor `s = volume / volume_unadj` from `data/research_breakout/daily`, used only where that file's price factor agrees with the penny daily `f` within 2%; otherwise the symbol-day is rejected as `no_volume_factor`. Wherever this doc says "volume ÷ f", read "volume ÷ s". Daily ADV in dollars is `close_unadj × volume_unadj`.
 
+**Volume factor basis (rulings P3-16/17).** `ReplayFeed(..., volume_factor_basis=...)` chooses which daily row `s` comes from:
+- `"same_day"` (the default, unchanged): `s_D` from D's own row of `data/research_breakout/daily`; the source check compares that row's price factor `f_v,D` with the penny `f_D`.
+- `"prior"`: `s_{D-1}` and `f_v,D-1` from the market's last session strictly before D (the same row rule as the screener's `universe._prior_rows`: a symbol's last row counts only if it is on that session). The source check compares `f_v,D-1` with the penny `f_{D-1}`. A symbol with no such row is rejected as `no_volume_factor` (`no_split_factor`); there is never a fallback to `s_D`.
+
+**R16 uses `"prior"`.** On a non-split day the true split factor is the same on D-1 and D (split days are excluded upstream by `exclude_split_days`, from `f_{D-1}/f_D`). The measured `s_D` still drifts from `s_{D-1}` because adjusted daily volume is rounded to an integer: 7,996 of 35,205 admitted symbol-days, up to 86 %. That noise depends on D's end-of-day volume, so `s_D` is a look-ahead channel into every minute-volume feature. `s_{D-1}` is also the basis the screener, risk and the execution ADV already use. Live use of the default is a later user decision.
+
+**Prices keep `f_D` in both modes.** Price adjustment includes dividends, so on an ex-dividend day `f_{D-1}` differs from `f_D` by the dividend. D's minute bars sit on D's adjustment basis, so `f_D` is the right factor for them and `f_{D-1}` would mis-scale every level on ex-dates. The open-parity check above (converted first open versus `open_unadj` of D) relies on this too. The only D-dependent noise left is rounding of D's adjusted close, about `1e-4 / close`.
+
+`symbol_day_verdicts(feed, d, symbols)` (in `replay_feed.py`) returns the per-symbol-day factors and reject verdicts without building bars; `ReplayFeed._factors` / `_verdicts` stay as the underlying methods.
+
 Reuse (all under `research/penny/`):
 - No minute fetch in Phase 2 (user decision: only stocks already in the minute cache). `etl/alpaca_fetch.py`
   (`make_data_client`, never a trading client) matters again only for the live feed.
