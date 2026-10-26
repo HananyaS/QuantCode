@@ -5,6 +5,7 @@ Pure ``on_event`` object; time comes only from ``ClockTick``. See
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -15,6 +16,16 @@ from research.intraday.ops.halts import HaltRow, HaltSource
 
 _ET = ZoneInfo("America/New_York")
 _MIN = timedelta(minutes=1)
+_CLOSING_STATUSES = ("cancelled", "expired", "rejected")
+
+
+@dataclass(slots=True)
+class _IntentBook:
+    symbol: str
+    side: str
+    qty: int
+    entry_filled: int = 0
+    closed: bool = False
 
 
 class MonitorAgent:
@@ -49,6 +60,9 @@ class MonitorAgent:
         self._candidates: tuple[str, ...] | None = None
         self._baseline: datetime | None = None
         self._last_seen: dict[str, datetime] = {}
+        # Order-flow books (filled qty).
+        self._intents: dict[str, _IntentBook] = {}
+        self._positions: dict[str, int] = {}
 
     @property
     def counts(self) -> dict[str, int]:
@@ -72,6 +86,41 @@ class MonitorAgent:
             return self._on_candidates(event)
         if isinstance(event, (Bar, Gap)):
             self._last_seen[event.symbol] = event.ts
+            return ()
+        if isinstance(event, OrderIntent):
+            return self._on_intent(event)
+        if isinstance(event, OrderUpdate):
+            book = self._intents.get(event.intent_id)
+            if book is not None and event.status in _CLOSING_STATUSES:
+                book.closed = True
+            return ()
+        if isinstance(event, Fill):
+            return self._on_fill(event)
+        return ()
+
+    # --- order flow ---
+
+    def _on_intent(self, event: OrderIntent) -> tuple[Kill, ...]:
+        if event.intent_id in self._intents:
+            return (Kill(ts=event.ts, reason=f"duplicate_intent: {event.intent_id}"),)
+        self._intents[event.intent_id] = _IntentBook(event.symbol, event.side, event.qty)
+        return ()
+
+    def _on_fill(self, fill: Fill) -> tuple[Kill, ...]:
+        book = self._intents.get(fill.intent_id)
+        if book is None:
+            return (Kill(ts=fill.ts, reason=f"unknown_intent: {fill.intent_id}"),)
+        if fill.side == book.side:  # an entry fill; exits are checked by position only
+            if book.closed:
+                return (Kill(ts=fill.ts, reason=f"fill_after_close: {fill.intent_id}"),)
+            book.entry_filled += fill.qty
+            if book.entry_filled > book.qty:
+                return (Kill(ts=fill.ts, reason=(
+                    f"overfill: {fill.intent_id} filled {book.entry_filled} > qty {book.qty}")),)
+        pos = self._positions.get(fill.symbol, 0) + (fill.qty if fill.side == "buy" else -fill.qty)
+        self._positions[fill.symbol] = pos
+        if pos < 0:
+            return (Kill(ts=fill.ts, reason=f"short_sell: {fill.symbol} position {pos}"),)
         return ()
 
     # --- session and feed coverage ---

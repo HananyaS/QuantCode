@@ -7,7 +7,9 @@ from typing import Any, Sequence
 import pytest
 
 from research.intraday.contracts import Bar, Candidates, ClockTick, Event, Gap, Halt, Kill
-from research.intraday.contracts.fixtures import T_DEV, make_bar, make_candidates, make_gap
+from research.intraday.contracts.fixtures import (
+    T_DEV, make_bar, make_candidates, make_fill, make_gap, make_order_intent, make_order_update,
+)
 from research.intraday.ops.halts import HaltRow, RecordedHaltLog
 from research.intraday.ops.monitor import MonitorAgent
 
@@ -145,3 +147,55 @@ def test_second_session_date_raises() -> None:
     feed(mon, tick(1))
     with pytest.raises(ValueError, match="one session"):
         feed(mon, ClockTick(ts=at(1) + timedelta(days=1)))
+
+
+# --- Task 6: order-flow consistency kill ---
+
+def test_fill_for_unknown_intent_kills() -> None:
+    (k,) = feed(monitor(), make_fill(ts=T_DEV, intent_id="ghost"))
+    assert k == Kill(ts=T_DEV, reason="unknown_intent: ghost")
+
+
+def test_overfill_kills() -> None:
+    mon = monitor()
+    assert feed(mon, make_order_intent(ts=T_DEV, qty=100), make_fill(ts=T_DEV, qty=60)) == []
+    (k,) = feed(mon, make_fill(ts=T_DEV + MIN, qty=50))
+    assert k == Kill(ts=T_DEV + MIN, reason="overfill: intent-1 filled 110 > qty 100")
+
+
+def test_partial_fill_then_cancel_books_filled_qty() -> None:
+    mon = monitor()
+    assert feed(mon, make_order_intent(ts=T_DEV, qty=100),
+                make_fill(ts=T_DEV + MIN, qty=40),                       # Fill before cancel,
+                make_order_update(ts=T_DEV + MIN, status="cancelled"),  # same cascade
+                make_fill(ts=T_DEV + 5 * MIN, side="sell", qty=40)) == []   # exit of the 40
+    (k,) = feed(mon, make_fill(ts=T_DEV + 6 * MIN, side="sell", qty=1))
+    assert k.reason == "short_sell: TEST position -1"
+
+
+def test_entry_fill_after_cancel_kills() -> None:
+    mon = monitor()
+    feed(mon, make_order_intent(ts=T_DEV), make_order_update(ts=T_DEV, status="cancelled"))
+    (k,) = feed(mon, make_fill(ts=T_DEV + MIN, qty=10))
+    assert k.reason == "fill_after_close: intent-1"
+
+
+def test_exit_fill_on_entry_intent_is_not_an_overfill() -> None:
+    mon = monitor()
+    assert feed(mon, make_order_intent(ts=T_DEV, qty=100),
+                make_fill(ts=T_DEV + MIN, qty=100),
+                make_fill(ts=T_DEV + 9 * MIN, side="sell", qty=100)) == []
+
+
+def test_short_creating_sell_kills() -> None:
+    mon = monitor()
+    feed(mon, make_order_intent(ts=T_DEV, intent_id="s-1", side="sell", qty=10))
+    (k,) = feed(mon, make_fill(ts=T_DEV + MIN, intent_id="s-1", side="sell", qty=10))
+    assert k == Kill(ts=T_DEV + MIN, reason="short_sell: TEST position -10")
+
+
+def test_duplicate_intent_id_kills() -> None:
+    mon = monitor()
+    assert feed(mon, make_order_intent(ts=T_DEV)) == []
+    (k,) = feed(mon, make_order_intent(ts=T_DEV + MIN))
+    assert k == Kill(ts=T_DEV + MIN, reason="duplicate_intent: intent-1")
