@@ -110,7 +110,7 @@ agent decides.
 - `test_out_of_order_halt_log_raises`
 - `test_gap_inference_off_by_default`
 
-## Rulings from the ops Phase-2 plan
+### Rulings from the ops Phase-2 plan
 
 - Stale baseline is the later of 09:30 ET and `Candidates.ts`; halted symbols are not exempt
   (the feed emits `Gap`s for them).
