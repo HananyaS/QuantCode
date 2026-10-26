@@ -95,6 +95,10 @@ Reuse (all under `research/penny/`):
   2025-11-03 and the live feed are in shares; before any holdout read, the scale must become
   date-dependent and the cached files' unit re-checked (whether historical quotes were
   re-stated is not documented). This is a `[blocks-build]` item for the holdout read only.
+  **Checked on the cache (fetched 2026-08-12/13, after the change; development rows only):** with
+  ×100 the implied best-ask size has median 704 shares (≈ $2.8k), p10 200, p90 11k shares; read as
+  shares it would be ≈ $280k at the touch for a median penny name, which is implausible. So the
+  cached development history is in round lots and ×100 holds for R16 development.
 
 The converted replay cache layout, if the builder materialises one, is the builder's call; it lives
 under `data_root`, never in the worktree.
