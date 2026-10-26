@@ -801,7 +801,10 @@ substituted later.
   studies (2026 outcomes). `pm_rvol` was chosen with that result known. None asked R16's question
   (a minutes-ahead model with brackets), so it is sealed **for this question**, as the spec states.
 - **Read exactly once**, after the critic's G2 sign-off on the development result, and only if
-  some cell passed development. The holdout is not unsealed until the user has confirmed U1. Read: the selected cell and its controls C_a, C_b (20 seeds), C_c
+  some cell passed development. The holdout is not unsealed until the user has confirmed U1.
+  Before the unseal, the quote-size unit is made date-dependent: Alpaca reports CTA/UTP sizes in
+  round lots until 2025-11-02 and in shares from 2025-11-03 (procedural; it changes no development
+  number, since every development date is in round lots). Read: the selected cell and its controls C_a, C_b (20 seeds), C_c
   and C_0. The model is retrained once on **all** dev dates with the frozen configuration. The
   threshold is the 0.90 quantile on the inner validation block of the dev dates (their last 20%,
   from a fit on the first 80%), by the same rule as in each fold (§5.5). Both are frozen with `model_hash` before
@@ -1066,3 +1069,4 @@ controller correction (V1). Amendments made after G1 sign-off still go under "Am
 | — | header, §11.1.3, §10.4 | Status set to Revision 1; N = 404 replaced by N = 4,248 throughout |
 | R8 | §7 | SPY 2025 dev sessions from `research_breakout/daily` (no fetch) |
 | C1–C5 | box, §4.4, §4.5, §5.5, §10.6, §10.7 | G1 re-check changes: no unseal before U1; f_D in the assertion; C2/U pre-market removed; CNN refit epochs; post-crash exception |
+| Q1 | §10.6 | Quote-size unit date-dependent before any holdout read (Alpaca: lots → shares on 2025-11-03); no dev effect |

@@ -88,6 +88,13 @@ Reuse (all under `research/penny/`):
   `quotes_rev/` under `data_root`. These are **per-day summaries and windows, not an NBBO
   stream**. `summarise_quotes` multiplies sizes by 100 ("sizes are in round lots"); convert so
   `Quote` carries shares, and verify the unit against current Alpaca docs before trusting it.
+  **Verified (controller, 2026-10-26, Alpaca changelog "CTA/UTP bid and ask size display change"):**
+  Alpaca reported CTA/UTP quote sizes in round lots until 2025-11-02 and in shares from
+  2025-11-03 (SEC round-lot rule). Every development date (< 2025-08-07) is therefore in round
+  lots, so ×100 (`quote_size_scale = 1.0`) is right for R16 development. Holdout sessions from
+  2025-11-03 and the live feed are in shares; before any holdout read, the scale must become
+  date-dependent and the cached files' unit re-checked (whether historical quotes were
+  re-stated is not documented). This is a `[blocks-build]` item for the holdout read only.
 
 The converted replay cache layout, if the builder materialises one, is the builder's call; it lives
 under `data_root`, never in the worktree.
