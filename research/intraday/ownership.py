@@ -12,6 +12,7 @@ OWNERS: dict[str, tuple[str, ...]] = {
         "research/intraday/docs/adr/",
         "research/intraday/docs/design/",
         "research/intraday/ownership.py",
+        "research/intraday/session.py",
         "tests/test_intraday_events.py",
         "tests/test_intraday_codec.py",
         "tests/test_intraday_bus.py",
@@ -20,6 +21,7 @@ OWNERS: dict[str, tuple[str, ...]] = {
         "tests/test_intraday_ownership.py",
         "tests/test_intraday_design_docs.py",
         "tests/test_intraday_tooling.py",
+        "tests/test_intraday_integration.py",
     ),
     "intraday-data": ("research/intraday/data/", "tests/test_intraday_data"),
     "intraday-model": (
