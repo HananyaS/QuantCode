@@ -106,6 +106,8 @@ converted from the adjusted daily cache with the per-day factor (`feed.md`), whi
 return statistic and may come from the adjusted series. Bar prices and quote sizes already arrive on
 the traded basis.
 
+**Volume correction (data plan D1, verified on the cache):** Alpaca `adjustment="all"` adjusts share volume for splits only, not dividends (BRSP 2024-03-04: `f` = 1.345, adjusted volume == raw). Share volume is therefore converted with the split-only factor `s = volume / volume_unadj` from `data/research_breakout/daily`, used only where that file's price factor agrees with the penny daily `f` within 2%; otherwise the symbol-day is rejected as `no_volume_factor`. Wherever this doc says "volume ÷ f", read "volume ÷ s". Daily ADV in dollars is `close_unadj × volume_unadj`.
+
 Reuse (under `research/penny/`): `etl/quotes.py` `leg_cost_bps`, `impact_bps`,
 `depth_shortfall_bps`, `CostModel` (scalar wrappers are fine; a parity test pins them to the frame
 functions), `summarise_quotes` for the summary inputs. From main and this branch:
