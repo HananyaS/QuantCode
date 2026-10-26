@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Sequence
 
 import pytest
@@ -10,8 +11,10 @@ from research.intraday.contracts import Bar, Candidates, ClockTick, Event, Gap, 
 from research.intraday.contracts.fixtures import (
     T_DEV, make_bar, make_candidates, make_fill, make_gap, make_order_intent, make_order_update,
 )
+from research.intraday.engine.replay import clock_ticks, run_replay
 from research.intraday.ops.halts import HaltRow, RecordedHaltLog
 from research.intraday.ops.monitor import MonitorAgent
+from research.intraday.ops.recorder import read_log
 
 MIN = timedelta(minutes=1)
 OPEN = T_DEV - MIN                     # 2024-03-04 14:30 UTC = 09:30 EST, first bar_start
@@ -199,3 +202,56 @@ def test_duplicate_intent_id_kills() -> None:
     assert feed(mon, make_order_intent(ts=T_DEV)) == []
     (k,) = feed(mon, make_order_intent(ts=T_DEV + MIN))
     assert k == Kill(ts=T_DEV + MIN, reason="duplicate_intent: intent-1")
+
+
+# --- Task 7: kill latch, gap-inferred halts, replay determinism ---
+
+def test_at_most_one_kill_and_silence_after() -> None:
+    mon = monitor([HaltRow(at(5), "AAA", True, "x")])
+    assert len(feed(mon, make_fill(ts=at(1), intent_id="ghost"))) == 1
+    assert feed(mon, make_fill(ts=at(2), intent_id="ghost2"), cands("AAA", m=2),
+                *[tick(m) for m in range(3, 10)]) == []          # no 2nd Kill, no Halt
+
+
+def test_external_kill_silences_monitor() -> None:
+    mon = monitor()
+    assert feed(mon, Kill(ts=at(1), reason="operator")) == []
+    assert feed(mon, make_fill(ts=at(2), intent_id="ghost")) == []
+
+
+def test_gap_inference_off_by_default() -> None:
+    mon = monitor()
+    evs = [tick(-5), cands("AAA")] + [e for m in range(1, 8) for e in (tick(m), gap("AAA", m))]
+    assert feed(mon, *evs) == []
+
+
+def test_gap_inference_emits_halt_and_resume() -> None:
+    mon = monitor(infer_halts_from_gaps=True, gap_halt_min=5)
+    evs = [tick(-5), cands("AAA")] + [e for m in range(1, 6) for e in (tick(m), gap("AAA", m))]
+    assert feed(mon, *evs) == [Halt(ts=at(5), symbol="AAA", halted=True,
+                                    reason="inferred: 5 consecutive gaps")]
+    assert feed(mon, tick(6), bar("AAA", 6)) == [
+        Halt(ts=at(6), symbol="AAA", halted=False, reason="inferred: bar after gaps")]
+
+
+def test_monitor_in_replay_identical_hash(tmp_path: Path) -> None:
+    rows = (HaltRow(at(3), "AAA", True, "LUDP"), HaltRow(at(8), "AAA", False, "LUDP"))
+
+    def sources() -> list:
+        return [clock_ticks(at(-5), at(12)), [cands("AAA", "BBB")],
+                [b for m in range(1, 12) for b in (bar("AAA", m), bar("BBB", m))]]
+    h1 = run_replay([MonitorAgent(RecordedHaltLog(rows))], sources(), tmp_path / "a.jsonl")
+    h2 = run_replay([MonitorAgent(RecordedHaltLog(rows))], sources(), tmp_path / "b.jsonl")
+    assert h1 == h2
+    halts = [e.event for e in read_log(tmp_path / "a.jsonl") if isinstance(e.event, Halt)]
+    assert [(h.ts, h.halted) for h in halts] == [(at(3), True), (at(8), False)]
+    assert not any(isinstance(e.event, Kill) for e in read_log(tmp_path / "a.jsonl"))
+
+
+def test_halt_log_halt_takes_over_inferred_halt() -> None:
+    mon = monitor([HaltRow(at(6), "AAA", True, "LUDP")], infer_halts_from_gaps=True)
+    evs = [tick(-5), cands("AAA")] + [e for m in range(1, 6) for e in (tick(m), gap("AAA", m))]
+    assert [h.reason for h in feed(mon, *evs)] == ["inferred: 5 consecutive gaps"]
+    assert feed(mon, tick(6)) == []                     # duplicate halt: skipped, counted
+    assert mon.counts["skipped_duplicate_halt"] == 1
+    assert feed(mon, bar("AAA", 6)) == []               # the log, not a bar, ends this halt

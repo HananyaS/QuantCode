@@ -63,6 +63,9 @@ class MonitorAgent:
         # Order-flow books (filled qty).
         self._intents: dict[str, _IntentBook] = {}
         self._positions: dict[str, int] = {}
+        # Gap-inferred halts (only when infer_halts_from_gaps).
+        self._gap_run: dict[str, int] = {}
+        self._inferred: set[str] = set()
 
     @property
     def counts(self) -> dict[str, int]:
@@ -70,6 +73,9 @@ class MonitorAgent:
 
     def on_event(self, event: Event) -> tuple[Event, ...]:
         if self._killed:
+            return ()
+        if isinstance(event, Kill):  # an operator kill; the bus never echoes our own
+            self._killed = True
             return ()
         out = self._dispatch(event)
         if any(isinstance(e, Kill) for e in out):
@@ -86,7 +92,7 @@ class MonitorAgent:
             return self._on_candidates(event)
         if isinstance(event, (Bar, Gap)):
             self._last_seen[event.symbol] = event.ts
-            return ()
+            return self._infer_halt(event) if self._infer_halts else ()
         if isinstance(event, OrderIntent):
             return self._on_intent(event)
         if isinstance(event, OrderUpdate):
@@ -163,6 +169,25 @@ class MonitorAgent:
 
     # --- halts ---
 
+    def _infer_halt(self, event: Bar | Gap) -> tuple[Halt, ...]:
+        sym = event.symbol
+        if isinstance(event, Bar):
+            self._gap_run[sym] = 0
+            if sym in self._inferred and self._halted.get(sym, False):
+                self._inferred.discard(sym)
+                self._halted[sym] = False
+                return (Halt(ts=event.ts, symbol=sym, halted=False,
+                             reason="inferred: bar after gaps"),)
+            return ()
+        run = self._gap_run.get(sym, 0) + 1
+        self._gap_run[sym] = run
+        if run == self._gap_halt_min and not self._halted.get(sym, False):
+            self._halted[sym] = True
+            self._inferred.add(sym)
+            return (Halt(ts=event.ts, symbol=sym, halted=True,
+                         reason=f"inferred: {self._gap_halt_min} consecutive gaps"),)
+        return ()
+
     def _release_halts(self, now: datetime) -> tuple[Halt, ...]:
         out: list[Halt] = []
         for row in self._halt_source.due(now):
@@ -174,8 +199,10 @@ class MonitorAgent:
                 continue
             if row.halted and halted:
                 self._counts["skipped_duplicate_halt"] += 1
+                self._inferred.discard(row.symbol)  # the halt log takes over an inferred halt
                 continue
             self._halted[row.symbol] = row.halted
+            self._inferred.discard(row.symbol)  # the halt log now owns this symbol's state
             out.append(Halt(ts=now, symbol=row.symbol, halted=row.halted, reason=row.reason))
         return tuple(out)
 
