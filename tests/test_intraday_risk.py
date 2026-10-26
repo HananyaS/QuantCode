@@ -260,3 +260,23 @@ def test_adv_shares_uses_prior_sessions_on_one_basis() -> None:
         adv_shares(daily.iloc[-8:], D)                      # fewer than 20 prior sessions
     with pytest.raises(ValueError):
         adv_shares(daily.drop(columns="volume_unadj"), D)   # no split-only factor available
+
+
+def _adv_daily(zero_at: int) -> pd.DataFrame:
+    """25 prior sessions with a 2:1 split at i=15 (D-basis ADV 2000), one zero-volume day."""
+    days = list(pd.bdate_range(end=pd.Timestamp(D) - pd.Timedelta(days=1), periods=25))
+    rows = [dict(date=d, close=10.0, close_unadj=2.0 if i < 15 else 1.0, volume=200,
+                 volume_unadj=1000 if i < 15 else 2000) for i, d in enumerate(days)]
+    rows[zero_at].update(volume=0, volume_unadj=0)
+    return pd.DataFrame(rows)
+
+def test_adv_shares_zero_volume_day_inside_window_counts_zero() -> None:
+    assert adv_shares(_adv_daily(zero_at=10), D) == pytest.approx(19 * 2000.0 / 20)
+
+def test_adv_shares_zero_volume_on_last_prior_day_anchors_on_last_traded_day() -> None:
+    assert adv_shares(_adv_daily(zero_at=24), D) == pytest.approx(19 * 2000.0 / 20)
+
+def test_adv_shares_raises_when_no_prior_session_traded() -> None:
+    daily = _adv_daily(zero_at=0).assign(volume=0, volume_unadj=0)
+    with pytest.raises(ValueError):
+        adv_shares(daily, D)

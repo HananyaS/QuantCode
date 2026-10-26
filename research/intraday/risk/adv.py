@@ -4,7 +4,8 @@ Controller ruling P2-5 (design docs updated in e09aed7 on research/intraday): Al
 ``adjustment="all"`` adjusts share volume for splits only, not dividends, so the conversion uses
 the split-only factor ``s = volume / volume_unadj``. Each prior session's raw volume is moved to
 D's basis by ``volume_unadj * s_day / s_{D-1}`` (equivalently ``volume / s_{D-1}``), so a split
-inside the window does not mix two share bases. D's own row never enters.
+inside the window does not mix two share bases. D's own row never enters. A prior session with
+zero raw volume contributes 0 shares; the anchor is the last prior session with raw volume.
 """
 from __future__ import annotations
 
@@ -37,10 +38,14 @@ def adv_shares(daily: pd.DataFrame, session_date: date, window: int = 20) -> flo
     w = _prior_window(daily, session_date, window)
     vol = w["volume"].astype(float)
     raw = w["volume_unadj"].astype(float)
-    s = vol / raw.where(raw > 0)
-    if not (s.notna().all() and (s > 0).all() and (s < math.inf).all()):
-        raise ValueError("adv_shares: split factor volume / volume_unadj must be finite and > 0 on every prior session")
-    on_d_basis = raw * s / float(s.iloc[-1])
-    out = float(on_d_basis.mean())
+    traded = raw > 0
+    if not traded.any():
+        raise ValueError(f"adv_shares: no prior session in the {window}-day window traded (volume_unadj > 0)")
+    s = vol[traded] / raw[traded]
+    if not ((s > 0).all() and (s < math.inf).all()):
+        raise ValueError("adv_shares: split factor volume / volume_unadj must be finite and > 0 on every traded prior session")
+    s_anchor = float(s.iloc[-1])   # last prior session with raw volume, rows sorted by date
+    contrib = (raw * s.reindex(raw.index) / s_anchor).where(traded, 0.0)
+    out = float(contrib.mean())
     assert math.isfinite(out) and out >= 0
     return out
