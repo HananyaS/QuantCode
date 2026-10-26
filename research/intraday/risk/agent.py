@@ -15,6 +15,7 @@ from research.intraday.risk.session import et_date, session_bounds
 from research.intraday.risk.sizing import CapName, size_order
 
 _Handler = Callable[[Event], tuple[Event, ...]]
+_CLOSING_STATUSES: frozenset[str] = frozenset({"rejected", "cancelled", "expired"})
 
 
 class RiskAgent:
@@ -156,9 +157,16 @@ class RiskAgent:
 
     # -- account ------------------------------------------------------------------------------
     def _on_fill(self, event: Event) -> tuple[Event, ...]:
+        assert isinstance(event, Fill)
+        self._books.apply_fill(event)
+        self._check_loss_limit()
         return ()
 
     def _on_update(self, event: Event) -> tuple[Event, ...]:
+        assert isinstance(event, OrderUpdate)
+        self._books.require_known(event.intent_id)
+        if event.status in _CLOSING_STATUSES:
+            self._books.close_working(event.intent_id)
         return ()
 
     def _on_halt(self, event: Event) -> tuple[Event, ...]:

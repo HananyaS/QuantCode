@@ -5,8 +5,10 @@ from datetime import date, datetime, time, timedelta, timezone
 import pytest
 
 from research.intraday.contracts.codec import to_record
-from research.intraday.contracts.events import Bar, Event, OrderIntent, Signal
-from research.intraday.contracts.fixtures import T_DEV, make_bar, make_quote, make_signal
+from research.intraday.contracts.events import Bar, Event, Fill, OrderIntent, OrderUpdate, Signal
+from research.intraday.contracts.fixtures import (
+    T_DEV, make_bar, make_fill, make_halt, make_kill, make_order_update, make_quote, make_signal,
+)
 from research.intraday.risk.agent import RiskAgent
 from research.intraday.risk.config import RiskConfig
 from research.intraday.risk.session import ET
@@ -133,3 +135,72 @@ def test_flat_bars_atr_bracket_skipped_not_raised() -> None:
     agent = RiskAgent(D, cfg)
     out = run(agent, bar("AAA", et(9, 31)), bar("AAA", et(9, 32)), sig("AAA", et(9, 32)))
     assert out == [] and agent.skip_counts == {"bad_bracket": 1}
+
+
+def buy(qty: int, price: float = 1.02, ts: datetime = et(9, 32), iid: str = "20240304-AAA-1", sym: str = "AAA", bps: float = 0.0) -> Fill:
+    return make_fill(ts=ts, intent_id=iid, symbol=sym, side="buy", qty=qty, price=price, cost_bps=bps)
+def sell(qty: int, price: float = 1.03, ts: datetime = et(9, 33), iid: str = "20240304-AAA-1", sym: str = "AAA", bps: float = 0.0) -> Fill:
+    return make_fill(ts=ts, intent_id=iid, symbol=sym, side="sell", qty=qty, price=price, cost_bps=bps)
+def upd(status: str, iid: str = "20240304-AAA-1", ts: datetime = et(9, 32)) -> OrderUpdate:
+    return make_order_update(ts=ts, intent_id=iid, status=status, detail="")
+
+def test_one_entry_per_symbol_per_session() -> None:
+    agent = RiskAgent(D)
+    run(agent, bar("AAA", T_DEV), sig("AAA", T_DEV), buy(200))
+    assert run(agent, sig("AAA", et(9, 32))) == []
+    run(agent, sell(200))
+    assert run(agent, sig("AAA", et(9, 33))) == []
+    assert agent.skip_counts == {"symbol_busy": 1, "symbol_entries": 1}
+
+def test_max_open_positions_respected() -> None:
+    agent = RiskAgent(D, RiskConfig(max_open_positions=2))
+    out = run(agent, *(e for s in ("AAA", "BBB", "CCC") for e in (bar(s, T_DEV), sig(s, T_DEV))))
+    assert [o.symbol for o in out] == ["AAA", "BBB"] and agent.skip_counts == {"max_open": 1}
+
+@pytest.mark.parametrize("status", ["rejected", "expired", "cancelled"])
+def test_rejected_or_expired_update_frees_slot(status: str) -> None:
+    agent = RiskAgent(D, RiskConfig(max_open_positions=1))
+    run(agent, bar("AAA", T_DEV), sig("AAA", T_DEV), bar("BBB", T_DEV))
+    assert run(agent, sig("BBB", T_DEV)) == []
+    run(agent, upd(status), bar("BBB", et(9, 32)))
+    (oi,) = run(agent, sig("BBB", et(9, 32)))
+    assert oi.symbol == "BBB"
+    assert run(agent, bar("AAA", et(9, 32)), sig("AAA", et(9, 32))) == []   # AAA's one entry is spent
+
+def test_unknown_fill_raises() -> None:
+    with pytest.raises(ValueError, match="unknown intent_id"):
+        run(RiskAgent(D), buy(1, iid="20240304-ZZZ-9", sym="ZZZ"))
+
+def test_unknown_order_update_raises() -> None:
+    with pytest.raises(ValueError):
+        run(RiskAgent(D), upd("rejected", iid="20240304-ZZZ-9"))
+
+def test_books_match_fills() -> None:
+    agent = RiskAgent(D)
+    run(agent, bar("AAA", T_DEV), sig("AAA", T_DEV), buy(120, 1.03, bps=10.0), buy(80, 1.04, bps=10.0),
+        sell(150, 1.10, bps=20.0))
+    paid = 120 * 1.03 * 1.001 + 80 * 1.04 * 1.001
+    got = 150 * 1.10 * 0.998
+    assert agent.books.cash == pytest.approx(25_000.0 - paid + got, rel=1e-12)
+    assert agent.books.realised_pnl == pytest.approx(got - paid * 0.75, rel=1e-12)
+    assert agent.books.position_qty("AAA") == 50
+    with pytest.raises(ValueError):
+        run(agent, sell(51))
+
+def test_partial_fill_then_cancel_keeps_filled_position() -> None:
+    agent = RiskAgent(D, RiskConfig(max_open_positions=2))
+    run(agent, bar("AAA", T_DEV), sig("AAA", T_DEV))
+    run(agent, buy(120), upd("cancelled"))            # execution.md order: Fill, then cancel, one cascade
+    assert agent.books.position_qty("AAA") == 120 and agent.books.reserved_cash() == 0.0
+    out = run(agent, bar("AAA", et(9, 32)), sig("AAA", et(9, 32)),
+              bar("BBB", et(9, 32)), sig("BBB", et(9, 32)), bar("CCC", et(9, 32)), sig("CCC", et(9, 32)))
+    assert [o.symbol for o in out] == ["BBB"]
+    assert agent.skip_counts == {"symbol_busy": 1, "max_open": 1}
+    run(agent, sell(120))
+    assert agent.books.position_qty("AAA") == 0
+
+def test_working_intents_reserve_cash() -> None:
+    agent = RiskAgent(D, RiskConfig(start_equity_usd=3_000.0))
+    out = run(agent, bar("AAA", T_DEV, close=1.0, volume=1_000_000), sig("AAA", T_DEV),
+              bar("BBB", T_DEV, close=1.0, volume=1_000_000), sig("BBB", T_DEV))
+    assert [o.qty for o in out] == [2000, 1000]
