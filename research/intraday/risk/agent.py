@@ -84,6 +84,10 @@ class RiskAgent:
 
     def _on_quote(self, event: Event) -> tuple[Event, ...]:
         assert isinstance(event, Quote)
+        prev = self._quotes.get(event.symbol)
+        if prev is not None and event.ts < prev.ts:
+            raise ValueError(
+                f"Quote for {event.symbol!r} at {event.ts.isoformat()} is older than {prev.ts.isoformat()}")
         self._quotes[event.symbol] = event
         return ()
 
@@ -91,6 +95,7 @@ class RiskAgent:
     def _on_signal(self, event: Event) -> tuple[Event, ...]:
         assert isinstance(event, Signal)
         self._require_session(event)
+        self._require_no_look_ahead(event)
         skip = self._gate(event)
         if skip is not None:
             self._skips[skip] += 1
@@ -102,6 +107,13 @@ class RiskAgent:
             return ()
         qty, cap, bracket = sized
         return (self._emit(event, bar.close, qty, cap, bracket),)
+
+    def _require_no_look_ahead(self, s: Signal) -> None:
+        bar = self._last_bar.get(s.symbol)
+        if bar is not None and bar.ts > s.ts:
+            raise ValueError(
+                f"look-ahead: Signal for {s.symbol!r} at {s.ts.isoformat()} is older than "
+                f"its latest Bar at {bar.ts.isoformat()}")
 
     def _gate(self, s: Signal) -> SkipReason | None:
         """Rules 1-7 of risk.md, in order; the first failure is the skip reason."""

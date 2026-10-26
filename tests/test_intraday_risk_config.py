@@ -52,3 +52,9 @@ def test_session_bounds_follow_dst() -> None:
     last, flat = session_bounds(date(2024, 7, 1), RiskConfig())   # EDT, UTC-4
     assert last == datetime(2024, 7, 1, 19, 30, tzinfo=timezone.utc)
     assert flat == datetime(2024, 7, 1, 19, 55, tzinfo=timezone.utc)
+
+@pytest.mark.parametrize("kw", [dict(atr_period=14.0), dict(max_open_positions=True),
+    dict(max_entries_per_symbol=1.0), dict(quote_max_age_min=5.0), dict(hold_min=5.0), dict(hold_min=True)])
+def test_integer_fields_must_be_int(kw) -> None:
+    with pytest.raises(ValueError):
+        RiskConfig(**kw)

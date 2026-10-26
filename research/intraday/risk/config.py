@@ -20,6 +20,13 @@ _EXIT_PARAMS: dict[str, tuple[str, ...]] = {
 _ALL_EXIT_PARAMS: tuple[str, ...] = ("tp_pct", "sl_pct", "tp_atr", "sl_atr")
 
 
+
+def _require_int(name: str, v: object) -> None:
+    """Exact int: rejects floats such as 14.0 and bools."""
+    if type(v) is not int:
+        raise ValueError(f"RiskConfig.{name} must be an int, got {type(v).__name__} {v!r}")
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RiskConfig:
     start_equity_usd: float = 25_000.0
@@ -61,8 +68,11 @@ class RiskConfig:
             if not getattr(self, name) > 0:
                 raise ValueError(f"RiskConfig.{name} must be > 0, got {getattr(self, name)}")
         for name in ("max_open_positions", "max_entries_per_symbol", "atr_period", "quote_max_age_min"):
+            _require_int(name, getattr(self, name))
             if getattr(self, name) < 1:
                 raise ValueError(f"RiskConfig.{name} must be >= 1, got {getattr(self, name)}")
+        if self.hold_min is not None:
+            _require_int("hold_min", self.hold_min)
         if self.hold_min is not None and self.hold_min < 1:
             raise ValueError(f"RiskConfig.hold_min must be None or >= 1, got {self.hold_min}")
         for name in ("quote_size_frac", "bar_participation_cap"):

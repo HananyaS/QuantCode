@@ -280,3 +280,16 @@ def test_adv_shares_raises_when_no_prior_session_traded() -> None:
     daily = _adv_daily(zero_at=0).assign(volume=0, volume_unadj=0)
     with pytest.raises(ValueError):
         adv_shares(daily, D)
+
+
+def test_signal_older_than_its_bar_raises() -> None:
+    agent = RiskAgent(D); run(agent, bar("AAA", et(9, 32)))
+    with pytest.raises(ValueError, match="look-ahead"):
+        run(agent, sig("AAA", et(9, 31)))
+
+def test_older_quote_cannot_overwrite_newer() -> None:
+    agent = RiskAgent(D)
+    run(agent, make_quote(ts=et(9, 30), symbol="AAA", ask_size=150))
+    with pytest.raises(ValueError):
+        run(agent, make_quote(ts=et(9, 29), symbol="AAA", ask_size=150))
+    run(agent, make_quote(ts=et(9, 29), symbol="BBB", ask_size=150))   # another symbol's clock is independent
