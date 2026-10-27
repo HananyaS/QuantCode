@@ -268,3 +268,40 @@ cache, so it is not re-run (A20).
   priced by the spread model.
 - Minute-order validation is effectively empty for P2 (few $10+ names have minute bars), so P2's
   daily-fill pessimism is unmeasured (A22). The row count per pool is printed.
+
+## 12. Stage 1s: a "share of random trades that beat costs" label (pre-declared 2026-10-27, before any result)
+
+The user's call, after the random-trade analysis (933M random long trades on 18,488 sampled cached
+stock-days): day range picks bigger wins *and* bigger losses, and the chance a random trade makes
+any profit does not rise with it. The user chose this label: "go ahead with the share-beats-costs label".
+
+### 12.1 Label
+For a stock-day with at least 60 regular-session minute bars (09:30-15:59 ET, minute closes,
+cached gap-day minute data): over every pair (buy bar i, later sell bar j) of that day,
+`share_cost` = share of pairs with close_j / close_i - 1 > c, where c = 2% if the prior close
+(unadjusted) is under $10, else 1% (Round-2 round-trip costs: ~1.8% and ~1.0%). Same-day ratios,
+so the minute cache's adjustment cancels.
+
+### 12.2 Universe and decision time
+Wide-band ($1-$50, ADV filter) panel rows that have the label: the cached gap-day names, so the
+universe is chosen with the day-D opening gap. The decision is therefore at 09:30, not pre-open;
+the features stay the pre-open daily ones. Only ~0.1% of rows are $10+, so in practice this is the
+$1-$10 gap pool. Days with fewer than 20 names are not evaluated (MIN_NAMES, as in Stage 1);
+about 1,400 of 2,372 days remain, few in 2017-2019.
+
+### 12.3 Model and arms (1 trial)
+Stage 1's LightGBM, fixed parameters, on the per-day rank of `share_cost`, yearly walk-forward,
+scored 2017-2025 (to 2025-08-06). Top 10 per day. Arms: **model**; **room model** (the Stage-1w
+score, the volatility pick); **naive** (room20, prior 20-day mean range); **random** (seed 11);
+**universe** (mean of all names); **null** (shuffled-label model, seed 1).
+
+### 12.4 Pass bar (all must hold)
+Day-clustered bootstrap (2,000), paired by day: CI lower bound > 0 for (model - universe),
+(model - naive) and (model - room model) mean `share_cost` of the picks. Validity gate as in
+Stage 1: null - naive CI lower bound <= 0 and null IC < 0.2 x model IC, else INVALID. Determinism:
+two fits, identical hashes. Holm p across the three contrasts reported.
+
+### 12.5 Reported, not part of the bar
+Picks' mean random-trade return (`mean_pair_ret`) and its value net of c; room; open-to-close;
+per year; IC. A pass says only that the label can be ranked before the open within this pool;
+whether it trades is a later Stage-2 question.
