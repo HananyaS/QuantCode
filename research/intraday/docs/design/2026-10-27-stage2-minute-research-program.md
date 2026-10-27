@@ -1,0 +1,369 @@
+# Stage 2 research program: minute-level entry and exit on the Stage-1s pool
+
+**Status: APPROVED by the user 2026-10-28.** Experiments run in the order of §10; each is pre-registered here before it runs. Items marked
+**[my call]** are defaults the user can overturn; items marked **[OPEN]** need the user.
+Parent doc: `2026-10-27-pool-then-trade-poc.md` (§1-§13). Literature review in progress:
+`../research/2026-10-27-stage2-literature.md`.
+
+## 0. Why a new program (the user's critique, accepted)
+
+1. **Under-specified experiments.** Stages 2/2b/2c never wrote down, in one place, the exact
+   label, how each row is tagged, the model output, the decision rule, and the metric. Every
+   experiment below carries all five (§4, §5, §8).
+2. **Resolution mismatch.** Stage 1 now selects names for *minute-to-minute* trade potential
+   (the share-beats-costs label). Stages 2b/2c then traded them with a *daily-bar* bracket plan.
+   Stage 2 (the only minute model) ran on the Round-1 *volatility* pool with a 15-bar LightGBM.
+   From here on, Stage 2 runs at minute resolution **on the Stage-1s pool's own rows**, so the
+   training distribution matches the deployed one.
+3. **Thin search.** No time-series architecture and no global context (day and multi-day levels,
+   support/resistance, momentum, market, sector, events) were tried. §6-§7 cover them, and §10
+   orders them so each one is isolated.
+
+Honest prior, **corrected 2026-10-28** (§1.1): on admissible rows, the Stage-1s+pm pool's average
+random trade is -0.18% before costs; the picks fall -0.94% open to close and the universe -0.74%.
+The earlier -0.25% / -1.33% included outcome-selected rows. The literature review
+(`../research/2026-10-27-stage2-literature.md`) found no peer-reviewed minute-level, after-cost
+success on $1-$20 gappers, so the prior is a null. A long-only model has to find up-swings inside a
+population that drifts down. E0 (§10) turns this into the precision the model must reach.
+
+## 1. Population (exact)
+
+### 1.1 Correction found by the builder check (2026-10-28)
+- **Outcome-selected rows.** The Stage-1s universe (cached minute-days with >= 60 bars) never
+  applied R16's provenance flag (`data/research_intraday/r16_provenance.parquet`). 13,548 of its
+  106,452 rows (13%) are **not admissible**: they are in the minute cache only because of an
+  outcome-selected pool (C2, e.g. R15 signal sessions, which "fell >= 15% by D's close"). Their
+  mean open-to-close was -5.6%, against -0.6% on admissible rows.
+  - Re-run on admissible rows only (same model, arms and bar; scratch `s1pm_admissible.py`):
+    Stage 1s+pm **still PASSES** (22.7% vs universe 16.5%; vs room_model +0.4, CI +0.1..+0.7;
+    vs base +0.7, CI +0.4..+1.0).
+  - Stage 1s alone **still FAILS** vs room_model (-0.31, CI -0.57..-0.04).
+  - Drift: universe -0.74%, picks -0.94%, picks' mean random trade -0.18%.
+  - The random-trade analysis and the error analysis also used unfiltered cache rows. E0
+    replaces their numbers.
+- **The >= 60-session-bar rule is day-D information.** Bar count is only known at the close, so
+  it is dropped. Labels are computed on whatever bars exist; a missing bar means no fill.
+- **E-1 (new, before E0): universe repair.** The universe becomes admissible minute-cache rows
+  inside the wide-band panel, with no bar-count filter. Stage 1s+pm is re-scored on it, as the
+  §13 model unchanged (a correction, not a new trial), and the pool is that model's top 10.
+
+- **Pool:** for each day D, the top 10 **admissible** cached gap-day names (§1.1) by the
+  Stage-1s + pre-market model's out-of-fold score, re-scored in E-1 (was: commit 36d8491; days with >= 20 eligible names; scored 2017 -> 2025-08-06,
+  1,361 days, about 13,600 pool stock-days). Every pool name has minute bars, because the
+  Stage-1s universe is defined as cached names with >= 60 session bars.
+- **Training population (ablation E3):** P1 = pool only; P2 = top 30 by the same score;
+  P3 = the whole Stage-1s universe (about 96,500 stock-days) with the Stage-1 score and rank as
+  features. **Evaluation is always on P1 (the top 10).**
+- **Long only** (user decision, 2026-10-27).
+
+## 2. Decision clock and execution model (exact)
+
+- Minute index k = 0 (09:30) ... 389 (15:59), on the cache's adjusted price basis. Same-day
+  ratios only. The traded (unadjusted) price is p_unadj = p_adj x f_D, with
+  f_D = close_unadj_D / close_D from the daily cache (the price a live trader sees; not a
+  forward-looking quantity).
+- **Decision minutes:** t = 09:31 ... 15:30, after bar t closes. Training subsamples every 5th
+  minute **[my call]**; evaluation uses every minute.
+- **Entry:** market buy at the open of bar t+1, at O_{t+1} x (1 + h), where h is the half-spread.
+  If bar t+1 is missing, there is no fill.
+- **Exits:** the take-profit is a resting limit sell, filled only on a trade-through
+  (High_k >= TP + 1 tick), at TP. **The stop (builder Q5, my call)** is a resting stop-market
+  that triggers when Low_k <= SL. It fills at min(SL, O_k) x (1 - h): at the stop, or at bar k's
+  open if the price gapped through. It never benefits from a wick that recovers. Sensitivity:
+  min(SL, O_{k+1}) x (1 - h), the parent's next-open rule, capped at the stop. The time exit is a market sell at O_{T+1} x (1 - h). If TP
+  and SL are both touched in one bar, it counts as SL. A run of >= 5 missing bars is treated as a
+  halt: no fills, and exits move to the next bar that exists.
+- **Account [as Stage 2c]:** $25,000, 10 slots x $2,500. One position per symbol, a 5-minute
+  cooldown before re-entry, no entries after 15:30, flat by the 15:56 open. Shares are capped at
+  10% of the entry bar's volume; an order under $500 after the cap is skipped.
+
+## 3. Costs (exact)
+
+- **Commission (the user's figure):** max($2.50, $0.01 x shares) per order, two orders per trade.
+- **Spread:** h from Stage 2c's model (the refit book where it has inputs; otherwise
+  max(55.4 bps rt, model) under $10, and a log-linear half-spread for $10+). It is charged on
+  market legs only; a TP limit exit pays no spread.
+- **Impact:** sigma_daily x sqrt(notional / ADV20), as in 2b/2c.
+- Commission alone at $2,500, as a round trip: **$1: 2.00% | $2: 1.00% | $3: 0.67% | $5: 0.40% |
+  $10+: 0.20%.** Below about $3, commission dominates every other choice. The price floor is an
+  explicit lever in E6.
+- **Point-in-time cost vs charged cost (builder Q3, my call):** the refit book's h comes from
+  day-D quotes at 09:35 and 15:55, so it is not known at t. The feature c_rt, the barrier floor
+  and the EV therefore use a **point-in-time estimate**: Stage 2c's log-linear half-spread model
+  on prior-day inputs (log price at t, log ADV20, log 20-day volatility), plus commission at
+  p_unadj(t), plus impact. The simulation then charges the **realized** cost: the refit book
+  where it has inputs, else the same model. So "a TP hit is a net win" holds in expectation, not
+  exactly.
+- **Entries at 09:31-09:44 (my call):** there are no quotes before 09:35, and spreads are widest
+  at the open (McInish & Wood 1992, via the literature review). These entries pay 2x the
+  half-spread; E6 tests excluding the first 15 minutes.
+
+## 4. Labels (exact tagging)
+
+For pool name i at decision minute t, with entry e = O_{t+1}(1 + h):
+
+- **sigma_t:** standard deviation of the last 30 one-minute log returns (pre-market bars included
+  when t is early; at least 5 returns), floored at 0.5 x atr20_pct / sqrt(390).
+- **Barriers:** u = max(k_u x sigma_t x sqrt(H), 1.5 x c_rt), so a TP hit is always a net win;
+  d = k_d x sigma_t x sqrt(H); vertical barrier T = min(t + H, 385).
+- **Primary label, triple barrier, 3 classes:** scan bars k = t+1 ... T in time order and tag
+  - TP if High_k >= e(1+u) + 1 tick first,
+  - SL if Low_k <= e(1-d) first (a tie inside one bar goes to SL; the fill is as in §2),
+  - TIME if neither is hit by T.
+- **Realized net return r_net** (always stored): TP -> u - commission/notional;
+  SL -> min(e(1-d), O_k)(1-h)/e - 1 - commission/notional (the stop fill of §2);
+  TIME -> O_{T+1}(1-h)/e - 1 - commission/notional.
+- **Label B, multi-task partner of the triple barrier (user decision 2026-10-28):** Stage 1's
+  share-beats-costs label, conditioned on the entry minute. For every later bar j that exists in
+  [t+1, 385], take the net exit return r_j = C_j(1-h)/e - 1 - commission/notional. Then:
+  - **B = share of those j with r_j > 0.** Costs are already inside r_j, so the threshold is 0.
+    It is the minute-level version of Stage 1s's label: how many profitable exits this entry
+    leaves open for the rest of the day.
+  - Also stored: n_j (the number of sell minutes; it shrinks late in the day, and minute of day
+    is a feature) and mean(r_j).
+- **Training (multi-task):**
+  - Deep models (M2-M5): a shared encoder with heads for A (3-class cross-entropy) and B (binary
+    cross-entropy on the fraction). Loss = CE_A + lambda x BCE_B, with lambda = 0.5 **[my call]**.
+  - LightGBM (M1) has no shared trunk, so A and B are separate models: multiclass, plus
+    `cross_entropy` on the fraction. Only A's EV drives trades; B is reported (IC, calibration),
+    and gating on B is an E6 ablation.
+- **Secondary label, fixed-horizon regression:** y_H = O_{min(t+1+H, 386)}(1-h)/e - 1 - c_rt.
+- **Auxiliary labels (for TP/SL placement heads):** MFE_H = max High / e - 1 and
+  MAE_H = 1 - min Low / e over [t+1, T].
+- **Default barrier set [my call]:** H = 30, (k_u, k_d) = (2, 1). E5 ablates
+  H in {15, 30, 60, to-close} x (k_u, k_d) in {(2, 1), (1, 1)}.
+- Labels use only bars after t, by construction. A unit test asserts that changing any bar <= t
+  leaves the label unchanged, and that changing any bar > T leaves it unchanged too.
+
+## 5. Model output and decision rule (exact)
+
+- **Output per (i, t):** calibrated class probabilities p_TP, p_SL, p_TIME, plus mu_TIME (the
+  expected r_net given TIME, from a regression head).
+- **Expected value:** EV = p_TP x r_TP + p_SL x rbar_SL + p_TIME x mu_TIME, where r_TP and
+  rbar_SL are the label's realized net returns (rbar_SL = the training-years mean SL loss per
+  price bucket, gap-through included).
+- **Calibration:** isotonic, fitted on the last training year (the inner validation year) only.
+- **Rule:** enter if EV > theta while a slot is free; theta = 0 by default, and tuned only on the
+  dev years (E6). When several names qualify in the same minute, the highest EV goes first.
+- **Breakeven precision (reported in E0):** with no TIME outcomes,
+  p* = |rbar_SL| / (r_TP + |rbar_SL|). A model is worth testing only if its top EV decile beats p*.
+
+## 6. Features (point-in-time: bars <= t, daily rows <= D-1, pre-market < 09:30, filings accepted <= t)
+
+| Family | Contents | Source / availability |
+|---|---|---|
+| F0 window (old Stage 2) | lr1, lr3, lr_15, bar range, window range, VWAP dev, volume ratio, up-fraction, missing bars, minutes since open | minute cache |
+| F1 intraday levels and structure | HOD/LOD so far (distance in sigma and %), minutes since HOD/LOD, # new HODs; opening range 5/15/30 (distance, breakout state); VWAP distance and VWAP-band z; position in the day range; return since open and since prior close (red-to-green); pre-market high/low distance; nearest 5-bar fractal swing high above / low below; distance to round numbers ($0.50 / $1 grid, **unadjusted price**) | minute + pre-market caches |
+| F2 multi-day levels | prior-day H/L/C distance; 5/20/60-day H/L distance; floor pivots P, R1, S1, R2, S2 from D-1; 52-week-high distance; consecutive up/down days; gap / atr20 | daily cache (5,354 symbols) |
+| F3 momentum and volume | returns over 1/5/15/30/60 min; signed (up minus down) volume over 5/15/30 min; cumulative relative volume = cum volume / (ADV20 x intraday volume curve to minute k, the curve fitted on training years); volume acceleration; trade-count rate; sigma_5 / sigma_30 | minute + daily caches |
+| F4 pre-market | §13's 10 features | pre-market cache (31%) + 09:25-09:29 bars (64%) |
+| F5 market context | intraday breadth across all cached names at t (share above their open, median return since open, share making a new HOD in the last 5 min, dispersion); the same over the other 9 pool names; QQQ D-1 return and 5/20-day trend; VIX D-1 level and change | caches; QQQ and VIX daily exist. **SPY/QQQ/IWM minute bars (04:00-16:05) and daily bars: downloaded (user approved 2026-10-27), 2016-01-04 -> 2025-08-06** |
+| F6 sector | SIC sector (2,879 symbols mapped, 13 groups); sector breadth among cached names at t | `sic_sectors.parquet`; **the 11 SPDR sector ETFs + XBI, minute and daily: downloaded**; plus stock-minus-sector-ETF return since open and over the last 15 min |
+| F7 events and flows | EDGAR forms accepted before t (8-K items; S-1/S-3/424B* offerings = dilution; 10-Q/K) in the last 1/5/30 days and today before t, plus minutes since the latest; FINRA short-volume ratio D-1 and its 5-day mean | `edgar_filings.parquet` (has `accepted_et`); FINRA from 2018-08 |
+| F8 meta | minute of day, weekday, Stage-1 score and rank, price bucket, c_rt | - |
+
+- **Sequence input (for E4):** the last L in {60, 120} bars, with channels: log return; open,
+  high and low relative to close; log volume / ADV-per-minute; VWAP distance; trade count; and a
+  mask. Pre-market bars pad early t. Each stock is scaled by sigma_daily / sqrt(390).
+- **Leakage tests (each family):** a perturbation test (random changes to bars > t must not move
+  any feature at t), filing timestamps <= t, and daily rows <= D-1.
+
+## 7. Models
+
+| Id | Model | Size | Role |
+|---|---|---|---|
+| M0 | Logistic regression (L2) | - | floor |
+| M1 | LightGBM multiclass + regression head (Stage 1's fixed params) | - | main baseline; the autoresearch workhorse |
+| M2 | Dilated causal TCN | ~100k params | sequence |
+| M3 | GRU, 2 x 64 | ~60k params | sequence |
+| M4 | Transformer encoder, PatchTST-style (patch 5, d=64, 3 layers, 4 heads) | ~150k params | sequence; run after M2/M3 (literature: no evidence it beats boosting at minute frequency after costs) |
+| M5 | Hybrid: the best of M2-M4's encoder + an MLP on F1-F8, with multi-task heads (3-class TB + y_H + MFE/MAE quantiles) | ~200k params | expected best |
+
+- Deep models: AdamW, early stopping on the inner validation year, 3 seeds per configuration
+  (reported as mean +/- sd), deterministic torch.
+- Foundation models (Chronos etc.) are **dropped**. The literature review found that zero-shot
+  financial forecasts lose after even 3 bp costs (Valeyre 2025), and that only finance-pretrained
+  backbones help (Rahimikia 2025).
+- **Literature prior for E4:** boosting on engineered features leads on tabular data (Grinsztajn
+  2022; Qlib LightGBM IR 1.02 vs LSTM 0.56). Sequence models do better on raw windows. So the
+  hybrid M5 is the deep model with the best chance.
+
+## 8. Metrics (exact)
+
+**Model level** (dev test years, per year and pooled, with day-clustered bootstrap CIs):
+- Delta multiclass log-loss vs the class-prior forecast; Brier score; AUC (TP vs rest); ECE over
+  10 bins, plus a reliability plot.
+- **EV ranking:** the daily rank IC between EV and realized r_net over all of the day's (i, t);
+  **top-decile lift** = mean r_net of the top 10% of EV decision points minus the mean over all
+  points, and the top decile's TP-first rate vs p*.
+
+**Trading level.** The pass bar (user decision 2026-10-28) is judged once, on the confirmation
+period 2023-01-01 -> 2025-08-06. All of the following must hold:
+1. The mean daily net return of the compounded $25k account has a 95% day-clustered bootstrap
+   CI (2,000 resamples) whose lower bound is > 0.
+2. Paired daily differences vs C1 (random timing), C2 (open-and-hold), C3 (the best
+   practitioner rule, chosen on dev) and C4 (the shuffled-label model) each have a CI lower
+   bound > 0, with Holm correction across the 4.
+3. Deflated Sharpe >= 0.95, with N = every logged trial, autoresearch iterations included.
+4. Reported, not gated: the 2x-cost run; each year; the run without the first 15 minutes; and
+   C5 (SPY, QQQ) side by side: Sharpe, correlation and beta. Also Hansen's SPA p-value against
+   C1 across all logged trials, and the t-statistic vs Harvey-Liu-Zhu's 3.0 hurdle.
+- **Deflated Sharpe definition (builder Q4, my call):**
+  - N = every trial logged in this program, plus the parent POC's 21 trials.
+  - Every logged trial, autoresearch iterations included, also runs the account simulation on
+    its dev predictions (cheap next to model fitting). This gives each trial a daily-return
+    series.
+  - V[SR] and PBO (CSCV) come from those dev series. The Sharpe tested is the confirmation-period
+    Sharpe.
+- **Secondary:** Sharpe (sqrt 252); Deflated Sharpe with N = every logged trial; PBO (CSCV over
+  the dev daily returns of all trials); max drawdown; Calmar; hit rate; payoff ratio;
+  trades/day; holding minutes; exposure; a gross -> commission -> spread -> impact
+  decomposition; per year, price bucket and entry hour; capacity at 1x/2x/4x size; a 2x-cost run.
+
+**Controls (same pool, days, slots and exits):**
+- C1 random entry minute (same number of trades per day): the timing null.
+- C2 buy at the 09:31 open and hold to the close: the pool's drift.
+- C3 practitioner rules with the same barriers: ORB-15 breakout, VWAP reclaim, pre-market-high
+  breakout, HOD breakout. Following Zarattini et al. 2024, the ORB rule is also run restricted to
+  names with relative volume > 100% ("stocks in play"); that study found relative volume to be the
+  feature that separates winners.
+- C4 the same model on labels shuffled within each day: the model null. **It is trade-count
+  matched (builder note, my call):** each day it takes its top-k by EV, with k = the real model's
+  trade count that day. Otherwise "beats C4" can mean "beats no trades".
+- C5 SPY (CLAUDE.md requires it; from the downloaded SPY daily bars through 2025-08-06) and
+  QQQ, buy-and-hold over the same days.
+
+## 9. Protocol (forking paths under control)
+
+- **Development, purged block cross-validation (user decision 2026-10-28):**
+  - The pool has only 4, 11 and 23 days in 2017, 2018 and 2019, so a yearly walk-forward cannot
+    train its first folds.
+  - 2020-2022 is split into **6 half-year blocks**. Each block is scored by a model trained on
+    every other block plus all of 2017-2019, with a 5-trading-day embargo on both sides of the
+    test block. Labels end by 15:56 the same day, so no label spans a block edge.
+  - Inner validation (early stopping, isotonic calibration, theta) uses the training block next
+    to the test block in time (the following block for 2020H1), embargoed the same way **[my
+    call]**.
+  - Every choice is made here: features, models, labels, theta, and every autoresearch
+    iteration. About 680 days are scored, and the 6 blocks feed CSCV/PBO.
+- **Confirmation:** 2023-01-01 -> 2025-08-06. At most 3 frozen finalists are pre-registered in
+  this doc, then run once each, **strictly forward**: test year Y in {2023, 2024, 2025} is
+  predicted by a model trained on everything before Y. **The bar is judged here.** Caveat: these
+  years were already seen by Stages 1-2c for other questions (the pool and its drift), so they are
+  only partly clean.
+- **Holdout:** >= 2025-08-07 stays sealed. It is run once, for the one winner, and only if
+  confirmation passes.
+- **Trial ledger:** every dev evaluation is appended to `trials.jsonl` and feeds Deflated
+  Sharpe's N and PBO.
+- **Autoresearch loop (dev only):**
+  - Scope: the Stage-2m feature and config modules.
+  - **Metric (user decision 2026-10-28): top-tenth net lift.** The mean r_net of the top 10%
+    of decision points by EV minus the mean r_net over all decision points. Pooled over the
+    3 dev folds; higher is better.
+  - **Guards on every kept change:** dev Delta log-loss (label A) does not worsen, and the
+    full test suite passes, leakage tests included.
+  - **Null calibration at the loop's end:** a sigma-correlated score can show lift with no
+    signal, because SL gap-through grows with sigma. So the final kept configuration is also
+    run on (a) labels shuffled within each day and (b) a random-walk price null with matched
+    per-stock minute volatility. Its lift is reported net of both.
+  - Guard: the full test suite, including the leakage tests.
+  - Each iteration runs a 3-fold version of the purged CV (test = 2020, 2021, 2022, each a pair
+    of blocks) with M1 on a cached panel.
+  - Deep models are scheduled runs, not loop iterations.
+- **Stop rule:** if, after E2 and E4, the best dev top-decile lift has a CI that includes 0
+  **and** the best dev policy's daily-return CI upper bound is below 0, the long-only track stops
+  and is reported. No open-ended search.
+
+## 10. Experiment sequence (sequential elimination)
+
+Order agreed with the user 2026-10-28. Days run LightGBM work (E0-E3, E5-E6); nights run E4's deep models. Each step gets its own pre-registration entry (exact label, output, metric, predicted outcome) committed before it runs.
+
+| Exp | Question | Varies (one factor) | Fixed | Expected outcome |
+|---|---|---|---|---|
+| E-1 | Universe repair (§1.1) | admissible rows, no bar-count filter; re-score Stage 1s+pm (correction, not a trial) | §13 model | pool = new top 10 |
+| E0 | What are we predicting, and how hard is it? | barrier set (6) | pool P1, no model | Label card: class base rates by year x price x time of day; breakeven precision p*; oracle ceiling (perfect TP-first, with slots); C1/C2 distributions. Expect the base TP rate to sit below p* |
+| E1 | Floors | arm: C1, C2, C3 x 4, M0, M1-on-F0 | default label, P1 | M1-on-F0 ~ C1 (as in Round 1) |
+| E2 | Which training population? (decided first, since every later step inherits it) | P1 / P2 / P3 | M1 on F0+F1+F8, default label | P3 + score helps, more for deep models |
+| E3 | Which context matters? The autoresearch loop runs here | feature family, add-one then leave-one-out (F1..F7 on F0+F8) | M1, E2's population, default label | F1, F3 and F4 lift; F5/F6 small; F7 helps on offering days |
+| E4 | Do sequence models add anything? (nights; M2-M4 start once E2 is decided, M5 after E3) | M2 / M3 / M4 / M5 vs M1 | E2's population; M5 uses E3's features | M5 >= M1 by a small margin; pure-sequence < M1 |
+| stop check | after E3 + E4 | §9 stop rule | | |
+| E5 | Label and exit design | H x (k_u, k_d); A-only (lambda = 0) vs A+B (lambda in {0.5, 1}) vs B-only (+ a separate exit model) vs y_H; fixed vs model-driven exit | best model | A+B >= A-only through a more stable encoder; longer H helps net of costs |
+| E6 | Policy | theta; slot count; price floor ($2/$3); first-15-min exclusion; cooldown | best model | the price floor matters most |
+| E7 | Confirmation | <= 3 pre-registered finalists | frozen | the bar |
+| E8 | Holdout | 1 | frozen | once |
+
+## 11. Deliverables per experiment
+
+- A pre-registration entry in this doc, committed before the run.
+- Code + tests (including leakage tests); the full suite passes before each commit.
+- An MLflow run (params, metrics, artifacts; `MLFLOW_ALLOW_FILE_STORE=true`).
+- An HTML tear sheet, a dashboard card, a ledger line, and a memory update.
+- Tear-sheet figures:
+  - label base-rate heatmaps (time of day x price)
+  - reliability curves
+  - EV-decile lift with CIs
+  - net equity vs controls, with a drawdown panel
+  - a monthly return heatmap
+  - per-year bars with CIs
+  - the cost waterfall
+  - net trade-return and holding-time distributions
+  - the entry time-of-day profile
+  - SHAP by family
+  - deep-model learning curves
+  - a trial-count / Deflated-Sharpe panel
+
+## 12. Compute and data budget (estimates, to be measured in each smoke run)
+
+- Machine: 12 cores, 16.8 GB RAM (about 6 GB free), torch 2.9 **CPU only**, no GPU.
+- **Decision panel, P1:** about 13.6k stock-days x 360 minutes = 4.9M rows. A 1-in-5 training
+  subsample (~1M rows x ~200 float32 features) is about 0.8 GB. M1 takes about 2-4 min per fold,
+  so a 6-block dev pass is about 15-25 min.
+- **P3:** about 7x larger, stored as memmap / float16.
+- **Fixed training budget (builder Q6, my call):**
+  - Every LightGBM fit uses at most 2M training rows, whatever the population. P1 uses about
+    1-in-2 minutes; P3 a sparser sample of more stock-days. E2 therefore compares populations at
+    an equal row budget.
+  - Deep models draw a fresh 1M windows per epoch from the population, so P3 costs about the
+    same per epoch as P1.
+  - The loop's time target is a soft ~10 minutes per iteration.
+- **Sequence data:** per stock-day arrays of about 400 bars x 8 channels. P1 is about 200 MB;
+  P3 is about 1.4 GB (memmap). Windows are sliced on the fly.
+- **Deep training:** at an estimated 1.5-3k samples/s on CPU, one epoch of ~1M samples takes about
+  6-11 min. About 10 epochs x 6 blocks x 3 seeds is 6-11 h per architecture, so E4 is about two
+  nights. **CPU overnight runs (user decision, 2026-10-27).**
+
+## 13. Decisions so far (user, 2026-10-27)
+
+| Question | Decision |
+|---|---|
+| ETF downloads | Yes: SPY, QQQ, IWM, the 11 SPDR sectors and XBI, minute (04:00-16:05) and daily, 2016-01-04 -> 2025-08-06 (`stage2m/etf_fetch.py`). Holdout dates are refused by the code |
+| Short side | Out of scope: long only |
+| Autoresearch metric | Deferred until the whole experiment is designed |
+| Compute | CPU, overnight runs |
+| Label (2026-10-28) | Multi-task: A (triple barrier, which drives the EV and the trade) + B (Stage 1's share-beats-costs, conditioned on the entry minute) |
+
+| Pass bar (2026-10-28) | As proposed in §8: CI lo > 0; beats C1-C4 (Holm); Deflated Sharpe >= 0.95; SPY/QQQ and the 2x-cost run reported, not gated |
+| Experiment order (2026-10-28) | §10: E0 label card -> E1 floors -> E2 population -> E3 features (+ autoresearch) -> E4 sequence models at night -> stop check -> E5 labels and exits -> E6 policy -> E7 confirmation -> E8 holdout |
+| Dev splits (2026-10-28) | Option A: purged CV over 6 half-year blocks of 2020-2022 (2017-2019 always in training), 5-day embargo; confirmation strictly walk-forward 2023, 2024, 2025 |
+| Loop metric (2026-10-28) | Top-tenth net lift on the dev folds; guards: Delta log-loss does not worsen + tests and leakage tests pass; shuffled and random-walk null calibration at the end |
+
+Design complete: the literature review and the builder check are folded in. Awaiting the
+user's approval of the whole document.
+
+## 14. Calls made by Claude (review these)
+
+| # | Call | Where |
+|---|---|---|
+| 1 | Decision minutes 09:31-15:30; training subsamples 1-in-5 minutes (or the 2M-row budget), evaluation every minute | §2 |
+| 2 | Account $25k, 10 x $2,500, one position per symbol, 5-min cooldown, 10%-of-bar-volume cap, skip orders under $500 | §2 |
+| 3 | TP fills only on a 1-tick trade-through; the stop fills at min(SL, O_k)(1-h); sensitivity at the next-open rule | §2 |
+| 4 | Point-in-time cost for features, barriers and EV; realized cost charged in the simulation; 2x half-spread for 09:31-09:44 | §3 |
+| 5 | sigma_t = std of the last 30 one-minute log returns, floored at 0.5 x atr20/sqrt(390); default barriers H = 30, (k_u, k_d) = (2, 1), u >= 1.5 x c_rt | §4 |
+| 6 | Label B threshold 0 net (costs inside r_j); multi-task weight lambda = 0.5 | §4 |
+| 7 | Isotonic calibration on the inner validation block; theta = 0 until E6 | §5, §9 |
+| 8 | C4 shuffled-label control matched on the real model's daily trade count | §8 |
+| 9 | Deflated Sharpe N = program trials + the parent's 21; every trial runs the account simulation | §8 |
+| 10 | Fixed 2M-row LightGBM budget; 1M windows per epoch for deep models; ~10-min loop iterations | §12 |
+| 11 | Foundation models dropped; the Transformer runs after the TCN/GRU | §7 |
+| 12 | E-1 universe repair: admissible rows, no bar-count filter, Stage 1s+pm re-scored as a correction (not a trial) | §1.1 |
+| 13 | Inner validation = the adjacent training block, embargoed | §9 |
