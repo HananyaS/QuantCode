@@ -256,3 +256,15 @@ lower bounds of (picked − naive) and (picked − universe) mean room are both 
 ### 11.4 Not re-run
 Stage 2 (the minute entry model) only ever saw gap-day minute bars. Few $10–$50 names are in that
 cache, so it is not re-run (A20).
+
+### 11.5 Amendment after the code review, before any Stage-2c result
+- The refit book has **no rows above $10**, so the $10+ spread model is pure extrapolation from
+  cheaper names (A18, corrected). A sensitivity run is added, and it is not a trial: the **tick
+  spread**. For $10+ names without refit inputs, the half-spread is half a tick, plus impact and
+  commission. This is the most optimistic spread a plain order can get. Reading rule: a cell that
+  passes only under the tick spread is reported as *inconclusive, spread-dependent*, not a PASS. A
+  cell that fails even under the tick spread fails regardless of the spread model.
+- The report gives, per pool, the commission bps, the other cost bps and the share of trades
+  priced by the spread model.
+- Minute-order validation is effectively empty for P2 (few $10+ names have minute bars), so P2's
+  daily-fill pessimism is unmeasured (A22). The row count per pool is printed.
