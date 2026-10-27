@@ -367,3 +367,35 @@ user's approval of the whole document.
 | 11 | Foundation models dropped; the Transformer runs after the TCN/GRU | §7 |
 | 12 | E-1 universe repair: admissible rows, no bar-count filter, Stage 1s+pm re-scored as a correction (not a trial) | §1.1 |
 | 13 | Inner validation = the adjacent training block, embargoed | §9 |
+
+## 15. Pre-registrations, tranche 1 (committed 2026-10-28, before any run)
+
+Implementation plan: `QuantCode-poolpoc/docs/superpowers/plans/2026-10-28-stage2m-tranche1.md`.
+**E-1, E0 and E1 read dev data only (<= 2022-12-31)**, with one exception: E-1 re-scores the
+parent §13 model over its own 2017 -> 2025-08-06 span, as a correction. The pass bar (§8)
+applies at E7 only. Everything below is descriptive or a floor.
+
+### E-1 Universe repair (a correction, not a trial)
+| Item | Value |
+|---|---|
+| Universe | Wide-band panel rows ∩ R16-admissible minute-cache keys; no bar-count filter. Rows with 0-1 session bars: share_cost = 0, flagged `no_bars` |
+| Model | §13 unchanged (Stage 1s features + 20 pre-market features, LightGBM, yearly walk-forward 2017 -> 2025-08-06), with base, room_model, naive, random and null arms |
+| Output | §13 verdict and contrasts; pool days per year; `pool.parquet` (rank, in_p1 = top 10, in_p2 = top 30, all scored rows = P3) |
+| Predicted | The §13 verdict is unchanged (PASS). Pool days per year are close to the admissible re-run's (4/11/23 in 2017-2019, ~200+ per year after) |
+
+### E0 Label card (no model, descriptive)
+| Item | Value |
+|---|---|
+| Population | P1 (top 10), dev days (<= 2022) |
+| Barrier sets | H in {15, 30, 60, to-close} x (k_u, k_d) in {(2, 1), (1, 1)}: 8 sets (§4) |
+| Tables | Class shares (TP/SL/TIME/NO_FILL) by year x price bucket (<2, 2-3, 3-5, 5-10, 10+) x hour; mean r_net per class; breakeven p* = \|rbar_SL\| / (rbar_TP + \|rbar_SL\|); label B (b_share) by hour x price |
+| Arms through the §2 account | Oracle (every TP-first row, priority r_net: the ceiling); C1 (one random filled minute per pool name-day); C2 (09:31 open -> 15:56 open) |
+| Predicted | For every set, the TP-first base rate is below p*. C1 and C2 have mean daily returns < 0. The oracle is large and positive (the ceiling is not the problem) |
+
+### E1 Floors (dev, purged 6-block CV, default barrier H = 30, (2, 1))
+| Item | Value |
+|---|---|
+| Arms | M0 (logistic) and M1 (LightGBM), both on F0 + F8, entering on EV > 0 with priority EV; C1 random timing matched to M1's daily trade count; C2; C3 = ORB-15, ORB-15 with RVOL > 1, VWAP reclaim, pre-market-high break, HOD break; C4 = M1 on labels shuffled within day, top-k matched to M1's count |
+| Model metrics | Delta log-loss vs prior, Brier, AUC (TP vs rest), ECE10, daily rank IC (EV vs r_net), top-decile lift with a day-clustered CI, top-decile TP rate vs p* |
+| Trading metrics | Mean daily net return with CI; paired differences vs C1-C4 (Holm); Sharpe; max drawdown; trades/day. Every arm is logged as a trial |
+| Predicted | M1-F0's top-decile lift CI includes 0 (as in Round 1). No arm has a dev daily-return CI above 0. C3's rules lose net of costs on $1-$10 names (the literature's ORB evidence excludes penny stocks) |
