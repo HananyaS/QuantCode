@@ -305,3 +305,36 @@ two fits, identical hashes. Holm p across the three contrasts reported.
 Picks' mean random-trade return (`mean_pair_ret`) and its value net of c; room; open-to-close;
 per year; IC. A pass says only that the label can be ranked before the open within this pool;
 whether it trades is a later Stage-2 question.
+
+## 13. Stage 1s + pre-market features (pre-declared 2026-10-27, before any result)
+
+The user's call after the Stage-1s error analysis (the model predicts swing, not direction; past
+daily bars cannot carry direction): "add the pre-market bars as features and retest".
+
+### 13.1 Data (no download)
+Bars stamped before 09:30 ET only (the decision time, §12.2), from two caches: the pre-market
+cache (04:00-09:34, fetched for an earlier round's candidates: day-D opening gap >= 10%, price
+$0.50-$10, ADV >= 100k, all known at 09:30) and the regular minute cache's 09:25-09:29 bars. Where
+both have a minute, the pre-market cache's bar is used. Minute prices are on the daily adjusted
+basis (09:30 open matches the daily adjusted open on 98.9% of rows), so the pre-market gap uses
+the prior session's adjusted close. About 70% of the Stage-1s rows have at least one bar.
+
+### 13.2 Features (10, plus their per-day ranks; NaN when there are no pre-open bars)
+pm_gap (last pre-open close / prior adjusted close - 1, clipped to [-0.9, 5]); pm_late_ret (last
+close / last close before 09:00 - 1); pm_range ((high - low) / vwap); pm_close_pos ((last - low) /
+(high - low)); pm_dist_vwap (last / vwap - 1); pm_log_dv (log1p of close x volume summed);
+pm_dv_to_adv (that dollar volume / adv20); pm_late_share (share of it from 09:00 on); pm_bars;
+pm_fade (last / high - 1). Added to Stage 1's 24 inputs; same LightGBM, parameters, label
+(`share_cost`), universe, walk-forward, top 10, MIN_NAMES as §12.
+
+### 13.3 Arms and bar (1 trial)
+Arms: **pm model**; **base model** (§12's model, refitted in the same run); room model; naive;
+random; universe; null (pm model on the shuffled label). Pass = CI lower bound > 0 for the pm
+model minus each of universe, naive, room model **and base model** on mean `share_cost`, plus the
+§12 validity gate and determinism. Holm across the four.
+
+### 13.4 Pre-declared diagnostics (reported, not part of the bar)
+The question behind the trial is direction: daily rank IC of the pm model vs the any-gain share
+and vs open-to-close (with CIs), next to the base model's; the top tenth's chance of closing up.
+Sensitivity (not a trial): the same features from 09:25-09:29 bars only, which nearly every row
+has, to check that the result does not come from which names the pre-market cache covers.
