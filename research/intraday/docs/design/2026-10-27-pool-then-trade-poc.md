@@ -211,3 +211,48 @@ chart styling, the exact cost-model call.
    names only.
 2. Whether R16 keeps running alongside (current call: yes; the POC is sized to fit beside it).
 3. Long only (current call), or also short.
+
+## 11. Round 2 of the POC: $10–$50 names and real commissions (pre-declared 2026-10-27, before any result)
+
+**The user's decision (2026-10-27):** "you can add the 10-50 to the pool. regarding the commisions -
+cent per stock, 2.5$ min." Everything below is fixed before any Round-2 number exists.
+
+### 11.1 Universe ("wide band")
+Prior unadjusted close in **[$1, $50]**, 20-day median dollar volume ≥ $1M, split days excluded:
+the §5.1 filter with the price cap raised from $10 to $50. Price-bucket edges become
+[2, 3, 5, 10, 20]. Everything else in Stage 1 (features, label = room, LightGBM on rank(room),
+yearly walk-forward, top 10) is unchanged.
+
+### 11.2 Stage 1w (1 trial)
+The `full / all / room` run on the wide band. Same pass bar as §8b: the day-clustered 95% CI
+lower bounds of (picked − naive) and (picked − universe) mean room are both > 0.
+
+### 11.3 Stage 2c: Stage 2b's daily bracket plan with commissions (8 trials)
+- **Two pools**, each with Stage 2b's 4 plan cells (entry ∈ {open, dip} × q ∈ {0.3, 0.5}):
+  - **P1**: top 10 of the wide universe by the Stage-1w score.
+  - **P2**: top 10 by the same score among names with prior close ≥ $10 (the cheaper-to-trade side).
+  The plan models are trained per pool, on that pool's earlier years only, as in Stage 2b.
+- **Account [my call, A17]:** $25,000 with 10 × $2,500 positions. Below $25,000 a US margin account
+  is held to the pattern-day-trader limit (3 day trades per 5 days), so a 10-name daily strategy
+  needs at least that much.
+- **Commission (the user's figure):** each order (entry and exit) pays max($2.50, $0.01 × shares),
+  with shares = notional / unadjusted price. No cap, no exchange or regulatory fees.
+- **Spread, impact, depth:**
+  - **Under $10:** Stage 2b's rule, unchanged (the refit book where it has inputs, else max(55.4 bps,
+    the model)).
+  - **$10 and up:** the refit book where it has inputs. Otherwise **[my call, A18]** a half-spread
+    predicted from a log-linear fit of the refit book's 09:35 half-spread on log price, log dollar
+    ADV and log 20-day volatility (R² 0.94 in-sample), floored at half a tick. The 09:35 (wider)
+    spread is charged on both legs, plus the existing impact term σ·√(notional / ADV).
+- **Controls, nulls, fills, bootstrap, 2× cost run, minute-order validation:** all as in Stage 2b,
+  per pool. K1 (naive top 10 by room20) and K2 (random 10) are drawn from the same price range as
+  their pool.
+- **Pass bar:** as Stage 2b. The account CI lower bound is > 0, and the cell beats each of the 5
+  controls, with Holm correction across 8 cells × 5 controls = 40 contrasts.
+- **Trials:** 12 (Round 1) + 1 (Stage 1w) + 8 (Stage 2c) = **21**, the Deflated-Sharpe N.
+- **Sensitivity, not a trial:** the same 8 cells on a $100,000 account (10 × $10,000), so that the
+  $2.50 minimum weighs less.
+
+### 11.4 Not re-run
+Stage 2 (the minute entry model) only ever saw gap-day minute bars. Few $10–$50 names are in that
+cache, so it is not re-run (A20).
