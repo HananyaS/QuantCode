@@ -540,6 +540,52 @@ Reading:
 2. **P3's win is a null effect.** On raw lift P1 leads (+0.72 vs +0.67 pp). P1 also leads against the cost-only sort (+0.46 vs +0.41) and in the account (-0.20 vs -0.29 %/day). P3 wins only after null adjustment, because its shuffled-label null transfers worse to P1's minutes. A null trained on another population is not a neutral baseline for P1 test rows, so the null-adjusted metric favours the population whose null is most mismatched. The pre-registered rule is followed, and E3 trains on P3. E3's primary metric is a paired difference inside one population, so this choice moves its comparisons little.
 3. **Every arm loses** about 1.1-1.3% per trade at about 2 trades per day.
 
+## 17c. E2 amendment 3, after the tranche-2 review (2026-10-28; written after E2's first full run, committed before its re-run)
+
+The whole-branch review of tranche 2 (poolpoc `.superpowers/sdd/2026-10-28-stage2m-tranche2/final-review.md`)
+found that E2's decision metric is biased by construction, and that the cost-only score no longer
+bounds what a model without skill gets. This amendment was written after §17b's numbers existed,
+so it is a correction, not a pre-registration. Both calls are reported. Fixed at poolpoc e143f19.
+
+1. **The null-adjusted metric favours the larger populations (review C1).**
+   - A within-day shuffle gives each row a label drawn from its own day. The mean share of a
+     filled row's day that is its own name-day is 15.1% in P1, 5.6% in P2 and 2.3% in P3. So the
+     fewer names a day has, the more of the name-day's own signal (sigma, d, cost and the
+     outcome) the null keeps.
+   - The nulls' lift falls in that order: +0.497, +0.394 and +0.249 pp. Subtracting each
+     population's own null removes more real signal from P1 than from P3. The metric would
+     order P3 > P2 > P1 even with equal models, which was the predicted outcome.
+   - §17b's "P3 beats P1 by +0.194 pp" is -0.055 pp from the models (P3 ranks worse) plus
+     +0.249 pp from the nulls.
+2. **The decision now compares raw lift.**
+   - Every population is scored on the same P1 test rows. Subtracting any reference common to
+     all of them therefore leaves the order unchanged.
+   - The rule is otherwise the same: carry the population with the best raw lift if its paired
+     raw difference vs P1 has CI lo > 0 and its Delta log-loss is >= P1's; otherwise P1.
+   - The pre-registered call (the same rule on null-adjusted lift) is reported beside it.
+   - Prediction 1 is still judged as pre-registered. It is recorded as "held on the
+     pre-registered metric; produced by the null term", not as "P3 helps".
+   - The null-adjusted difference vs P1 is reported with its three parts, each paired by day
+     with a CI: raw, gross (r_net + c_rt_pit) and null.
+3. **A mechanical-EV reference (review I1).**
+   - Under the row-specific SL term (amendment 2), an EV with no forecast already sorts minutes
+     by d (that is, by sigma) and by cost. P1's null beats the cost-only score by about 0.24 pp.
+     So -c_rt_pit no longer bounds what a model without skill gets.
+   - The **mechanical EV** is §5's EV with the row-specific SL term, with the class
+     probabilities fixed at the fold's P1 training prior and mu_TIME fixed at the training TIME
+     mean. It ranks a row by its known terms alone: target, stop, costs and the bucket's slip.
+   - Every model and every null now reports three things, all paired by day: its gross/cost
+     split, its lift over the cost-only score, and its lift over the mechanical EV. The
+     mechanical EV reports its own split.
+4. **The re-run.**
+   - E2 is re-run at the fix commit. The models are unchanged, and the determinism refit
+     confirms they are identical.
+   - The re-run saves its prediction frame, so later readings need no further re-run.
+   - The three trial lines of e43b7286efea get a supersede line, and they still count as trials.
+
+On §17b's numbers the amended rule carries **P1**, the rule's default: raw lift is P1 +0.723 >
+P2 +0.694 > P3 +0.667 pp. The re-run confirms or overturns this.
+
 ## 18. Pre-registrations, tranche 3 (committed 2026-10-28, before any F2-F7 code or E3 run)
 
 Dev data only (<= 2022-12-31). Decision minute t means after bar t closes (bar t spans
@@ -664,3 +710,31 @@ The sector -> ETF map:
    difference +0.12 pp, se 0.07). F6 and F7 are kept, and E3 also reports their add-one difference
    on covered name-days only. A sensitivity that disagrees with the full result voids the family's
    claim.
+
+### Amendment after the tranche-2 review (2026-10-28, committed before any E3 full run)
+6. **E3's population, its no-skill reference and a restated prediction.**
+   - **Population: P1.** That is E2's call under §17c's raw-lift rule.
+     - The E3 smoke at poolpoc 682ef8b ran on P3 before this amendment. Smoke runs are not
+       trials.
+     - Its numbers were seen. On 2 folds at B = 100,000, neither +F1 nor +F3 cleared Holm.
+       Base and all beat the cost-only score by +0.36 and +0.51 pp (CI lo > 0).
+   - **The binding no-skill reference is the mechanical EV** (§17c item 3), fitted per fold on
+     the P1 training rows.
+     - Every configuration reports its lift over the mechanical EV, its gross/cost split and its
+       lift over the cost-only score.
+     - The base and all nulls report the same three.
+   - **§17 amendment 1's loop condition now reads:**
+     - The configuration the loop keeps must beat the mechanical EV's lift (paired CI lo > 0).
+     - It counts as a forecast only if the gross part of its lift also has CI lo > 0.
+     - Otherwise it is reported as a sort on cost and risk.
+   - **The original prediction stays on the record and is judged as written:** against the
+     cost-only score, no configuration's lift has CI lo > 0.
+     - Under the row SL term it is expected to fail for a mechanical reason (review I1), and the
+       smoke suggests it does.
+   - **The prediction that now carries the hypothesis:**
+     - Every configuration beats the mechanical EV (CI lo > 0), as E2's models beat their nulls.
+     - No configuration's gross part has CI lo > 0.
+     - Together these say the lift is a sort on cost and risk, not a forecast of minutes that
+       rise.
+   - **E3's design is otherwise unchanged.** Its primary metric is a paired difference inside one
+     population. Its decision rule (Holm over the 7 add-one differences) does not change.
