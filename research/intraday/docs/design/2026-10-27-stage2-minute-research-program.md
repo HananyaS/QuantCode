@@ -586,6 +586,47 @@ so it is a correction, not a pre-registration. Both calls are reported. Fixed at
 On §17b's numbers the amended rule carries **P1**, the rule's default: raw lift is P1 +0.723 >
 P2 +0.694 > P3 +0.667 pp. The re-run confirms or overturns this.
 
+## 17d. Results, E2 re-run under amendment 3 (2026-10-28; poolpoc e143f195d90a, clean; MLflow 0325ca6550214b90a9fe74b110a9fcf7)
+
+This is the same models on the same rows. The determinism refit gave identical predictions, and
+every §17b number was reproduced to the last digit. Runtime 1,919 s, peak RAM 4.0 GB. The prediction
+frame is saved beside the report (predictions.parquet).
+
+| Scored by | Top-decile lift (pp) | Gross part | Cost part | vs cost-only | vs mechanical EV |
+|---|---|---|---|---|---|
+| M1-P1 | +0.723 (+0.645..+0.797) | +0.024 | +0.699 | +0.461 | **+0.081 (-0.011..+0.162)** |
+| M1-P2 | +0.694 | -0.019 | +0.712 | +0.432 | +0.052 (-0.040..+0.137) |
+| M1-P3 | +0.667 | -0.027 | +0.694 | +0.406 | +0.026 (-0.063..+0.106) |
+| null-P1 | +0.497 | -0.109 | +0.606 | +0.236 | -0.144 (-0.179..-0.111) |
+| null-P2 | +0.394 | -0.047 | +0.441 | +0.132 | -0.248 |
+| null-P3 | +0.249 | -0.016 | +0.265 | -0.013 | -0.393 |
+| mechanical EV | +0.642 (+0.598..+0.688) | -0.049 (-0.086..-0.007) | +0.690 | +0.380 | |
+| cost-only sort | +0.262 | -0.592 | +0.854 | | |
+
+- **The difference vs P1, by part.**
+  - P3: raw -0.055 pp (CI -0.111..+0.003), gross -0.051, null -0.249 (CI -0.289..-0.208).
+  - P2: raw -0.029, gross -0.043, null -0.103.
+  - P3's pre-registered win is entirely the null term.
+- **Decision (§17c, raw lift): carry P1.** P1 has the best raw lift. The pre-registered rule
+  carries P3. Prediction 1 is recorded as held on the pre-registered metric, produced by the null
+  term.
+
+Reading:
+1. **No model beats the EV with no forecast.**
+   - The mechanical EV fixes p at the training prior and ranks minutes only by their own target,
+     stop and cost. It already reaches +0.642 pp, almost all of it cost.
+   - M1-P1 adds +0.081 pp (CI -0.011..+0.162). P2 and P3 add less.
+   - Every shuffled-label null falls below the mechanical EV. The nulls add noise to the
+     row-term sort. They are not a no-skill floor.
+2. **What M1-P1 adds over the mechanical EV is gross, not cost, but it is not proven.**
+   - The gross part of its edge is +0.073 pp (CI -0.012..+0.150). The cost part is +0.008.
+   - So the model's departure from the row-term sort points at minutes that do better before
+     costs, which is the shape a forecast would have. At this sample size it is not
+     distinguishable from zero.
+   - The model's EV rank correlates 0.58 within day with the mechanical EV, and only 28% of its
+     top decile is in the mechanical EV's top decile.
+3. **Every traded arm loses**, as in §17b.
+
 ## 18. Pre-registrations, tranche 3 (committed 2026-10-28, before any F2-F7 code or E3 run)
 
 Dev data only (<= 2022-12-31). Decision minute t means after bar t closes (bar t spans
