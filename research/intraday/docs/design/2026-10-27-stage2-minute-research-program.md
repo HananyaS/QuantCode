@@ -779,3 +779,32 @@ The sector -> ETF map:
        rise.
    - **E3's design is otherwise unchanged.** Its primary metric is a paired difference inside one
      population. Its decision rule (Holm over the 7 add-one differences) does not change.
+
+### Amendments after the tranche-3 review (2026-10-28, committed before any E3 full-run number exists)
+The whole-branch review of tranche 3 (poolpoc `.superpowers/sdd/2026-10-28-stage2m-tranche3/final-review.md`)
+found two gaps. The E3 add-one run was already under way at poolpoc 440b1e4, which predates
+both rules. Both are applied after the run, from its saved prediction frame, with no refit.
+7. **The void rule for F6 and F7 (makes amendment 5 operational).**
+   - A family keyed by today's ticker map (+F6, +F7) that qualifies on all rows (mean > 0 and
+     Holm p < 0.05) is re-scored on covered name-days only. Those are name-days whose symbol is in
+     today's sector map.
+   - It *disagrees* when its covered-only paired difference vs base has mean <= 0, or a 95% CI
+     lo <= 0 (unadjusted: the covered rows are 95% of the full rows, so this checks robustness,
+     not a second discovery).
+   - A family that disagrees is dropped from the decision, and the reason is stated. A family
+     that does not qualify on all rows has its covered-only number reported and nothing else.
+   - The verdict prints the covered-only and offering-day numbers.
+8. **A basis sensitivity (tranche-3 review I2).**
+   - The minute and daily caches were fetched on different dates. On 0.2% of pool name-days (0.29%
+     of P1, 25 symbols) the two disagree by an exact split factor, constant per symbol. That
+     breaks F2's level ratios, F1's ret_prev, the traded price behind costs and price buckets, and
+     the pool score's pm_gap.
+   - Every E2 and E3 lift difference is also reported with those symbols' name-days left out of
+     the *evaluation*. A symbol is broken when any of its dev pool name-days has |log(minute
+     close / daily adjusted close)| > 0.2.
+   - An add-one family whose qualification flips under the exclusion is marked basis-sensitive.
+   - The exclusion is a read, not a filter for any strategy, because it selects on a future split.
+   - The repair is to rescale the minute and pre-market bars to the daily basis per symbol, or
+     to re-fetch them on one date. It re-selects the E-1 pool: 11 of the 21 broken P1 name-days
+     have pm_gap at its 5.0 cap. So it re-runs every tranche, and is left to the user before E4
+     and E6, where costs and price buckets matter.
