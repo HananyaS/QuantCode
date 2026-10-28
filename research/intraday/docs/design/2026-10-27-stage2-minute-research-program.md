@@ -808,3 +808,177 @@ both rules. Both are applied after the run, from its saved prediction frame, wit
      to re-fetch them on one date. It re-selects the E-1 pool: 11 of the 21 broken P1 name-days
      have pm_gap at its 5.0 cap. So it re-runs every tranche, and is left to the user before E4
      and E6, where costs and price buckets matter.
+
+## 18b. Results, tranche 3: E3 (2026-10-28; poolpoc 440b1e4eda76, clean; MLflow add-one 302cfe649b6945d4ad758f94faaaf9af, leave-one-out 508d19906ba74a329041f52ea6fe4b48)
+
+The run trained on P1 (amendment 6) and scored every P1 test minute: 685 days and 2,466,000 rows.
+- The add-one run took 2,510 s with a peak of 5.8 GB. The determinism refit of base in fold
+  2020H1 was identical.
+- The leave-one-out run took 3,457 s with a peak of 5.0 GB. Its all model reproduces the
+  add-one run's numbers exactly, which is a cross-run determinism check. The in-run check
+  refits base, and leave-one-out has no base.
+- Both prediction frames are saved beside their reports.
+- Amendments 7 and 8 are applied from the add-one frame with no refit (poolpoc e853e91,
+  `rescore.py`, rescore.json beside the report).
+
+| Configuration | Top-decile lift (pp) | Gross part | Cost part | vs cost-only | vs mechanical EV | AUC (TP) | Δ log-loss |
+|---|---|---|---|---|---|---|---|
+| base (F0+F8) | +0.685 (+0.633..+0.739) | -0.075 (-0.121..-0.029) | +0.760 | +0.424 | +0.043 (-0.011..+0.093) | 0.631 | +0.0093 |
+| +F1 levels | +0.714 | +0.013 (-0.061..+0.083) | +0.701 | +0.453 | +0.073 (-0.017..+0.154) | 0.711 | +0.0411 |
+| +F2 multi-day | +0.726 | +0.005 | +0.721 | +0.464 | +0.084 (+0.013..+0.154) | 0.661 | +0.0185 |
+| +F3 momentum | +0.679 | -0.048 | +0.727 | +0.418 | +0.038 | 0.669 | +0.0190 |
+| +F4 pre-market | +0.696 | -0.030 | +0.726 | +0.434 | +0.054 | 0.639 | +0.0129 |
+| +F5 market | +0.755 (+0.706..+0.805) | -0.002 (-0.047..+0.047) | +0.757 | +0.494 | +0.114 (+0.065..+0.161) | 0.616 | +0.0040 |
+| +F6 sector | +0.699 | -0.043 | +0.742 | +0.438 | +0.058 | 0.640 | +0.0104 |
+| +F7 filings | +0.682 | -0.074 | +0.756 | +0.420 | +0.040 | 0.630 | +0.0098 |
+| **all** | **+0.850 (+0.772..+0.923)** | **+0.171 (+0.097..+0.242)** | +0.678 | +0.588 | **+0.208 (+0.120..+0.293)** | 0.722 | +0.0435 |
+| null-base | +0.625 | -0.016 | +0.641 | +0.363 | -0.017 (-0.046..+0.011) | 0.559 | -0.0010 |
+| null-all | +0.487 | -0.070 | +0.557 | +0.226 | -0.155 (-0.188..-0.123) | 0.553 | -0.0029 |
+| mechanical EV | +0.642 (+0.598..+0.688) | -0.049 (-0.086..-0.007) | +0.690 | +0.380 | | | |
+| cost-only sort | +0.262 | -0.592 | +0.854 | | | | |
+
+| Add-one vs base (pp) | All rows | Holm p | Covered only (am. 7) | Without broken symbols (am. 8) |
+|---|---|---|---|---|
+| +F1 | +0.029 (-0.046..+0.098) | 1.000 | | |
+| +F2 | +0.040 (-0.021..+0.100) | 0.996 | | |
+| +F3 | -0.006 | 1.000 | | |
+| +F4 | +0.010 | 1.000 | | |
+| **+F5** | **+0.070 (+0.026..+0.114)** | **0.007** | | **+0.064 (+0.019..+0.111), Holm 0.042** |
+| +F6 | +0.014 | 1.000 | +0.011 (-0.052..+0.064) | |
+| +F7 | -0.004 | 1.000 | +0.007 (-0.024..+0.036) | |
+
+- **Decision: base + F5 (30 features).**
+  - F5 (market context) is the only family with Holm p < 0.05.
+  - The Δ log-loss guard flags it. Its Δ log-loss is 0.0040 against base's 0.0093, and its AUC
+    is 0.616 against 0.631.
+  - Amendment 7 voids nothing, because neither F6 nor F7 qualifies.
+  - Under amendment 8, the 22 broken symbols are 2.19% of rows. Without them F5 still qualifies,
+    and no family is basis-sensitive.
+- **Predictions as pre-registered:**
+  - "F1, F3 and F4 lift": **failed**. None qualifies. F1 raises AUC from 0.631 to 0.711, but its
+    lift difference is +0.029 (Holm 1.0).
+  - "F5/F6 small": **failed**. F5 is the only qualifier.
+  - "F7 helps mainly on offering days": **held, weakly**. The point estimates are +0.031 on
+    offering name-days and +0.013 on the rest, and the CIs overlap (minor M7).
+  - "No configuration beats the cost-only score": **failed**, for the mechanical reason
+    amendment 6 gave. Every configuration beats it with CI lo > 0.
+  - "Every traded arm loses": **held**.
+- **Predictions as amended (amendment 6):**
+  - "Every configuration beats the mechanical EV": **failed**. Base, +F1, +F3, +F4, +F6 and +F7
+    have CI lo <= 0.
+  - "No configuration's gross part has CI lo > 0": **failed**. The all model's gross part is
+    +0.171 (CI +0.097..+0.242).
+
+| Traded arm (EV > 0) | Mean %/day (95% CI) | Trades | Net per trade | vs SPY open-to-close |
+|---|---|---|---|---|
+| base | -0.178 (-0.240..-0.117) | 888 | -1.37% | -0.205 |
+| all | -0.156 (-0.236..-0.085) | 1,219 | -0.91% | -0.183 |
+| +F5 | -0.104 (-0.161..-0.049) | 874 | -0.91% | -0.131 |
+| SPY open-to-close | +0.027 (-0.054..+0.110) | | | |
+
+| Leave-one-out vs all (pp) | All rows | Holm p | Without broken symbols | Gross part | vs mechanical EV | AUC (TP) |
+|---|---|---|---|---|---|---|
+| all -F1 | -0.038 (-0.082..+0.004) | 0.410 | -0.040, Holm 0.268 | +0.109 (+0.041..+0.168) | +0.170 (+0.089..+0.239) | 0.685 |
+| all -F2 | -0.037 (-0.082..+0.005) | 0.410 | -0.037, Holm 0.279 | +0.133 | +0.171 | 0.716 |
+| all -F3 | -0.019 (-0.058..+0.016) | 0.610 | -0.025, Holm 0.362 | +0.154 | +0.189 | 0.719 |
+| all -F4 | -0.032 (-0.071..+0.005) | 0.410 | -0.042, Holm 0.196 | +0.124 | +0.175 | 0.718 |
+| all -F5 | -0.042 (-0.081..-0.003) | 0.210 | -0.044, Holm 0.196 | +0.139 | +0.166 | 0.722 |
+| all -F6 | -0.034 (-0.071..-0.001) | 0.264 | -0.036, Holm 0.196 | +0.140 | +0.174 | 0.718 |
+| all -F7 | -0.009 (-0.049..+0.029) | 0.624 | -0.014, Holm 0.475 | +0.160 (+0.091..+0.225) | +0.199 (+0.117..+0.281) | 0.718 |
+
+- **Leave-one-out.**
+  - No single family is necessary. Every drop costs the all model between 0.009 and 0.042 pp,
+    and none survives Holm, with or without the broken symbols.
+  - Every reduced model keeps a gross part with CI lo > 0, and every one beats the mechanical
+    EV.
+  - Dropping F1 costs the most AUC (0.722 to 0.685) and the most gross (+0.171 to +0.109).
+- **Predictions, leave-one-out run:**
+  - "No configuration beats the cost-only score": failed.
+  - "Every traded arm loses": held.
+  - "Every configuration beats the mechanical EV": held, within this run.
+  - "No gross skill": failed.
+- **Pooled over both runs (minor M6):** "every configuration beats the mechanical EV" fails,
+  because of add-one's base and others, and "no gross skill" fails.
+
+Unregistered reads on the all model. These come from the saved add-one frame with 2,000
+day-clustered draws. They were chosen after the add-one numbers were seen, so they are robustness
+checks, not tests.
+
+| All model's gross part | pp (95% CI) |
+|---|---|
+| every row | +0.171 (+0.097..+0.242) |
+| covered name-days only | +0.174 (+0.100..+0.244) |
+| without the 22 broken symbols | +0.166 (+0.092..+0.235) |
+| decision minutes after 09:44 (t >= 14) | +0.193 (+0.117..+0.268) |
+| 09:31-09:44 (t < 14; 3.6% of rows) | -0.213 (-0.420..-0.020) |
+| fold 2020H1 / 2020H2 / 2021H1 | +0.401 (+0.214..+0.590) / +0.137 (-0.014..+0.294) / +0.276 (+0.112..+0.453) |
+| fold 2021H2 / 2022H1 / 2022H2 | +0.150 (+0.031..+0.278) / +0.167 (+0.034..+0.326) / -0.080 (-0.336..+0.134) |
+
+Unregistered diagnostic: which EV term carries the lift? It refits base, +F1, +F5 and all
+exactly as E3 add-one did (every EV matches the saved frame to 0.0). Each is then scored three
+ways:
+- both terms, which is the model's EV;
+- class probabilities only, with mu_TIME fixed at the fold's training TIME mean;
+- the TIME-return regressor only, with p fixed at the fold's P1 training prior.
+
+The script and its JSON are in data/.../440b1e4eda76/e3-diag/.
+
+| Model | Scored with | Top-decile lift | Gross part | Cost part | vs mechanical EV |
+|---|---|---|---|---|---|
+| base | both | +0.685 | -0.075 (-0.121..-0.029) | +0.760 | +0.043 (-0.011..+0.093) |
+| base | p only | +0.642 | +0.013 (-0.028..+0.053) | +0.629 | +0.000 |
+| base | mu only | +0.707 | -0.076 (-0.119..-0.034) | +0.783 | +0.065 (+0.025..+0.103) |
+| +F5 | both | +0.755 | -0.002 | +0.757 | +0.114 (+0.065..+0.161) |
+| +F5 | p only | +0.672 | +0.017 (-0.019..+0.056) | +0.655 | +0.030 (-0.002..+0.061) |
+| +F5 | mu only | +0.769 | -0.007 (-0.052..+0.037) | +0.777 | +0.128 (+0.086..+0.168) |
+| +F1 | p only | +0.323 | -0.024 | +0.347 | -0.319 |
+| +F1 | mu only | +0.702 | -0.025 | +0.727 | +0.060 (+0.006..+0.114) |
+| all | both | +0.850 | +0.171 (+0.097..+0.242) | +0.678 | +0.208 (+0.120..+0.293) |
+| all | p only | +0.475 | **+0.112 (+0.047..+0.182)** | +0.363 | -0.167 |
+| all | mu only | +0.742 | +0.031 (-0.018..+0.081) | +0.711 | +0.101 (+0.051..+0.149) |
+
+The model's EV ranks within day with a rank correlation of 0.80 to 0.94 to its mu-only score,
+and 0.65 to 0.79 to its p-only score.
+
+Reading:
+1. **The all model is the first configuration that forecasts.**
+   - Its top tenth of minutes does better before costs. The gross part is +0.171 pp with CI lo
+     > 0, where base's is -0.075 and the mechanical EV's is -0.049.
+   - It beats the mechanical EV by +0.208 pp (CI +0.120..+0.293), and its own null by +0.362.
+   - So it meets both legs of amendment 6's loop condition.
+   - The result survives the covered-only read, the basis exclusion and dropping the opening
+     window.
+   - It is positive in 5 of the 6 folds and fades in the last one: 2022H2 is -0.080 with a wide
+     CI.
+2. **The forecast is not in any single family.**
+   - Each family on its own lifts base's gross part from -0.075 to between -0.074 and +0.013.
+     The CI lo is <= 0 in every case.
+   - Added one at a time, the families gain +0.346 pp of gross in total. Together they gain
+     +0.246.
+   - So the all model is many small gains accumulated, not one interaction. The add-one design
+     with Holm over seven is not powered to see any one of them.
+   - Leave-one-out agrees. No single family is necessary, and every reduced model still
+     forecasts.
+3. **The pre-registered decision carries a configuration that sorts on cost and risk.**
+   - Base + F5 beats the mechanical EV (+0.114, CI +0.065..+0.161). Its gross part is -0.002
+     (CI -0.047..+0.047).
+   - So by amendment 6 it is a sort on cost and risk, not a forecast.
+   - The decision stands as written. Whether E4 also carries the all model is the user's call.
+4. **F5's gain runs through the TIME-return regressor, and it is cost.**
+   - With F5 added, the mu-only score beats the mechanical EV by +0.128 (base's mu-only:
+     +0.065). Its gross part is -0.007.
+   - F5's p-only score adds +0.030 (n.s.).
+   - So F5 helps the regressor sort minutes by cost and risk. Its ETF and pool-breadth bars
+     vary with the time of day, as costs do, and that is consistent with a clock or market-state
+     proxy for cost (unregistered diagnostic).
+   - The all model's forecast sits in its class probabilities instead. With mu fixed, its gross
+     part is +0.112 (CI +0.047..+0.182). The regressor then adds the cost sort on top.
+   - The mu term alone pulls base's gross part down to -0.076. A regressor of net return
+     learns cost first, which is the tranche-1 lesson again.
+5. **Every traded arm loses.**
+   - The best is +F5, at -0.104 %/day with CI hi -0.049. It loses about 0.9% per trade, at
+     about 1.3 trades a day.
+   - A relative top-tenth edge of +0.17 pp before costs is far smaller than the round trip
+     these names cost, so the EV > 0 rule still trades losers.
+6. **F2's pdc_dist duplicates F1's ret_prev** (correlation 0.99999, minor M4). The +F2 row is
+   therefore partly a re-test of F1's previous-close level.
