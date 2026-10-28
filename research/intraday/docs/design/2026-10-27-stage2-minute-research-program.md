@@ -982,3 +982,93 @@ Reading:
      these names cost, so the EV > 0 rule still trades losers.
 6. **F2's pdc_dist duplicates F1's ret_prev** (correlation 0.99999, minor M4). The +F2 row is
    therefore partly a re-test of F1's previous-close level.
+
+
+## 18c. Amendment 9: the basis repair and the re-run (2026-10-28, committed before any re-run)
+
+User decision, 2026-10-28: "carry both into E4, and repair the price basis first". So amendment
+8's repair is done before E4, and every tranche re-runs on the repaired caches.
+
+9. **The repair (poolpoc 3595eef..6674ea3, `stage2m/rebase.py`).**
+   - **The rule.**
+     - A name-day is off-basis when its first regular minute open and its last regular minute
+       close both differ from the daily cache's open and close by |log| > 0.2.
+     - The two prices confirm each other when they agree within 0.05 log.
+     - Per symbol, the confirming days are sorted by level and split where neighbours differ by
+       more than 0.10 log. A cluster is valid when every member is within 0.10 of its median,
+       and it has two or more members or one whose two prices agree.
+     - A symbol is repaired only when exactly one valid cluster holds at least half of its
+       off-basis days. Its cluster days are then divided by the cluster median (prices / k,
+       volume x k, trade count unchanged).
+     - A pre-market name-day is rescaled when it shares minutes with the rebased minute bars
+       and their median close ratio is off by |log| > 0.2. With no shared minutes, it is rescaled
+       when its last pre-09:30 close over the rebased 09:30 open is within 0.10 of a factor
+       already confirmed for that symbol.
+     - Every other name-day keeps its bars and is listed. Nothing is dropped.
+   - **One rule came from reading the caches, before any re-run.** The single-cluster
+     condition was added after the plan's rule was applied to the universe scan.
+     - BBBY's minute bars on six days in 2020-02/03 sit near $10 while the daily cache falls
+       from 7.8 to 2.9. Their levels are 1.41, 1.38, 1.47, 1.66, 1.78 and 2.14, and three of the
+       six days have disagreeing prices. That is another security's bars, not a basis factor,
+       but three days would otherwise have been rescaled.
+     - Every true break in the scan has exactly one factor per symbol.
+     - This check reads only the two caches' prices, never a label or a result.
+   - **Counts, 2016-02-17..2025-08-06 (160,665 minute name-days).**
+     - **Minute:** 744 name-days on 28 symbols rebased. Factors are exact split ratios (5, 7, 8,
+       10, 12, 15, 20, 30, 50, 1/5, 1/6) or a split with dividend adjustment (VISN 0.325, CXAI
+       49.96, KIDZ 15.06).
+     - **Dev (<= 2022):** 150 name-days on 11 symbols. In the old pool these are 78 of 50,240 dev
+       name-days and 20 of 7,270 P1 name-days.
+     - **Pre-market:** 17 name-days on 5 symbols rescaled (3 overlap, 14 match), all in 2025. No
+       dev pre-market bar changes.
+     - **Residual, listed and not repaired:** 43 name-days on 37 symbols (dev: 33 on 27). These
+       are single-price disagreements, BBBY's six days, and three days that open at exactly x50
+       but close 5-9% off it (CXAI, GRML, SMTK, all after 2022).
+     - A scan of the repaired caches finds no confirmed break, and no pre-market disagreement
+       on shared minutes (24 before).
+   - **The holdout (>= 2025-08-07) is not repaired.** Its 251 day folders per cache are copied
+     byte for byte and never read. They are repaired with the same rule when the holdout is
+     unsealed.
+   - **Every reader changes.** paths.MINUTE_DIR and premarket.PM_DIR now point at the repaired
+     copies, and the raw caches stay as fetched.
+     - The cached_bars, year_labels and year_pm keys carry the file paths. year_pm now also
+       keys the minute files it merges, and the Stage 2m panel key now carries both caches'
+       day-file stats. So every downstream cache rebuilds.
+     - The Stage 1w room-model score is unchanged, because its label is a ratio within one day's
+       minute bars and k cancels.
+
+**What is identical.** The code of every runner and every decision rule is unchanged:
+- E-1's pool rule (§15);
+- E0's card;
+- E1's floors;
+- E2's population rule (§17c, amendment 3);
+- E3's add-one rule with amendments 6-8.
+
+Amendment 8's exclusion is re-derived the same way, by `basis` over the new pool's dev
+name-days. It now lists only the residual disagreements. The re-run executes from a detached
+poolpoc worktree at the repair's last commit (6674ea3, or the commit that fixes a finding of the
+repair's whole-branch review, which runs first), one heavy run at a time, in this order:
+1. E-1;
+2. E0;
+3. E1;
+4. E2;
+5. E3 add-one on E2's population;
+6. E3 leave-one-out;
+7. `basis` and `rescore`.
+
+§18b's unregistered robustness reads are repeated on the new frames, again as reads, not tests.
+
+**What supersedes what.** The re-run's numbers supersede §16b, §17d and §18b. The old MLflow
+trials stay, each tagged as superseded by its re-run. The trial count is the old count plus the
+re-run's.
+
+**Predictions (before any re-run):**
+1. The pool changes on at most a few percent of P1 name-days.
+2. E2 still carries P1.
+3. E3's add-one decision is unchanged: base + F5, with Holm p < 0.05.
+4. The all model keeps a gross part with CI lo > 0, and it beats the mechanical EV with CI lo > 0.
+5. No population or family decision flips.
+6. Every traded arm loses.
+
+**E4 carries both** base + E3's qualifying set and the all model, whatever the re-run decides
+(user decision 2026-10-28). If no family qualifies, the first of the two is base.
