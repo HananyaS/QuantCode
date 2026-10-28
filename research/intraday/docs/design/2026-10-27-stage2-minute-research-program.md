@@ -630,3 +630,18 @@ The sector -> ETF map:
      distance.
    - XLC stands for telecom_media from 2018-06-19, its first session in the ETF cache; IWM is
      used before that.
+4. **The FINRA short ratios are dropped from E3's model inputs (short_d1, short_5d); F7 enters
+   E3 as its 6 EDGAR features.** The FINRA cache was fetched by today's tickers, and Alpaca's
+   bars carry today's ticker for the whole history. A company that changed its ticker since
+   therefore has no FINRA row under its old name. That is 17% of P1 name-days from 2018-09 (26%
+   in March 2021), and every sampled gap was a renamed or reused ticker. The gap predicts the
+   label: on name-days without a row the mean filled r_net is -1.95% vs -1.59% with one, a paired
+   daily difference of +0.50 pp (se 0.06). A feature whose missingness encodes a later rename is
+   future data. The columns stay in the panel for diagnostics.
+5. **EDGAR and sector coverage has the same origin but no measurable label content.** Both are
+   keyed by today's ticker-to-CIK map, so a company delisted since has no filings and no sector:
+   7.8% of pool name-days (5.4% of P1), rising from 2% in 2022 to 20% in 2019. Its label
+   distribution matches the covered rows (TP 2.76% vs 2.75%, SL 22.4% vs 22.4%, paired r_net
+   difference +0.12 pp, se 0.07). F6 and F7 are kept, and E3 also reports their add-one difference
+   on covered name-days only. A sensitivity that disagrees with the full result voids the family's
+   claim.
