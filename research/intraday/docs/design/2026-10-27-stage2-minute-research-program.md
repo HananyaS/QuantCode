@@ -399,3 +399,102 @@ applies at E7 only. Everything below is descriptive or a floor.
 | Model metrics | Delta log-loss vs prior, Brier, AUC (TP vs rest), ECE10, daily rank IC (EV vs r_net), top-decile lift with a day-clustered CI, top-decile TP rate vs p* |
 | Trading metrics | Mean daily net return with CI; paired differences vs C1-C4 (Holm); Sharpe; max drawdown; trades/day. Every arm is logged as a trial |
 | Predicted | M1-F0's top-decile lift CI includes 0 (as in Round 1). No arm has a dev daily-return CI above 0. C3's rules lose net of costs on $1-$10 names (the literature's ORB evidence excludes penny stocks) |
+
+## 16. Results, tranche 1 (2026-10-28; poolpoc 7220076..916b04d)
+
+- **E-1 (correction): PASS.** On admissible rows, the top 10 have 22.7% of random trades beating
+  costs vs 16.4% for the universe; vs naive +1.5 (CI +1.2..+1.8), vs room_model +0.6
+  (+0.3..+0.8), vs base +1.1 (+0.8..+1.4). Null gate valid. 82,355 scored rows, 1,298 days.
+- **E0: 3 of 3 predictions held.** H30 (2,1): 44.6% of decision minutes cannot fill; filled rows
+  are TP 2.6% / SL 21.7% / TIME 75.8%; r_TP +6.2%, rbar_SL -4.7%, p* 42.9%. Every set has its TP
+  rate below p*. C1 -1.05%/day, C2 -1.97%/day, SPY open-to-close +0.04%/day, oracle +2.8%/day.
+- **E1 (run 916b04dcbb4e, 685 test days):** prediction 1 FAILED (M1's top-decile lift +0.76 pp,
+  CI +0.67..+0.84; AUC 0.641), but the shuffled-label null also shows +0.33 pp (CI +0.24..+0.42,
+  rank IC 0.15). Predictions 2 and 3 HELD: every arm loses. M1 (EV > 0) -0.57%/day is worse than
+  C1 -0.40% and C4 -0.36% (Holm p 0.004); M1 beats C2 and all five C3 rules.
+- **Finding (feeds E5/E6):** §5's EV values a TP at the row's own u but an SL at the bucket mean,
+  so EV > 0 selects high-sigma minutes. M1's entries had mean u 21% (all rows 7.6%) and their
+  SLs cost -9.2% (assumed -4.7%). The E6 policy factor gains a level: a row-specific SL term.
+
+## 17. Pre-registrations, tranche 2 (committed 2026-10-28, before any run)
+
+Implementation plan: `QuantCode-poolpoc/docs/superpowers/plans/2026-10-28-stage2m-tranche2.md`.
+Dev data only (<= 2022-12-31). Everything below is a dev comparison; the pass bar applies at E7.
+
+### F1 intraday levels and structure (exact; decision minute t, bars <= t, pre-open < 09:30)
+| Feature | Definition |
+|---|---|
+| hod_pct, lod_pct | c_t / HOD_t - 1, c_t / LOD_t - 1 (HOD/LOD over bars 0..t) |
+| hod_sig, lod_sig | log(c_t / HOD_t) / sigma_t, log(c_t / LOD_t) / sigma_t (sigma_t as §4) |
+| mins_since_hod, mins_since_lod | t minus the latest bar that set the HOD / LOD |
+| n_new_hod | bars 1..t whose high exceeds every earlier high of the day |
+| or5_dist, or15_dist, or30_dist | c_t / ORH_k - 1, ORH_k = max high of bars 0..k-1; NaN while t < k-1 |
+| or5_state, or15_state, or30_state | +1 above ORH_k, -1 below ORL_k, 0 inside; NaN while t < k-1 |
+| vwap_dist, vwap_z | c_t / VWAP_t - 1; (c_t - VWAP_t) / SD_t, SD_t = the volume-weighted std of the bar price about VWAP_t |
+| day_pos | (c_t - LOD_t) / (HOD_t - LOD_t) |
+| ret_open, ret_prev | c_t / (first open) - 1; c_t x f / prior_close_unadj - 1 (red-to-green) |
+| pmh_dist, pml_dist | c_t / pre-open high - 1, c_t / pre-open low - 1 (NaN without pre-open bars) |
+| swing_hi_dist, swing_lo_dist | H / c_t - 1 for the nearest confirmed 5-bar fractal high above c_t; c_t / L - 1 for the nearest confirmed fractal low below (fractal j confirmed at t >= j + 2) |
+| r50_up, r50_dn, r100_up, r100_dn | distance from px = c_t x f (unadjusted) to the next $0.50 / $1 grid level above and below, over px |
+
+### E2 Which training population?
+| Item | Value |
+|---|---|
+| Populations | P1 = top 10, P2 = top 30, P3 = every scored admissible row, by E-1's score (pool.parquet), dev days |
+| Fixed | M1 (LightGBM, Stage 1 PARAMS) on F0 + F1 + F8; default label H30 (2,1); E1's purged 6 half-year folds; §5's EV, theta = 0 |
+| Training rows | Equal budget: per fold, B = 400,000 filled rows drawn uniformly (seed 7) from the population's (name-day, minute) rows on the training dates; P2 and P3 store a seeded 1-in-3 and 1-in-8 sample of decision minutes per name-day, P1 all |
+| Calibration | Isotonic on P1's inner-validation rows (t % 5 == 1) for every population |
+| Evaluation | Every P1 decision minute of the test blocks (as E1) |
+| Arms | M1-P1, M1-P2, M1-P3 traded on EV > 0 through the account (3 trials); each population's shuffled-label null (model metrics only) |
+| Primary metric | Null-adjusted top-tenth net lift on P1 test rows: an arm's daily top-decile lift minus its own null's; populations compared by the paired daily difference vs P1 (day-clustered CI) |
+| Guard | Delta log-loss vs the fold's P1 training prior |
+| Decision | Carry forward the population with the best null-adjusted lift if its paired difference vs P1 has CI lo > 0 and its Delta log-loss is >= P1's; otherwise P1 |
+| Predicted | (§10) P3 helps: M1-P3's null-adjusted lift beats M1-P1's (CI lo > 0), P2 in between. Every traded arm still loses (daily CI hi < 0): the EV asymmetry is unchanged until E6 |
+
+### Amendments after the tranche-1 review (2026-10-28, committed before any E2 run)
+
+The whole-branch review of tranche 1 (poolpoc `.superpowers/sdd/2026-10-28-stage2m-tranche1/final-review.md`)
+found two defects that change §16's numbers and two spec flaws. Fixed at poolpoc 5d252af:
+
+- **Fill floor (§2).** A fill that bar t+1's volume cap leaves under $500 is now NO_FILL, as §2
+  says. It was kept before: 14.1% of filled rows, mean r_net -4.8%.
+- **Matched controls (§8).** C1 and C4 now admit rows while the account can still hold them,
+  up to M1's *realized* trades that day. C1 admits in random order, C4 by the null's EV.
+  Before, they were matched on candidates, so the account kept only 91% (C1) and 40% (C4) of
+  M1's count. Per-dollar and paired per-trade returns are now reported beside the daily means.
+  The best C3 rule is now chosen per dollar.
+- **§16 is pre-fix.** E0 and E1 are re-run on the fixed labels, and §16b supersedes them. The
+  10 E1 trial lines from 916b04dcbb4e stay in `trials.jsonl`: they count as trials and carry a
+  supersede line.
+
+Two amendments, decided before any E2 number exists:
+
+1. **Lift references (amends §8, §9 and E2).**
+   - A cost-only score, -c_rt_pit, already gives most of E1's top-decile lift. On the pre-fix
+     labels it gave +0.70 pp against M1's +0.76.
+   - From E2 on, every reported lift therefore carries three things: the arm's own
+     shuffled-label null lift, the cost-only score's lift, and the split of the lift into gross
+     (r_net + c_rt_pit) and cost (-c_rt_pit) over the same top-decile rows. Both references are
+     paired by day.
+   - The user's loop metric (§9, top-tenth net lift, within-day) stays. The configuration the
+     loop keeps must, at the loop's end, also beat the cost-only score's lift (paired CI lo > 0).
+     Otherwise the loop has found a cost sort, and that is how it is reported.
+   - E2's population comparison is unaffected: the cost-only reference is the same rows for
+     every population, so it cancels in the paired difference against P1.
+2. **Row-specific SL term (amends §5).**
+   - **The flaw.** EV valued a TP at the row's own u but an SL at the training bucket mean.
+     That favoured high-sigma minutes: M1's SLs cost -9.2% against the -4.7% EV assumed.
+   - **New SL term, from E2 on:**
+     r_SL = (1 - d)(1 - h_pit) - 1 - comm_pit - 2 x imp_pit + slip[bucket].
+   - **Its inputs:**
+     - d = k_d sigma_t sqrt(H), as in §4.
+     - h_pit = the point-in-time half-spread that c_rt_pit uses: (c_rt_pit - comm_pit -
+       2 x imp_pit) / 2.
+     - slip[bucket] = the mean of (r_net - nominal r_SL) over the training SL rows of each price
+       bucket, which is the gap-through cost.
+   - **TP term:** unchanged.
+   - **The bucket-mean SL term** becomes E6's comparison level.
+   - **E2 "Fixed"** now reads "§5's EV with the row-specific SL term, theta = 0".
+   - **E2's prediction**, amended in the same commit: every traded arm still loses (daily CI
+     hi < 0); the row-specific SL term lowers EV on high-sigma minutes but does not by itself
+     create an edge. The population prediction is unchanged.
