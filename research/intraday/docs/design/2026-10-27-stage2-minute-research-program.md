@@ -520,3 +520,88 @@ Two amendments, decided before any E2 number exists:
   - **Reading.** On F0 + F8, the model's ranking adds nothing over the cost estimate. The
     tranche-2 work (F1 levels, populations, a row-specific SL term) has to produce gross skill:
     a lift above the cost-only score.
+
+## 18. Pre-registrations, tranche 3 (committed 2026-10-28, before any F2-F7 code or E3 run)
+
+Dev data only (<= 2022-12-31). Decision minute t means after bar t closes (bar t spans
+09:30+t to 09:31+t). Every feature at t reads bars <= t, pre-open bars < 09:30, daily rows
+<= D-1, and filings accepted at or before 09:31+t on D. Price ratios use one basis: the minute
+cache's adjusted basis, which is the daily cache's adjusted columns. A ratio of two prices on the
+same basis does not depend on a later split. A feature is NaN when its inputs are missing. Each
+family gets a perturbation test (changing bars after t moves nothing at t) and a date test (no
+daily row >= D and no filing after the decision time).
+
+### F2 multi-day levels (daily bars <= D-1)
+| Feature | Definition |
+|---|---|
+| pdh_dist, pdl_dist, pdc_dist | c_t / H_{D-1} - 1, c_t / L_{D-1} - 1, c_t / C_{D-1} - 1 |
+| hi5_dist, lo5_dist, hi20_dist, lo20_dist, hi60_dist, lo60_dist | c_t / max(H over the last k sessions <= D-1) - 1, c_t / min(L ...) - 1; NaN with fewer than k sessions |
+| piv_p, piv_r1, piv_s1, piv_r2, piv_s2 | c_t / level - 1, with D-1's floor pivots P = (H+L+C)/3, R1 = 2P - L, S1 = 2P - H, R2 = P + (H - L), S2 = P - (H - L) |
+| hi252_dist | c_t / max(H over up to 252 sessions <= D-1) - 1; NaN with fewer than 60 |
+| run_days | the signed run of consecutive up (+) or down (-) closes ending at D-1 |
+| gap_atr | (O_D / C_{D-1} - 1) / atr20, where O_D is the 09:30 bar's open |
+
+### F3 momentum and volume (bars <= t)
+| Feature | Definition |
+|---|---|
+| r5, r30, r60 | log(c_t / c_{t-k}), with c_{t-k} the last present close at or before t-k; NaN if none (F0 already has 1, 3 and 15) |
+| sv5, sv15, sv30 | sum over the last k bars of v x sign(c - o), divided by the sum of v; NaN without volume |
+| crvol | cumulative volume to t / (adv20 in shares x the intraday volume curve to t). The curve is E1's (fitted on 2017-2019) |
+| vacc | mean v of the last 5 bars / mean v of bars t-29..t-5; NaN if the denominator is 0 |
+| sig_ratio | std of the 1-minute log returns over the last 5 present bars / the same over the last 30 |
+
+Trade count is dropped: the minute arrays the panel loads have no trade-count field.
+
+### F4 pre-market (the pool's §13 columns, constant over the day)
+pm_gap, pm_late_ret, pm_range, pm_close_pos, pm_dist_vwap, pm_log_dv, pm_dv_to_adv, pm_late_share,
+pm_bars, pm_fade.
+
+### F5 market context (ETF minute bars <= t, daily rows <= D-1, the day's pool at t)
+| Feature | Definition |
+|---|---|
+| spy_ret_open, qqq_ret_open, iwm_ret_open | the ETF's last close at or before t / its 09:30 open - 1 |
+| spy_r15, iwm_r15 | the ETF's 15-minute return to t |
+| qqq_ret_d1, qqq_tr5, qqq_tr20 | QQQ C_{D-1}/C_{D-2} - 1, C_{D-1}/C_{D-6} - 1, C_{D-1}/C_{D-21} - 1 |
+| vix_d1, vix_chg_d1 | VIX close on D-1; VIX C_{D-1}/C_{D-2} - 1 |
+| br_above_open, br_med_ret_open, br_new_hod5, br_disp | over the day's P3 pool names with a bar at or before t: the share above their 09:30 open, the median return since the open, the share that set a new high of day in the last 5 bars, and the cross-sectional std of the return since the open |
+
+### F6 sector (SIC sector -> sector ETF; ETF minute bars <= t)
+| Feature | Definition |
+|---|---|
+| sec_ret_open | the sector ETF's return since its 09:30 open, to t |
+| rel_sec_open, rel_sec_15 | the stock's return since the open minus the ETF's; the same over the last 15 minutes |
+| sec_breadth | the share of the day's P3 names in the same sector that are above their open at t; NaN with fewer than 3 |
+
+The sector -> ETF map:
+- biotech_pharma -> XBI
+- software_it, hardware_semis -> XLK
+- financials -> XLF
+- retail_consumer -> XLY
+- transport_shipping, industrials -> XLI
+- medical_devices, healthcare_services -> XLV
+- mining_metals, chemicals_materials -> XLB
+- energy -> XLE
+- telecom_media -> XLC (IWM before XLC's first bar)
+- real_estate -> XLRE
+- other, shell_blank_check, unknown, unmapped -> IWM
+
+### F7 events and flows (EDGAR accepted_et <= 09:31+t on D; FINRA <= D-1)
+| Feature | Definition |
+|---|---|
+| ev_8k_today, ev_any_today | 8-K filings, and filings of any form except 3, 4, 5, 144 and SC 13*, accepted on D before the decision time |
+| ev_8k_5d, ev_off_30d, ev_per_5d | 8-Ks over the 5 calendar days before D plus today before t; offerings (S-1, S-3, F-1, F-3, their /A, 424B*) over 30 days; 10-Q/10-K (and /A) over 5 days |
+| ev_mins_since | minutes from the latest such filing (any form, as in ev_any_today) to the decision time, capped at 43,200; NaN if none in 30 days |
+| short_d1, short_5d | FINRA short volume / total volume on D-1, and its mean over the last 5 sessions <= D-1; NaN before 2018-08 |
+
+### E3 which context matters? (add-one, all, then leave-one-out)
+| Item | Value |
+|---|---|
+| Population | E2's carried population; calibration and test on P1 exactly as E2 |
+| Fixed | M1 (Stage 1 PARAMS); H30 (2,1); E1's purged 6 half-year folds; B = 400,000 filled training rows per fold (seed 7); EV with the row-specific SL term; theta = 0 |
+| Configurations | base = F0 + F8; add-one: base + Fk for k = 1..7 (7); all = F0..F8; leave-one-out: all minus Fk (7; run after add-one) |
+| Primary metric | per configuration, the paired daily difference of top-decile lift vs base (add-one) or vs all (leave-one-out), day-clustered CI, Holm over the 7 |
+| References (§17 amendment 1) | every configuration's lift vs the cost-only score, its gross/cost split, and, for base and all, the shuffled-label null |
+| Guard | Delta log-loss vs the P1 training prior is reported per configuration; a family that lowers it is flagged |
+| Traded arms | base, all and the best add-one configuration on EV > 0 through the account (3 trials); the other configurations are model-level trials |
+| Decision | E3's feature set is base plus every family whose add-one difference has Holm-adjusted CI lo > 0. If none qualifies, the set is base + F1 (the user's critique asked for levels) and is reported as unproven |
+| Predicted | (§10) F1, F3 and F4 lift; F5/F6 small; F7 helps mainly on offering days. Against the cost-only score, no configuration's lift has CI lo > 0 (the gross part stays <= 0). Every traded arm still loses |
