@@ -498,3 +498,25 @@ Two amendments, decided before any E2 number exists:
    - **E2's prediction**, amended in the same commit: every traded arm still loses (daily CI
      hi < 0); the row-specific SL term lowers EV on high-sigma minutes but does not by itself
      create an edge. The population prediction is unchanged.
+
+## 16b. Results, tranche 1 after the review fixes (2026-10-28; poolpoc 5d252af / b08b7a0; supersedes §16's E0 and E1)
+
+- **E0: 3 of 3 predictions held.**
+  - H30 (2,1): 52.4% of decision minutes cannot fill (was 44.6%).
+  - Filled rows: TP 2.75% / SL 22.4% / TIME 74.9%.
+  - r_TP +6.56%, rbar_SL -4.43%, p* 40.3%; a random entry nets -1.64%.
+  - C1 -1.22%/day, C2 -1.93%/day, SPY open-to-close +0.04%/day, oracle +2.9%/day.
+- **E1 (run b08b7a063052, 685 test days).**
+  - **Prediction 1 FAILED.** M1's top-decile lift is +0.29 pp (CI +0.20..+0.36); AUC 0.633.
+  - **Against the references:**
+    - The lift beats the shuffled-label null (whose lift is -0.21) by +0.50 pp.
+    - It does **not** beat a cost-only sort: +0.02 pp, CI -0.08..+0.12.
+    - Split: gross -0.25 pp + cost +0.54 pp. The minutes M1 likes are cheaper, not better.
+  - **Predictions 2 and 3 HELD.** Every arm loses.
+    - M1 -0.62%/day, M0 -0.49, C1 -0.56, C4 -1.05, C2 -1.99. The rules lose -1.24..-2.88%/day.
+    - M1, C1 and C4 each made 3,070 trades.
+  - **Per trade, M1 is no better than random:** -0.19 pp vs C1 (CI -0.50..+0.13). It beats the
+    null by +0.93 pp.
+  - **Reading.** On F0 + F8, the model's ranking adds nothing over the cost estimate. The
+    tranche-2 work (F1 levels, populations, a row-specific SL term) has to produce gross skill:
+    a lift above the cost-only score.
