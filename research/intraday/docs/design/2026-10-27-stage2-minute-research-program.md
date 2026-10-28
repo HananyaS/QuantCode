@@ -521,6 +521,25 @@ Two amendments, decided before any E2 number exists:
     tranche-2 work (F1 levels, populations, a row-specific SL term) has to produce gross skill:
     a lift above the cost-only score.
 
+## 17b. Results, tranche 2: E2 (2026-10-28; poolpoc e43b7286efea, clean; MLflow e24811c488104291878d2a05d0b86b92)
+
+M1 on F0 + F1 + F8, with 400,000 training rows per fold from each population. It was tested on every P1 minute of 685 days, under 6 purged folds. The determinism refit gave identical predictions. Runtime 1,904 s, peak RAM 3.8 GB.
+
+| Trained on | Lift over its null (pp) | Raw lift: net = gross + cost (pp) | vs cost-only (pp) | AUC (TP) | dlogloss | Arm, %/day (CI hi) | Per trade |
+|---|---|---|---|---|---|---|---|
+| P1 | +0.225 (+0.135..+0.311) | +0.723 = +0.024 (-0.051..+0.095) + 0.699 | +0.461 (+0.368..+0.548) | 0.710 | +0.0410 | -0.201 (-0.125) | -1.06% |
+| P2 | +0.300 (+0.207..+0.392) | +0.694 = -0.019 + 0.712 | +0.432 | 0.724 | +0.0442 | -0.267 (-0.180) | -1.30% |
+| P3 | +0.419 (+0.331..+0.504) | +0.667 = -0.027 (-0.096..+0.037) + 0.694 | +0.406 (+0.319..+0.488) | 0.720 | +0.0447 | -0.287 (-0.193) | -1.24% |
+| cost-only sort | | +0.262 = -0.592 + 0.854 | | | | | |
+
+The predictions: P3 beats P1 (+0.194 pp, CI +0.125..+0.262) HELD; P2 falls between them HELD; every traded arm loses HELD. SPY open-to-close was +0.027%/day, and every arm is below it.
+**Decision (pre-registered rule): carry P3.**
+
+Reading:
+1. **The ranking is still a cost sort.** In every population the gross part of the top-decile lift has a CI that straddles 0, and all of the lift is in the cost part. The models now beat the cost-only sort by about 0.4 pp, unlike E1. But they win by not paying the cost-only sort's adverse gross (-0.59 pp), not by finding minutes that rise. Cheap minutes are worse minutes, and M1 has learned to take the cheap ones that are not worse.
+2. **P3's win is a null effect.** On raw lift P1 leads (+0.72 vs +0.67 pp). P1 also leads against the cost-only sort (+0.46 vs +0.41) and in the account (-0.20 vs -0.29 %/day). P3 wins only after null adjustment, because its shuffled-label null transfers worse to P1's minutes. A null trained on another population is not a neutral baseline for P1 test rows, so the null-adjusted metric favours the population whose null is most mismatched. The pre-registered rule is followed, and E3 trains on P3. E3's primary metric is a paired difference inside one population, so this choice moves its comparisons little.
+3. **Every arm loses** about 1.1-1.3% per trade at about 2 trades per day.
+
 ## 18. Pre-registrations, tranche 3 (committed 2026-10-28, before any F2-F7 code or E3 run)
 
 Dev data only (<= 2022-12-31). Decision minute t means after bar t closes (bar t spans
