@@ -605,3 +605,28 @@ The sector -> ETF map:
 | Traded arms | base, all and the best add-one configuration on EV > 0 through the account (3 trials); the other configurations are model-level trials |
 | Decision | E3's feature set is base plus every family whose add-one difference has Holm-adjusted CI lo > 0. If none qualifies, the set is base + F1 (the user's critique asked for levels) and is reported as unproven |
 | Predicted | (§10) F1, F3 and F4 lift; F5/F6 small; F7 helps mainly on offering days. Against the cost-only score, no configuration's lift has CI lo > 0 (the gross part stays <= 0). Every traded arm still loses |
+
+### Amendments after building F2-F7 (2026-10-28, committed before any E3 run)
+1. **Filings that are not public at acceptance are never read.** EDGAR records CORRESP,
+   UPLOAD, DRS (and DRS/A) and DRSLTR at the time they are submitted. The SEC releases staff
+   correspondence weeks after its review closes, and a confidential draft becomes public only
+   when the company files publicly. Counting them at accepted_et would read information no
+   trader had, so they belong to no F7 group. In dev data they are about 5% of filings (47,209 of 972,311).
+   "SCHEDULE 13*" (EDGAR's form name from late 2024) is the same as SC 13*.
+2. **Family sizes follow the tables above:** F2 has 17 features, F3 has 9 (trade count dropped),
+   F5 has 14, F6 has 4, F7 has 8. The plan's "19 / 10 / 7" were miscounts.
+3. **Conventions where the tables are silent:**
+   - "D-1" means the latest row dated before D for that symbol (or for QQQ, VIX and FINRA), not a
+     calendar lookup. A FINRA row older than 31 days is never used.
+   - Minute windows are clipped at the open. A missing minute adds no volume to sv or vacc. vacc
+     is NaN for t < 5. sig_ratio needs 5 returns in both windows, as bars.sigma_t does.
+   - Every 15-minute return (spy_r15, iwm_r15, rel_sec_15) is NaN for t < 15.
+   - A stock with no 09:30 bar has no return since the open, so it is left out of every breadth
+     feature that day (about 1% of name-days). sec_breadth is NaN when the sector has fewer than
+     3 names in the day's pool.
+   - br_new_hod5 is strict (a tie with the earlier high is not new) and bar 0 counts as a new
+     high, so the feature is close to 1 for t <= 4 by construction.
+   - A level that is not positive (a pivot S1 or S2 below zero after a wide-range day) has no
+     distance.
+   - XLC stands for telecom_media from 2018-06-19, its first session in the ETF cache; IWM is
+     used before that.
