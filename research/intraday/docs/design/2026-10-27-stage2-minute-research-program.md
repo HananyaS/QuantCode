@@ -1073,6 +1073,258 @@ re-run's.
 **E4 carries both** base + E3's qualifying set and the all model, whatever the re-run decides
 (user decision 2026-10-28). If no family qualifies, the first of the two is base.
 
+## 19. Results, the re-run on the repaired caches (2026-10-28/29; poolpoc 6674ea3d1f9f, clean; supersedes §16b, §17d and §18b)
+
+Every run executed from a detached worktree at 6674ea3, one at a time, in §18c's order. The
+review's one Important finding (I1: pre-market name-days with no regular minute bar were neither
+repaired nor listed) was fixed at 858d5a1 and changes only 2025 pre-market rows. The re-run
+therefore kept the 6674ea3 build; the check that 858d5a1 leaves the pool unchanged is at the end
+of this section.
+
+MLflow runs (data/research_poolpoc/mlruns): E-1 ba7fae6da7284f739724bae8f11eb1db, E0
+e734c1fe3dc9427db9b2a78f69c8f9e6, E1 45e953f085074a66af9f132964051e13, E2
+43d11e8f8a7742c9a471853cbd42f5d0, E3 add-one 437757294530475d99f3a2a9ec6e4a7b, E3
+leave-one-out 9d80bf73d7c848a59af244abc00a55be. Each is tagged `supersedes` with the pre-repair
+run it replaces, and each pre-repair run is tagged `superseded_by`; all twelve stay in the
+trial count.
+
+### E-1 (pool hash fc6972f7d7058274; was c596877f26c1d5d2)
+
+| Contrast (share of random trades beating costs, top 10) | Before | After |
+|---|---|---|
+| model vs universe | 22.7% vs 16.4%, +6.3 (+6.0..+6.6) | 22.7% vs 16.4%, +6.3 (+6.0..+6.6) |
+| vs naive | +1.5 (+1.2..+1.8) | +1.4 (+1.1..+1.8) |
+| vs room model | +0.6 (+0.3..+0.8) | +0.5 (+0.2..+0.8) |
+| vs base | +1.1 (+0.8..+1.4) | +1.0 (+0.7..+1.3) |
+| null IC / model IC | 0.029 / 0.338 | 0.027 / 0.338 |
+
+- **PASS, as before.** 82,355 rows on 1,298 days, unchanged.
+- **The pool moved more than predicted.** 698 of 7,270 dev P1 name-days left and 698 joined
+  (9.6%; 1,396 membership changes), all in 2021-22.
+  - Only 12 of the 1,396 are repaired name-days.
+  - The cause is the walk-forward pool model. 11 repaired name-days in 2020 are training rows
+    for every later fit, so every score from 2021 on moves a little. The within-day rank
+    correlation of old and new scores is 0.977, and at a top-10 cut that is enough to replace
+    15.4% of the 4,530 P1 name-days of 2021-22 (16.5% in 2021, 14.4% in 2022).
+  - Prediction 1 ("at most a few percent of P1 name-days") **failed**.
+
+### E0 (label card)
+
+| Number | Before | After |
+|---|---|---|
+| TP-first rate vs p* (H30 (2,1)) | 2.8% vs 40.3% | 2.7% vs 40.4% |
+| mean r_net, random entry | -1.64% | -1.64% |
+| C1 random, %/day | -1.216 | -1.271 |
+| C2 open-hold, %/day | -1.928 | -1.948 |
+| oracle, %/day | +2.88 | +2.83 |
+| open off the daily basis by > 20% | 0.275% of name-days | 0.000% |
+| open off by > 3% | 0.564% | 0.289% |
+
+- All three predictions **held**, as before. SPY open-to-close is unchanged (+0.039%/day).
+
+### E1 (floors)
+
+| Number | Before | After |
+|---|---|---|
+| M1 top-decile lift (pp) | +0.285 (+0.199..+0.363) | +0.302 (+0.210..+0.383) |
+| = gross + cost | -0.253 + 0.539 | -0.243 + 0.545 |
+| vs null | +0.499 (+0.420..+0.574) | +0.483 (+0.403..+0.563) |
+| vs cost-only score | +0.024 (-0.077..+0.121) | +0.074 (-0.015..+0.165) |
+| AUC (TP) | 0.633 | 0.624 |
+| M1 / C1 / C4, %/day | -0.623 / -0.563 / -1.049 | -0.675 / -0.568 / -1.095 |
+
+- Predictions unchanged: 1 failed (the lift's CI excludes 0), 2 and 3 held.
+- The in-run determinism refit (fold 2020H1) is identical.
+
+### E2 (training population)
+
+| Number (pp unless %/day) | Before | After |
+|---|---|---|
+| raw lift P1 / P2 / P3 | +0.723 / +0.694 / +0.667 | +0.744 / +0.710 / +0.688 |
+| P3 vs P1, raw | -0.055 (-0.111..+0.003) | -0.056 (-0.114..+0.008) |
+| null-adjusted P1 / P2 / P3 | +0.225 / +0.300 / +0.419 | +0.246 / +0.314 / +0.447 |
+| M1-P1 vs mechanical EV | +0.081 (-0.011..+0.162) | +0.099 (+0.001..+0.188) |
+| mechanical EV's lift = gross + cost | +0.642 = -0.049 + 0.690 | +0.645 = -0.043 + 0.688 |
+| M1-P1 / P2 / P3, %/day | -0.201 / -0.267 / -0.287 | -0.197 / -0.256 / -0.310 |
+
+- **Decision unchanged: carry P1** (best raw lift, amendment 3). The pre-registered
+  null-adjusted rule would carry P3, as before. Prediction 2 **held**.
+- Both pre-registered predictions held again, and every traded arm loses.
+- M1-P1's lift over the mechanical EV now has CI lo just above zero (+0.001). It was -0.011.
+  Its gross part is +0.048 (-0.035..+0.124; was +0.024, -0.051..+0.095), so by amendment 6 it
+  is still a sort on cost and risk, not a forecast.
+- 1,937 s, 4.0 GB; the in-run determinism refit is identical.
+
+### E3 add-one (context families)
+
+| Add-one vs base (pp) | Before | After |
+|---|---|---|
+| +F1 | +0.029 (-0.046..+0.098), Holm 1.000 | +0.068 (+0.011..+0.125), Holm 0.084 |
+| +F2 | +0.040 (-0.021..+0.100), Holm 0.996 | +0.046 (-0.014..+0.106), Holm 0.384 |
+| +F3 | -0.006 (-0.070..+0.045), Holm 1.000 | +0.037 (-0.004..+0.080), Holm 0.315 |
+| +F4 | +0.010 (-0.034..+0.055), Holm 1.000 | +0.029 (-0.015..+0.074), Holm 0.384 |
+| **+F5** | **+0.070 (+0.026..+0.114), Holm 0.007** | **+0.101 (+0.051..+0.150), Holm 0.003** |
+| +F6 | +0.014 (-0.050..+0.067), Holm 1.000 | +0.036 (-0.002..+0.075), Holm 0.315 |
+| +F7 | -0.004 (-0.033..+0.024), Holm 1.000 | +0.018 (-0.011..+0.045), Holm 0.384 |
+
+| Reference (pp) | Before | After |
+|---|---|---|
+| base vs mechanical EV | +0.043 (-0.011..+0.093) | +0.016 (-0.076..+0.089) |
+| base, gross part | -0.075 (-0.121..-0.029) | -0.096 (-0.172..-0.035) |
+| +F5 vs mechanical EV | +0.114 (+0.065..+0.161) | +0.117 (+0.035..+0.185) |
+| +F5, gross part | -0.002 (-0.047..+0.047) | +0.008 (-0.062..+0.069) |
+| all vs mechanical EV | +0.208 (+0.120..+0.293) | +0.181 (+0.089..+0.268) |
+| **all, gross part** | **+0.171 (+0.097..+0.242)** | **+0.153 (+0.075..+0.228)** |
+| mechanical EV's lift = gross + cost | +0.642 = -0.049 + 0.690 | +0.645 = -0.043 + 0.688 |
+| traded arms base / all / +F5, %/day | -0.178 / -0.156 / -0.104 | -0.150 / -0.162 / -0.121 |
+
+- **Decision unchanged: F5 alone qualifies.** S1 is base + F5 (30 features), as E4's
+  pre-registration (§20.3) assumed.
+- **Every family's add-one difference rose**, mostly because base got weaker: base's gross part
+  fell from -0.075 to -0.096 and its lift over the mechanical EV from +0.043 to +0.016. +F1's
+  CI now excludes zero (+0.011..+0.125), but its Holm p is 0.084, so it does not qualify.
+- **The all-families model is still the only forecast by amendment 6.** Its gross part is
+  +0.153 pp, CI lo +0.075. +F5's gain is still a cost sort: its gross part's CI includes zero.
+- **Every traded arm still loses** (each daily CI hi < 0). SPY open-to-close is +0.027%/day.
+- Predictions: `every_arm_loses` held. `f1_f3_f4_lift`, `f5_f6_small` and
+  `no_config_beats_cost_only` failed, as before. `f7_mainly_offering_days` **flipped to failed**:
+  +F7 is +0.019 pp on offering name-days against +0.030 pp on the rest. Both amended predictions
+  (amendment 6) failed, as before.
+- 2,505 s, peak 5.80 GB; the in-run determinism refit (fold 2020H1) is identical. The first
+  attempt was killed for memory at 10:22 on 2026-10-28; see "Run notes" below.
+
+### E3 leave-one-out
+
+| Drop one family from all (pp) | Before | After |
+|---|---|---|
+| -F1 | -0.038 (-0.082..+0.004), Holm 0.41 | -0.031 (-0.078..+0.015), Holm 1.00 |
+| -F2 | -0.037 (-0.082..+0.005), Holm 0.41 | +0.003 (-0.034..+0.040), Holm 1.00 |
+| -F3 | -0.019 (-0.058..+0.016), Holm 0.61 | -0.010 (-0.043..+0.027), Holm 1.00 |
+| -F4 | -0.032 (-0.071..+0.005), Holm 0.41 | -0.010 (-0.046..+0.027), Holm 1.00 |
+| -F5 | -0.042 (-0.081..-0.003), Holm 0.21 | -0.047 (-0.086..-0.008), Holm 0.077 |
+| -F6 | -0.034 (-0.071..-0.001), Holm 0.26 | +0.009 (-0.021..+0.039), Holm 1.00 |
+| -F7 | -0.009 (-0.049..+0.029), Holm 0.62 | -0.004 (-0.037..+0.030), Holm 1.00 |
+
+- **No single removal clears Holm, as before.** Only F5's removal has a CI below zero. The
+  others moved toward zero, so the all model's forecast now leans more on F5 and less on the
+  rest. Read beside the add-one table, the families overlap: their seven add-one gross gains
+  over base sum to +0.52 pp, about twice the +0.25 pp that all of them gain together.
+- The traded arm "all" loses -0.162%/day (CI hi -0.088). ~60 min, peak 5.05 GB.
+
+### Amendment 8 (`basis`, `rescore`)
+
+- `basis` on the new pool finds 22 residual breaks (0.04% of 50,240 dev name-days) on 17
+  symbols; 2 are P1 name-days. Amendment 8 excludes 15 symbols, 1.62% of the test rows (was
+  2.19%).
+- **E3 under the exclusion: unchanged.** F5 alone qualifies (+0.100 pp, +0.053..+0.147, Holm
+  0.0035).
+- **E2 under the exclusion:** P1 is still the best on raw lift (+0.729 against +0.696 and
+  +0.672). But M1-P1's lift over the mechanical EV is +0.087 pp (-0.014..+0.175). The full
+  sample's CI lo of +0.001 does not survive, so "M1-P1 beats the mechanical EV" is not robust.
+  It was never claimed as a forecast (its gross part's CI includes zero).
+
+### Robustness reads (unregistered, §18b's set, on the new frame)
+
+| Gross part of the all model's top-decile lift (pp) | Before | After |
+|---|---|---|
+| every row | +0.171 (+0.097..+0.242) | +0.153 (+0.075..+0.228) |
+| covered name-days only | +0.174 (+0.100..+0.244) | +0.154 (+0.072..+0.232) |
+| without the broken symbols | +0.166 (+0.092..+0.235) | +0.148 (+0.070..+0.223) |
+| after 09:44 (t >= 14) | +0.193 (+0.117..+0.268) | +0.174 (+0.097..+0.250) |
+| 09:31-09:44 (t < 14, 3.6% of rows) | -0.213 (-0.420..-0.020) | -0.124 (-0.325..+0.071) |
+| fold 2020H1 | +0.401 (+0.214..+0.590) | +0.411 (+0.243..+0.598) |
+| fold 2020H2 | +0.137 (-0.014..+0.294) | +0.088 (-0.043..+0.227) |
+| fold 2021H1 | +0.276 (+0.112..+0.453) | +0.142 (-0.006..+0.308) |
+| fold 2021H2 | +0.150 (+0.031..+0.278) | +0.129 (-0.007..+0.260) |
+| fold 2022H1 | +0.167 (+0.034..+0.326) | +0.218 (+0.056..+0.388) |
+| fold 2022H2 | -0.080 (-0.336..+0.134) | -0.061 (-0.412..+0.207) |
+
+- The forecast survives every subset. It is positive in 5 of 6 folds, as before, but only 2
+  folds now have CI lo > 0 (was 4). 2021H1 fell the most (+0.276 to +0.142). The pool's churn
+  was in 2021-22 (see E-1), but 2022H1 rose, so the churn alone does not explain the shift.
+
+### EV-term diagnostic (unregistered, refit)
+
+Each of base, +F1, +F5 and all was refit exactly as in E3 add-one (same folds, B = 400,000 rows,
+seed 7, P1). The refit's full EV equals E3's saved EV on all 2,466,000 rows (largest absolute
+difference 0). Each model is then scored three ways: the full EV; "cls", its class probabilities
+with mu_TIME fixed at the fold's training TIME mean; and "mu", its mu_TIME regressor with the
+probabilities fixed at the fold's training prior.
+
+| Model, EV term | Gross part (pp), before | Gross part (pp), after | vs mechanical EV (pp), after |
+|---|---|---|---|
+| base, full | -0.075 (-0.121..-0.029) | -0.096 (-0.172..-0.035) | +0.016 (-0.076..+0.089) |
+| base, cls | +0.013 (-0.028..+0.053) | +0.019 (-0.027..+0.062) | +0.000 (-0.052..+0.048) |
+| base, mu | -0.076 (-0.119..-0.034) | -0.079 (-0.119..-0.035) | +0.059 (+0.016..+0.100) |
+| +F1, full | +0.013 (-0.061..+0.083) | +0.034 (-0.051..+0.112) | +0.084 (-0.021..+0.171) |
+| +F1, cls | -0.024 (-0.093..+0.040) | +0.021 (-0.054..+0.092) | -0.297 (-0.388..-0.209) |
+| +F1, mu | -0.025 (-0.076..+0.029) | -0.008 (-0.071..+0.056) | +0.070 (-0.003..+0.136) |
+| +F5, full | -0.002 (-0.047..+0.047) | +0.008 (-0.062..+0.069) | +0.117 (+0.035..+0.185) |
+| **+F5, cls** | +0.017 (-0.019..+0.056) | **+0.044 (+0.004..+0.089)** | **+0.042 (+0.005..+0.082)** |
+| +F5, mu | -0.007 (-0.052..+0.037) | -0.020 (-0.063..+0.023) | +0.108 (+0.063..+0.152) |
+| all, full | +0.171 (+0.097..+0.242) | +0.153 (+0.075..+0.228) | +0.181 (+0.089..+0.268) |
+| **all, cls** | +0.112 (+0.047..+0.182) | **+0.075 (+0.010..+0.147)** | -0.228 (-0.301..-0.150) |
+| all, mu | +0.031 (-0.018..+0.081) | +0.039 (-0.018..+0.099) | +0.107 (+0.040..+0.170) |
+
+- **F5's lift over the mechanical EV is still mostly the mu_TIME regressor, and that part is
+  cost.** Scored on mu alone, +F5 beats the mechanical EV by +0.108 pp with a gross part of
+  -0.020.
+- **New after the repair: F5's class probabilities alone now pass both legs of amendment 6, by a
+  hair.** Gross +0.044 (CI lo +0.004) and +0.042 over the mechanical EV (CI lo +0.005). Before the
+  repair both CIs included zero. In the full EV the regressor's cost sort swamps it (full gross
+  +0.008). This read was chosen after E3's numbers were seen, is not Holm-corrected, and is a
+  lead for E5's exit and EV design, not a finding.
+- **The all model's forecast still sits mostly in its class probabilities**, but less than
+  before: cls alone keeps a gross part of +0.075 (CI lo +0.010; was +0.112). Neither term alone
+  reaches the full EV's +0.153; the two terms together sort better than either.
+- The cls-only EVs of +F1 and all fall far below the mechanical EV (-0.30, -0.23 pp): without the
+  row's own TIME return they lose the cost sort.
+- Rank correlation of the full EV with its cls-only / mu-only variants, after: base 0.77 / 0.92;
+  +F1 0.64 / 0.79; +F5 0.79 / 0.94; all 0.66 / 0.81 (before: within 0.01 of each).
+- About 18 minutes (the six folds took 1,015 s), peak 4.1 GB; output
+  6674ea3d1f9f/e3-diag/ev_terms_diag.json (script: the scratchpad's ev_terms_diag_rerun.py,
+  copied to the basis-repair ledger directory).
+
+### The 858d5a1 check
+
+858d5a1 (the review's I1 fix) changes only 2025 pre-market rows. Per the ledgered ruling it runs in
+three steps: (1) build the caches with 858d5a1 into side roots and diff them against the 6674ea3
+build, alongside E4's full run; (2) after E4 ends, copy only the changed 2025 pre-market files
+into the canonical roots (cache keys carry file mtimes, so a copy mid-run could invalidate a
+cache E4 reads); (3) re-run E-1 at 858d5a1 and require its pool hash to equal fc6972f7d7058274.
+If both hold, E-1 through E3 stand for 858d5a1. Its outcome is reported with E4's results (§21).
+
+### §18c's predictions
+
+| # | Prediction | Outcome |
+|---|---|---|
+| 1 | The pool changes on at most a few percent of P1 name-days | **Failed**: 9.6% (walk-forward churn; see E-1) |
+| 2 | E2 still carries P1 | Held |
+| 3 | E3's add-one decision is unchanged: base + F5, Holm p < 0.05 | Held (Holm p 0.003) |
+| 4 | The all model keeps a gross part with CI lo > 0 and beats the mechanical EV with CI lo > 0 | Held (+0.075; +0.089) |
+| 5 | No population or family decision flips | Held (E2 P1; E3 F5; amendment 8 changes neither) |
+| 6 | Every traded arm loses | Held (E1, E2, E3 add-one and leave-one-out; each daily CI hi < 0) |
+
+### Erratum to §18c (review finding M9)
+
+§18c says the Stage 1w room-model score is unchanged "because its label is a ratio within one
+day's minute bars and k cancels". The conclusion holds, but the reason is wrong. The room label
+is (high - low) / open from the **daily unadjusted** bars (stage1/panel.py, `eod_stats` and
+`_attach_day_rows`), not from minute bars, so the minute-cache repair never reaches it. §18c is
+committed and is not edited; this erratum corrects it.
+
+### Run notes
+
+- **The first E3 add-one attempt was killed for memory** (2026-10-28 10:22). It built the P1
+  family panel (3.5 GB) inside the same process as its evaluate step (5.8 GB), on a 15.6 GB
+  machine. Claude Code's background-shell reaper stopped it under OS memory pressure while the
+  session was idle.
+- **The fix changes no number.** panel3_p1 was pre-built in its own process with chunk_days 10
+  (chunk invariance is tested, and chunk_days is not in the cache key). It took 429 s and peaked
+  at 3.54 GB. Its PANEL_COLS part is identical to E2's chunk-40 panel_p1. E3 then read the cache.
+- Memory was logged every 15 s for the rest of the re-run. The lowest available memory during E3
+  was 2.3 GB.
+
 ## 20. Pre-registration, tranche 4: E4 sequence models (2026-10-29, committed before any E4 code runs on real data)
 
 User decisions carried here:
