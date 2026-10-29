@@ -1072,3 +1072,170 @@ re-run's.
 
 **E4 carries both** base + E3's qualifying set and the all model, whatever the re-run decides
 (user decision 2026-10-28). If no family qualifies, the first of the two is base.
+
+## 20. Pre-registration, tranche 4: E4 sequence models (2026-10-29, committed before any E4 code runs on real data)
+
+User decisions carried here:
+- E4 carries both feature sets (§18c).
+- Deep models train overnight on the CPU (§12).
+- 2026-10-29: "Nightly run, no further questions. Continue the research, doc everything". So
+  every open choice below is my call. Each is marked **[my call]** and listed in §20.9.
+
+### 20.1 Question
+
+Does a model that reads the raw minute window rank P1 decision minutes better than M1
+(LightGBM on engineered features) does?
+
+### 20.2 Fixed, exactly as in E3
+
+These are fixed so that every E4 number pairs with the E3 re-run's frame on the same rows and
+days:
+- Population P1 (E2's call). Barrier H30 (2, 1).
+- E1's purged 6 half-year folds, with the 5-session embargo.
+- B = 400,000 filled training rows per fold, from `run_e2.budget_rows` with seed 7. These are
+  the very rows E3's M1 trained on.
+- The inner-validation rows are `run_e1._fit_rows` on the fold's inner-validation block
+  (t % 5 == 1, filled, seed 7). They are used for early stopping and for the isotonic
+  calibration.
+- Every P1 test minute is predicted.
+- EV = p_TP r_TP + p_SL x (the row's SL term + the training SL rows' slip in its price bucket) +
+  p_TIME mu_TIME, with `models._ev_terms`, as E2/E3 compute it. Theta = 0.
+- Dev only (<= 2022-12-31). The holdout stays sealed.
+
+### 20.3 The two feature sets and their M1 references
+
+- **S1 = base + the E3 re-run's qualifying families.** That is base + F5 if the re-run's add-one
+  decision is as before, or base alone if no family qualifies.
+- **S2 = all:** F0, F1-F7 (F7 as its 6 EDGAR features) and F8.
+- Each set's M1 reference is read from the E3 re-run's add-one predictions frame, not refit. For
+  S1 that is the `add_<family>_ev` column, or `base_ev` if no family qualifies; for S2 it is
+  `all_ev`. The mechanical EV (`mech_ev`) comes from the same frame.
+
+### 20.4 Sequence input [my call, within §6]
+
+- **The window.** The last L = 60 bars ending at bar t, the decision bar (bar j is minute
+  09:30 + j, and a decision at t reads bars <= t). It is clock-aligned: one row per minute,
+  whether or not a bar printed.
+- **Pre-market padding.** Before 09:30 the window holds the 120 minutes from 07:30 to 09:29,
+  from the pre-market cache merged with the 09:25-09:29 minute bars, as `bars.py` reads them.
+- **Scale.** s = atr20 / sqrt(390), with atr20 from daily rows <= D-1.
+- **8 channels per minute:**
+  1. log(c_k / the previous present close) / s
+  2. log(o_k / c_k) / s
+  3. log(h_k / c_k) / s
+  4. log(l_k / c_k) / s
+  5. log(1 + traded shares_k / (ADV20 shares / 390)), where traded shares = v / f_D as in
+     `bars.py`
+  6. log(c_k / session VWAP_k) / s, with the VWAP accumulated from 09:30 (0 before 09:30)
+  7. the regular-session flag
+  8. a present-bar mask
+- **Missing values.** A minute without a bar is 0 in every channel, with mask 0. Every channel
+  is clipped to +/-10.
+- **Trade count.** §6's trade count is not in the bar caches, so it is left out. The
+  regular-session flag takes its slot.
+- **The only static input to M2-M4 is t / 360.** A pure-sequence model gets nothing else.
+- **L = 60 only, not {60, 120}: compute.** L = 120 is an optional secondary run for the best
+  pure-sequence model, and only if the nights allow. It is not part of any decision.
+
+### 20.5 Models (§7) [sizes and layers are my call within §7's budget]
+
+- **M2, TCN.** 5 residual blocks of 2 causal dilated convolutions each: kernel 3, dilations 1,
+  2, 4, 8 and 16, 56 channels, ReLU, dropout 0.1. Its receptive field (125 bars) covers L. It
+  reads the last step's state.
+- **M3, GRU.** 2 layers x 64, with dropout 0.1 between them. It reads the last step's state.
+- **M4, PatchTST-style.**
+  - Patches of 5 minutes over all 8 channels together, so 12 patches, each projected to
+    d = 64 with a learned position embedding.
+  - 3 encoder layers (4 heads, feed-forward 128, dropout 0.1), then the mean over the patches.
+- **The head of M2-M4.** The state, concatenated with t / 360, feeds an MLP 64 (ReLU, dropout
+  0.1). That feeds three heads: 3 logits (label A), 1 logit (label B), and mu_TIME.
+- **M5, hybrid: the best encoder of M2-M4 plus an MLP on the features.**
+  - "Best" is the largest primary-metric mean among M2-M4; on a tie, the smaller model.
+  - The features are S_k's. Each is standardised on the fold's training rows: median-imputed,
+    clipped to the training 1st/99th percentiles, and z-scored. A missing indicator is added for
+    each feature that has NaNs in training.
+  - The MLP is 128 -> 64. Its output, concatenated with the encoder state and t / 360, feeds an
+    MLP 64 and the same three heads.
+  - M5 runs twice, as M5-S1 and M5-S2.
+  - §7's auxiliary heads (y_H, MFE/MAE quantiles) are deferred to E5, where the label is the
+    factor that varies. E4 keeps the label fixed.
+
+### 20.6 Training [my call, within §4 and §7]
+
+- **Loss.** CE_A + 0.5 x BCE_B (soft target b_share; lambda = 0.5 as in §4) + 1.0 x Huber
+  (delta 1) on 100 x r_net, over the TIME rows only, for the mu_TIME head.
+- **Optimiser.** AdamW (lr 1e-3, weight decay 1e-4), batch 1,024, gradient-norm clip 1.0.
+- **Epochs.** At most 8 over the 400,000 rows, reshuffled each epoch from the seed. Early
+  stopping on the inner-validation CE_A, patience 2; the best epoch's weights are restored.
+- **Seeds.** 7, 8 and 9 per configuration. Torch runs deterministic, with threads fixed per run.
+- **Calibration.** As M1: isotonic one-vs-rest on the inner-validation raw probabilities, then
+  renormalised.
+- **A configuration's primary score is its 3-seed ensemble.** The calibrated probabilities and
+  mu_TIME are averaged over the seeds, giving one EV per row, which is how it would be
+  deployed. The per-seed numbers are reported as mean +/- sd. The ensemble favours the deep
+  models a little over a single M1 fit, so the per-seed numbers should be read beside it.
+
+### 20.7 Metrics, decision, references
+
+- **Primary metric.** The paired daily difference of top-decile lift against the M1 reference,
+  with a day-clustered 95% CI (2,000 resamples). Five comparisons:
+  - M2, M3 and M4 each vs M1-S1;
+  - M5-S1 vs M1-S1;
+  - M5-S2 vs M1-S2.
+
+  Holm over the five.
+- **Decision.** A deep configuration adds something when its difference is positive with Holm
+  p < 0.05.
+  - If an M5 qualifies, the qualifying M5 with the larger mean becomes E5's model.
+  - If only a pure-sequence model qualifies, it is reported. Its encoder is already inside M5,
+    so E5 still uses M1.
+  - Otherwise M1 stays. S1 and S2 are both carried on, as §18c says.
+- **The binding no-skill reference (amendment 6).** Each configuration gets:
+  - its lift over the mechanical EV, paired;
+  - its gross/cost split;
+  - its lift vs the cost-only score.
+
+  A configuration "forecasts" when its lift over the mechanical EV has CI lo > 0 and its gross
+  part has CI lo > 0.
+- **No shuffled-label null is trained for the deep models.** The mechanical EV is the binding
+  no-skill reference, and a null would double the compute. [my call]
+- **Guard.** Delta log-loss against the fold's P1 training prior, and the AUC (TP vs rest), per
+  configuration. A configuration whose Delta log-loss is worse than M1-S1's is flagged.
+- **Traded arms.** They are logged as trials:
+  - which arms: the best of M2-M4, M5-S1 and M5-S2;
+  - how: on EV > 0 through the account (fixed basis), as in E3, with SPY open-to-close beside
+    them;
+  - every configuration is also a model-level trial.
+- **Determinism.** M2 is fitted twice on fold 2020H1 with seed 7. The predictions must hash
+  identically.
+
+### 20.8 Smoke, compute rule, order, predictions
+
+- **Smoke (not a trial).** The 3-group CV's first 2 folds, B = 50,000, 2 epochs, 1 seed,
+  n_boot 300, all five configurations. It measures throughput.
+- **Compute rule (fixed now, applied after the smoke).** If the smoke's throughput puts the full
+  E4 above 20 CPU-hours, M2-M4 run 1 seed (7) and M5 keeps its 3. The full E4 is M2, M3, M4 and
+  M5 x 2, with 3 seeds each. Under the rule, a single seed is M2-M4's primary score.
+- **Order (§7).** M2 and M3 first, then M4 (the Transformer after the TCN/GRU), then M5 (after
+  E3).
+- **The stop check (§9)** is read after E4. It stops the long-only track only if the best dev
+  top-decile lift has a CI that includes 0.
+- **Predictions (§10, made exact):**
+  1. Pure sequence < M1: M2, M3 and M4 each have a mean difference vs M1-S1 below 0.
+  2. M5 >= M1 by a small margin: M5-S2 vs M1-S2 has mean >= 0, and its CI includes 0.
+  3. No deep configuration qualifies under Holm.
+  4. No pure-sequence model forecasts by amendment 6.
+  5. Every traded arm loses (daily CI hi < 0).
+
+### 20.9 Calls made by Claude in this section (review these)
+
+| # | Call | Where |
+|---|---|---|
+| 1 | L = 60 only; 07:30-09:29 pre-market padding, clock-aligned; the regular-session flag replaces the trade count | 20.4 |
+| 2 | t / 360 is the only static input of the pure-sequence models | 20.4 |
+| 3 | Layer sizes of M2-M4; M4's patches mix the channels (not channel-independent) | 20.5 |
+| 4 | §7's auxiliary heads move to E5; M5 has the same three heads as M2-M4 | 20.5 |
+| 5 | Loss weights, optimiser, 8 epochs, patience 2 | 20.6 |
+| 6 | The primary score is the 3-seed ensemble | 20.6 |
+| 7 | No shuffled-label null for the deep models; the mechanical EV binds | 20.7 |
+| 8 | The 20 CPU-hour compute rule | 20.8 |
