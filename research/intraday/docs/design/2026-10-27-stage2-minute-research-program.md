@@ -1895,6 +1895,77 @@ real data. The rule covers which quantiles, how they are fitted without the trai
 scoring themselves, how u and d follow, the relabelling, and the metric. Its primary metric will
 be E5a's top-decile net, paired against E5c's chosen exit as a single comparison.
 
+### 22.5a E5d's rule (amendment, written after E5a-c's results in §23, committed before any E5d code)
+
+E5a-c kept E3's design in both feature sets: X* = H30 (2, 1), the score A (M1's EV) and the
+barrier exit (§23). E5d has one factor, the exit. It compares TP and SL placed per minute from
+predicted excursions against that configuration, within each feature set s.
+
+- **Targets.** X*'s own auxiliary labels from the E0 cache (§4). mfe is the maximum favourable
+  excursion and mae the maximum adverse excursion, both over [t+1, T] with
+  T = min(t + 30, 385), on filled minutes only. They depend on the horizon alone, not on
+  k_u or k_d.
+- **Heads.** Two LightGBM quantile regressions on s's features: models.LGB_BASE with
+  objective = quantile, seed 7. One fits the median of mfe (q_u = 0.5). The other fits the 75th
+  percentile of mae (q_d = 0.75). They are fitted on each fold's budget rows: B = 400,000, seed
+  7, the same draw as M1's, since relabelling does not change the fill.
+- **No minute scores itself.** The fold's test and inner-validation minutes take the heads
+  fitted on its training days. Inner-validation days are disjoint from training days by
+  construction (splits.purged_folds). The training days take nested out-of-fold values. The
+  fold's training days, sorted, are cut into 3 contiguous blocks of equal day count;
+  splits.purged_folds uses fixed calendar blocks, so it cannot split them. Each block is
+  predicted by heads fitted on the other two blocks' budget rows (B rows, seed 7). Labels end
+  the same day, so no label crosses a block edge. It is asserted that no training day's value
+  comes from a fit that saw that day.
+- **Placement.** u_i = max(q̂_mfe, 1.5 c_rt), the labels' cost floor, and
+  d_i = max(q̂_mae, 0.001). The share of minutes floored is reported on each side, with the
+  distributions of u_i and d_i against X*'s u and d.
+- **Relabelling.** labels.label_day runs on the fold's minutes with X*'s bars and costs, under
+  Barrier(30, k_u = 0, k_d = 1), with sig′ = d_i / √(T − t) and c_rt′ = u_i / 1.5 at the
+  decision minutes. Then d = d_i and u = u_i, to rounding (asserted to 1e-9 relative). c_rt
+  enters label_day only through the TP floor, and r_net's costs come from comm and imp, which
+  are unchanged. Where sig or c_rt is not finite (NO_FILL), sig′ and c_rt′ keep the original
+  value. The relabel replaces cls, r_net, u, d and exit_min. y_h, the fill, the costs and the
+  features are X*'s. No existing module is edited.
+- **The score.** M1 is refit per fold and feature set on the relabelled minutes, with E5a's
+  training draw, validation rows, calibration and EV (whose TP and SL terms read the row's
+  u_i and d_i). Its EV ranks the minutes.
+- **Metric and decision.** The primary metric is E5a's top-decile net: the mean relabelled
+  r_net of the top tenth by the refit's EV. It is paired by day against the default
+  configuration's top-decile net in the same feature set (E5a's H30 (2, 1) column, which is
+  E3's M1). That is a single comparison per feature set (p_holm = p). The model-driven exit
+  replaces the barrier exit in s only with mean > 0 and p < 0.05. Also read: the gross/cost
+  split, the lift over the mechanical EV (amendment 6, mechanical EV under the relabelled
+  terms), the top-decile TP/SL/TIME shares, TP AUC, and the traded EV > 0 arm through the
+  account (fixed basis, the relabelled exit minutes, vs SPY open-to-close).
+- **Integrity.** Any failure stops E5d.
+  1. The relabel path with sig′ = sig, c_rt′ = c_rt and X*'s own barrier reproduces X*'s
+     cached labels exactly (cls, r_net, u, d, exit_min, with NaN in the same rows), on the
+     smoke's name-days and on the first fold's in the full run.
+  2. The NO_FILL minutes after relabelling are X*'s.
+  3. The nested day sets are disjoint, asserted per fold.
+- **Predictions (Claude's, before the run).**
+  1. The model-driven exit does not replace the barrier exit in either feature set.
+  2. Its top-decile net is below zero in both.
+  3. Its top-decile TP share is above the default's (3-4%, §23) in both. With u at the
+     median MFE, the TP sits much nearer than 2σ√30.
+  4. Every E5d traded arm loses (daily CI hi < 0).
+- **Smoke.** The 3-group CV's first 2 folds, S1 only, B = 100,000, 300 resamples, no trials.
+  It also times the heads and the relabel.
+- **Trials.** 2 model-level and 2 traded trials, logged to trials.jsonl and MLflow.
+- **Compute.** 6 folds × 2 feature sets. Per (fold, s): 8 quantile fits (3 inner blocks × 2
+  heads, plus 2 outer), one relabel of the fold's minutes (§22.7's 35-77 s per pass), and one
+  M1 fit. About 45 to 90 minutes in all, run as one job from a clean commit in the run
+  worktree.
+
+| # | Call made by Claude (review these) |
+|---|---|
+| 9 | One quantile pair (q_u = 0.5, q_d = 0.75), not a grid: one pre-registered comparison per feature set, no new forking path |
+| 10 | The heads use the same feature set as M1 in each feature set |
+| 11 | The nested split is 3 contiguous day blocks, without embargo (labels end the same day) |
+| 12 | d_i is floored at 0.001; u_i keeps the labels' 1.5 c_rt floor |
+| 13 | The relabel reuses label_day through sig′ and c_rt′, so labels.py and panel_build.py stay untouched (their bytes key the caches) |
+
 ### 22.6 Amendments to the stop rule (§9), from E5 on (user decision 2026-10-31)
 
 - **The reading.** "The best dev top-decile lift" in §9 means the best lift over the mechanical
@@ -1927,3 +1998,191 @@ be E5a's top-decile net, paired against E5c's chosen exit as a single comparison
 | 6 | Huber loss for the y_H regression, with alpha = the training MAD | 22.3 |
 | 7 | No traded arms in E5b or E5c (no EV threshold; no stored time-exit minute) | 22.3, 22.4 |
 | 8 | E5d's rule is written after E5a-c and committed before it runs | 22.5 |
+
+## 23. Results, tranche 5: E5a-c label and exit design (2026-10-31; poolpoc ddc248da1892, clean; MLflow E5a 624d1e75e9034907bc3f8dbd6d09ea53, E5b 8697fc312d30403597ad39fef2489fc1, E5c 897515ab4e804359b5bffc2a6b5773aa)
+
+### 23.0 Runs and integrity
+
+- **Code.** poolpoc e5.py, run_e5.py and metrics.py at ddc248d. That commit carries the final
+  review's two Important fixes: the default set now runs first, check 2 runs right after its
+  folds, and predictions are saved before any metric. Each stage ran once, in order, from the
+  run4 worktree at that clean commit, one job at a time. The smoke ran at 390e7fb and again at
+  ddc248d, with identical numbers.
+- **Time.** E5a took 4,957 s (fits 4,872 s, about 50 s per fit; §22.7 had projected 45 to 60
+  minutes), with a peak of 5.78 GB. E5b took 165 s and E5c 17 s. Every set's labels were a
+  cache hit.
+- **Integrity check 1 passed.** The default set's cached labels equal the panel's on every row
+  (cls, r_net, u, d, exit_min).
+- **Integrity check 2 passed.** On every row, the default refit's S1 EV, S2 EV and mechanical
+  EV equal E3's saved predictions (float32, 2,466,000 rows). So E5a's default column is E3's
+  M1-S1 and M1-S2. S2's gross part, +0.153 pp (CI +0.075..+0.228), and its lift over the
+  mechanical EV, +0.181, match §19.
+- **Trials.** E5a logged 16 model-level and 16 traded trials. E5b logged 4 model-level (y_H
+  and B per feature set) and E5c 2 (time-only per feature set).
+- **Units.** pp means percentage points of net return per minute traded. Every top-decile
+  figure is the daily mean over the 685 test days.
+
+### 23.1 E5a: which barrier set?
+
+**S1 (base + F5)**
+
+| Set | Top-decile net, pp (CI) | vs default, pp (CI) | Holm p | Gross | Cost | Lift over mech. EV (CI) | Forecast | Top-decile TP / SL / TIME | TP AUC |
+|---|---|---|---|---|---|---|---|---|---|
+| H15 (2, 1) | -0.913 (-0.961..-0.873) | +0.013 (-0.031..+0.061) | 1.000 | -0.054 | -0.860 | +0.100 (+0.057..+0.137) | no | 3% / 29% / 68% | 0.657 |
+| H15 (1, 1) | -0.908 (-0.960..-0.866) | +0.018 (-0.026..+0.065) | 1.000 | -0.061 | -0.847 | +0.135 (+0.089..+0.173) | no | 14% / 28% / 58% | 0.701 |
+| H30 (2, 1) (default) | -0.926 (-1.012..-0.855) | — | — | -0.033 | -0.893 | +0.117 (+0.035..+0.185) | no | 4% / 27% / 70% | 0.610 |
+| H30 (1, 1) | -0.895 (-0.960..-0.834) | +0.031 (-0.012..+0.081) | 1.000 | -0.028 | -0.866 | +0.167 (+0.101..+0.229) | no | 16% / 25% / 59% | 0.635 |
+| H60 (2, 1) | -0.890 (-1.022..-0.774) | +0.036 (-0.032..+0.102) | 1.000 | +0.044 | -0.934 | +0.151 (+0.032..+0.260) | yes | 4% / 24% / 72% | 0.582 |
+| H60 (1, 1) | -0.879 (-1.025..-0.764) | +0.047 (-0.034..+0.119) | 1.000 | +0.026 | -0.905 | +0.184 (+0.048..+0.299) | no | 17% / 21% / 63% | 0.591 |
+| close (2, 1) | -1.060 (-1.388..-0.756) | -0.134 (-0.403..+0.129) | 1.000 | +0.132 | -1.192 | -0.043 (-0.356..+0.226) | no | 3% / 14% / 83% | 0.596 |
+| close (1, 1) | -1.079 (-1.433..-0.755) | -0.153 (-0.452..+0.133) | 1.000 | +0.131 | -1.210 | +0.156 (-0.103..+0.412) | no | 13% / 10% / 77% | 0.588 |
+
+**S2 (all)**
+
+| Set | Top-decile net, pp (CI) | vs default, pp (CI) | Holm p | Gross | Cost | Lift over mech. EV (CI) | Forecast | Top-decile TP / SL / TIME | TP AUC |
+|---|---|---|---|---|---|---|---|---|---|
+| H15 (2, 1) | -0.880 (-0.944..-0.827) | -0.018 (-0.072..+0.031) | 1.000 | +0.022 | -0.902 | +0.134 (+0.073..+0.184) | no | 3% / 23% / 74% | 0.735 |
+| H15 (1, 1) | -0.863 (-0.922..-0.815) | -0.002 (-0.057..+0.052) | 1.000 | +0.030 | -0.893 | +0.179 (+0.125..+0.229) | no | 14% / 23% / 63% | 0.734 |
+| H30 (2, 1) (default) | -0.862 (-0.954..-0.775) | — | — | +0.111 | -0.973 | +0.181 (+0.089..+0.268) | yes | 3% / 20% / 77% | 0.714 |
+| H30 (1, 1) | -0.827 (-0.921..-0.748) | +0.034 (-0.007..+0.073) | 0.612 | +0.129 | -0.956 | +0.234 (+0.143..+0.316) | yes | 15% / 19% / 65% | 0.682 |
+| H60 (2, 1) | -0.832 (-0.974..-0.697) | +0.030 (-0.059..+0.113) | 1.000 | +0.238 | -1.070 | +0.209 (+0.073..+0.342) | yes | 3% / 18% / 80% | 0.682 |
+| H60 (1, 1) | -0.813 (-0.950..-0.690) | +0.048 (-0.027..+0.125) | 1.000 | +0.235 | -1.048 | +0.250 (+0.120..+0.375) | yes | 16% / 16% / 68% | 0.650 |
+| close (2, 1) | -0.464 (-0.838..-0.088) | +0.398 (+0.064..+0.757) | 0.154 | +0.925 | -1.388 | +0.554 (+0.192..+0.933) | yes | 3% / 11% / 86% | 0.634 |
+| close (1, 1) | -0.711 (-1.070..-0.362) | +0.151 (-0.170..+0.469) | 1.000 | +0.623 | -1.334 | +0.525 (+0.210..+0.841) | yes | 13% / 8% / 80% | 0.632 |
+
+**Traded arms (EV > 0, fixed basis, each set's exits), mean daily net return**
+
+| Set | S1 %/day (CI) | S1 trades/day | S2 %/day (CI) | S2 trades/day |
+|---|---|---|---|---|
+| H15 (2, 1) | -0.051 (-0.097..-0.011) | 0.59 | -0.105 (-0.173..-0.051) | 0.99 |
+| H15 (1, 1) | -0.030 (-0.073..+0.004) | 0.46 | -0.075 (-0.135..-0.028) | 1.15 |
+| H30 (2, 1) | -0.121 (-0.195..-0.055) | 1.35 | -0.162 (-0.243..-0.088) | 1.84 |
+| H30 (1, 1) | -0.048 (-0.099..-0.002) | 0.92 | -0.123 (-0.204..-0.047) | 1.65 |
+| H60 (2, 1) | -0.206 (-0.314..-0.117) | 2.10 | -0.249 (-0.347..-0.156) | 2.59 |
+| H60 (1, 1) | -0.132 (-0.216..-0.053) | 1.45 | -0.223 (-0.316..-0.135) | 2.32 |
+| close (2, 1) | -0.441 (-0.610..-0.279) | 3.52 | -0.377 (-0.538..-0.231) | 3.28 |
+| close (1, 1) | -0.673 (-0.861..-0.490) | 4.21 | -0.603 (-0.763..-0.450) | 3.86 |
+
+SPY open-to-close over the same days: +0.027 (-0.054..+0.110) %/day.
+
+- **Decision.** No set qualifies in either feature set, so X* is the default H30 (2, 1) for S1
+  and for S2.
+  - The largest difference is S2's close (2, 1): +0.398 pp, raw p 0.022, Holm p 0.154. Its
+    per-fold differences (2020H1 to 2022H2) are +0.72, +1.06, −0.31, +1.16, +0.16 and
+    −0.37 pp, and its CI is 0.7 pp wide.
+  - Its top tenth still loses −0.46 pp: a gross part of +0.93 against a cost of −1.39.
+- **Every top-decile net is negative**, from −0.46 to −1.08 pp. Costs run from −0.85 to
+  −1.39 pp, and no gross part exceeds +0.93.
+- **In S2, the horizon moves gross and cost together.**
+  - The top decile's gross part rises with H: +0.02/+0.03 at 15 minutes, +0.11/+0.13 at 30,
+    +0.24 at 60, and +0.93/+0.62 at the close, for (2, 1)/(1, 1).
+  - Its cost rises too: −0.90/−0.89, −0.97/−0.96, −1.07/−1.05 and −1.39/−1.33.
+  - So the longer horizon's top tenth is costlier names, with a larger part of the move.
+  - In S1 no gross part reaches +0.14, and the two close sets have the lowest nets.
+- **Forecast (amendment 6).** S2 forecasts at 6 of the 8 sets, all but the two 15-minute ones.
+  S1 forecasts only at H60 (2, 1).
+- **TP AUC falls with the horizon** (S2: 0.73 at 15 minutes, 0.63 at the close), and so does
+  the daily rank IC (S2: +0.34/+0.33 at 15 minutes, +0.20/+0.18 at the close, for (2, 1)/(1, 1)).
+- **Every traded arm's mean is negative.**
+  - The 15-minute arms and H30 (1, 1) S1 lose least, because they trade least: 0.46 to 1.15
+    trades a day.
+  - The close arms lose most: −0.38 to −0.67 %/day at 3.3 to 4.2 trades a day.
+  - One arm's CI reaches zero: H15 (1, 1) S1, −0.030 %/day (CI −0.073..+0.004), at 0.46
+    trades a day.
+- **Why the long-horizon arms trade more and lose more.** This was measured after the run from
+  E5a's saved predictions, pooled over test minutes. It was not pre-registered, so it explains
+  and decides nothing.
+  - In every set measured, the minutes with EV > 0 lose on average.
+  - Their share of filled minutes grows with the horizon.
+
+| Set | Feature set | Share with EV > 0 | Rows | Mean EV | Mean realized r_net |
+|---|---|---|---|---|---|
+| H15 (1, 1) | S1 / S2 | 0.12% / 0.40% | 1,474 / 4,672 | +0.37% / +0.63% | −0.36% / −0.60% |
+| H30 (2, 1) | S1 / S2 | 0.52% / 0.95% | 6,103 / 11,194 | +0.51% / +0.84% | −0.31% / −0.66% |
+| H60 (2, 1) | S1 / S2 | 1.33% / 2.24% | 15,731 / 26,462 | +0.68% / +1.05% | −0.35% / −1.06% |
+| close (2, 1) | S1 / S2 | 6.55% / 10.05% | 77,184 / 118,476 | +0.81% / +1.24% | −1.07% / −1.20% |
+| close (1, 1) | S1 / S2 | 5.75% / 9.14% | 67,829 / 107,741 | +0.81% / +1.08% | −0.90% / −1.11% |
+
+  The EV's level is optimistic, more so at long horizons. Its ranking is what the top-decile
+  metric reads. This is the EV-term asymmetry seen before: a per-row TP payoff against pooled
+  loss terms selects volatile rows. The level is E6's θ. E5 does not change it.
+
+### 23.2 E5b: which score? (at H30 (2, 1) in both feature sets)
+
+| Feature set | Level | Top-decile net, pp (CI) | vs reference, pp (CI) | p (Holm) | Gross | Cost | Lift over mech. EV (CI) | Forecast | Rank IC |
+|---|---|---|---|---|---|---|---|---|---|
+| S1 | A (EV), reference | -0.926 (-1.012..-0.855) | — | — | -0.033 | -0.893 | +0.117 (+0.035..+0.185) | no | +0.266 |
+| S1 | y_H (Huber) | -0.893 (-0.945..-0.838) | +0.033 (-0.023..+0.103) | 0.286 | -0.049 | -0.844 | +0.150 (+0.104..+0.199) | no | +0.280 |
+| S1 | B (b_hat) | -1.176 (-1.278..-1.085) | -0.250 (-0.332..-0.174) | 0.001 | -0.026 | -1.150 | -0.133 (-0.241..-0.037) | no | +0.112 |
+| S2 | A (EV), reference | -0.862 (-0.954..-0.775) | — | — | +0.111 | -0.973 | +0.181 (+0.089..+0.268) | yes | +0.279 |
+| S2 | y_H (Huber) | -0.817 (-0.900..-0.742) | +0.045 (-0.010..+0.100) | 0.109 | +0.085 | -0.902 | +0.226 (+0.148..+0.299) | yes | +0.295 |
+| S2 | B (b_hat) | -1.022 (-1.113..-0.932) | -0.160 (-0.238..-0.075) | 0.001 | +0.231 | -1.253 | +0.021 (-0.076..+0.116) | no | +0.123 |
+
+- **Decision.** A, the EV, stays in both feature sets.
+- **y_H.** It differs from A by +0.033 pp (p 0.286) in S1 and +0.045 pp (p 0.109) in S2,
+  neither significant.
+  - Its rank IC is slightly higher than A's: +0.280 against +0.266, and +0.295 against +0.279.
+  - Its top tenth costs less: −0.84 against −0.89, and −0.90 against −0.97.
+  - In S2 its gross part is lower than A's (+0.085 against +0.111). So its small edge is
+    partly a cost sort.
+- **B.** It is below A in both: −0.250 and −0.160 pp, Holm p 0.001.
+  - b_hat's top tenth costs much more (−1.15 and −1.25), so B leans to volatile names.
+  - In S2, B has the largest gross part of the three (+0.231) but loses it to cost.
+
+### 23.3 E5c: which exit? (under A, at H30 (2, 1))
+
+| Feature set | Level | Top-decile net, pp (CI) | vs reference, pp (CI) | p (Holm) | Gross | Cost | Lift over mech. EV (CI) | Forecast |
+|---|---|---|---|---|---|---|---|---|
+| S1 | barrier exit, reference | -0.926 (-1.012..-0.855) | — | — | -0.033 | -0.893 | +0.117 (+0.035..+0.185) | no |
+| S1 | time-only exit | -0.923 (-1.035..-0.838) | +0.002 (-0.032..+0.030) | 0.873 | -0.031 | -0.893 | +0.143 (+0.034..+0.224) | no |
+| S2 | barrier exit, reference | -0.862 (-0.954..-0.775) | — | — | +0.111 | -0.973 | +0.181 (+0.089..+0.268) | yes |
+| S2 | time-only exit | -0.838 (-0.952..-0.742) | +0.024 (-0.004..+0.050) | 0.083 | +0.135 | -0.973 | +0.229 (+0.117..+0.329) | yes |
+
+- **Decision.** The barrier exit stays in both. The time-only exit differs by +0.002 pp
+  (p 0.873) in S1 and +0.024 pp (p 0.083) in S2.
+- **Why the two exits barely differ.** The rows and the costs are the same. At H30 (2, 1) the
+  barrier exit already ends 70% (S1) and 77% (S2) of the top tenth's minutes at TIME, and only
+  3-4% at TP. So the two exits differ on at most about 30% of those minutes, mostly at the
+  stop.
+
+### 23.4 Predictions
+
+| # | Prediction (before the run) | Outcome | Measured |
+|---|---|---|---|
+| E5a-1 | No set qualifies under Holm; the default stays | held | best Holm p 0.154 (S2 close (2, 1)) |
+| E5a-2 | The two close sets have the two lowest top-decile nets, in both feature sets | failed | held in S1; in S2 they are the two highest |
+| E5a-3 | Every traded arm loses (daily CI hi < 0) | failed | all 16 means are negative; H15 (1, 1) S1 has hi +0.004 |
+| E5a-4 | S2 forecasts at the default and at most two other sets | failed | the default and 5 others |
+| E5b-1 | Neither y_H nor B replaces A | held | y_H p 0.286 / 0.109; B below A |
+| E5b-2 | B's top-decile net is below A's | held | −0.250 / −0.160 pp |
+| E5c-1 | The time-only exit has the lower top-decile net | failed | +0.002 / +0.024 pp above the barrier exit, neither significant |
+
+Three of seven held. The failures are about the close sets in S2, one low-activity arm, and
+S2 forecasting more widely than expected. None changes a decision.
+
+### 23.5 What follows
+
+- **E5's choices stand at E3's** in both S1 and S2: H30 (2, 1), the EV (A) and the barrier
+  exit. E5d (§22.5a, committed with this section) tests model-placed TP and SL against
+  exactly that configuration.
+- **The §22.6 added check (after E6), as written, would not fire on E5's arms.** An E5 arm
+  already has a CI hi > 0: H15 (1, 1) S1, +0.004. But that arm's mean is −0.030 %/day at 0.46
+  trades a day. Its CI reaches zero because it trades little, not because it wins.
+  - For the user: as approved, the check is passed by any arm that trades rarely enough.
+  - It is not changed here, since the user approved it. E6 will report it as written, beside
+    the best arm's mean.
+- **S2's close (2, 1) is not carried.** The rule decides, and it failed Holm (+0.40 pp,
+  Holm 0.154, top-decile net still −0.46 pp). It is recorded for E6/E7 as the largest gross
+  part so far: +0.93 pp before a cost of −1.39.
+- **Stop rule (§9 as amended in §22.6).** Neither condition holds, so §9 does not fire.
+  - The best dev lift over the mechanical EV has CI lo > 0 (S2 close (2, 1) +0.554, lo +0.192;
+    the S2 default +0.181, lo +0.089).
+  - The best traded arm's CI hi is +0.004, not below 0.
+
+### 23.6 Calls made by Claude during E5a-c (review these)
+
+| # | Call |
+|---|---|
+| 1 | Integrity check 2 runs right after the default set's folds, not after all fits (review I1). The outcome is the same; a failure would have cost minutes, not the hour. |
+| 2 | A check-2 stop record would carry check 1 as all True, by construction: the hook runs only after check 1 passed. |
+| 3 | The EV-level table in 23.1 was computed after the results and decides nothing. |
