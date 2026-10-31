@@ -1491,3 +1491,308 @@ days:
 | 6 | The primary score is the 3-seed ensemble | 20.6 |
 | 7 | No shuffled-label null for the deep models; the mechanical EV binds | 20.7 |
 | 8 | The 20 CPU-hour compute rule | 20.8 |
+
+## 21. Results, tranche 4: E4 sequence models (2026-10-29/31; poolpoc cf7045cfa449, clean; MLflow fdbb354be48b49c0b45441930246498e)
+
+**No sequence model beats the tabular M1, and all five §20.8 predictions held.** The three
+networks read the last 60 minutes of bars. Each scored below M1-S1 (base + F5) on top-decile
+lift: the TCN by −0.043 pp, the GRU by −0.156 and the PatchTST by −0.095. Joined to the tabular
+features, the TCN only ties its M1 reference. M5-S1 trails M1-S1 by −0.001 pp and M5-S2 leads
+M1-S2 by +0.019 pp, both with CIs wide across zero. Nothing qualifies under Holm, so E5 keeps
+M1. M5-S2 forecasts by amendment 6 (gross part +0.133 pp, CI +0.076..+0.193; +0.201 over the
+mechanical EV), but M1-S2 forecasts as well (+0.153 gross), so the sequence input adds nothing
+measurable. It does sharpen the class probabilities: every network reaches a TP AUC of 0.69 to
+0.71, against M1-S1's 0.610. That gain does not reach the EV's top decile. Every traded arm
+still loses, by −0.031 to −0.055 %/day, with each CI wholly below 0. The §9 stop check does not
+fire (21.5). The final review's M1 exposure changes no number (21.6), and the 858d5a1 check
+passed (21.7).
+
+### 21.1 What ran
+
+- **Code.** poolpoc 127a392..cf7045c (seq_data, seq_models, seq_train, run_e4), run from the
+  detached worktree that ran E3 (panel key 9df83a549f000ae3, so every E4 test row pairs with E3's
+  saved M1 predictions on the identical panel). The final review's fixes landed afterwards at
+  9d357cf; neither changes a number of this run (21.6).
+- **Smoke first (§20.8).** Five configurations, seed 7, 50,000 rows, 2 epochs, 2 folds, 4
+  threads. It projected 76.8 process-hours for the full run with 3 seeds each. That is above
+  the 20-hour line, so the compute rule applies: M2, M3 and M4 run seed 7 only, and M5-S1 and
+  M5-S2 keep seeds 7, 8 and 9. The smoke's in-run determinism refit (M2, fold 2020H1) hashed
+  identically.
+- **Smoke incidents, fixed before the full run (cf7045c).**
+  1. The first smoke attempt ran from the main worktree. Its LF copies of the source hash to a
+     different panel key than the run worktree's CRLF checkout, so three parts started 3.5 GB
+     panel rebuilds and were stopped. From then on, every E4 step ran from the run worktree, and
+     both drivers resolve the caches alone first.
+  2. The smoke's evaluate stopped on "a test row missing from the E3 frame". The E3 frame keeps
+     NO_FILL rows (cls = −1) with NaN reference EVs. The check now tests presence by key, and
+     finiteness only on filled rows.
+  3. M5-S2's smoke part peaked at 7.6 GB in the feature scaler. The transform now runs in
+     float32 chunks (full-size probe: 4.16 GB).
+- **Full run layout.** Phase A ran M2 and M3 in parallel at 6 threads each, then M4. The encoder
+  for M5 was then chosen by §20.5's rule (`encoder`). Phase B ran the six M5 fits one at a time
+  at 10 threads, alternating S1 and S2 by seed. Then `evaluate` ran.
+- **Phase A (launched 2026-10-29 20:36) took 7 h 27 min.**
+  - Per-part runtimes and peaks:
+
+    | Part | Slot | Runtime | Peak RAM |
+    |---|---|---|---|
+    | M3 | second | 10,851 s | 2.87 GB |
+    | M4 | second, after M3 | 8,406 s | 2.71 GB |
+    | M2 | first | 26,779 s | 3.87 GB |
+
+  - M2's runtime includes the in-run determinism refit of fold 2020H1. The refit hashed
+    identically: 422331281f5e6b18 both times.
+  - M2 is the slowest encoder. It trained for 2,967 to 4,575 s per fold at 6 threads. M3 took
+    1,292 to 2,280 s, and M4 about 1,370 s.
+  - Every part trained on identical rows: each fold's train hash is equal across all nine
+    parts.
+  - By §20.5's rule the encoder was M2, the largest mean difference vs M1-S1 of the three
+    (encoder.json).
+- **Phase B (2026-10-30 04:03 to 10-31 01:55) took 21 h 52 min.**
+  - The M5-S1 parts took 13,948 to 15,599 s each, with peaks of 4.27 to 4.34 GB.
+  - The M5-S2 parts took 11,262 to 11,625 s, with peaks of 6.24 to 6.33 GB. That is above the
+    4.16 GB full-size probe, but at least 1.86 GB stayed free.
+  - The phase took longer than the smoke projected because the smoke's M5 parts used the
+    provisional M3 encoder. The first M5 fold was timed before any layout change was
+    considered. The serial layout was then kept, because parts resume only whole (ledger
+    ruling).
+  - `evaluate` took 95 s.
+- **The whole run took 29 h 20 min of wall time and 34.5 process-hours.** The smoke projected
+  76.8 for three seeds everywhere. At the measured speeds, three seeds for M2 to M4 would have
+  added about 25 process-hours.
+- **Epochs.** The pure networks often hit the 8-epoch cap with the 8th epoch as their best:
+  - M2 in 4 of its 6 folds;
+  - M4 in 4 of 6;
+  - M3 in 1 of 6.
+
+  The M5 fits mostly stopped early: 16 of M5-S1's 18 folds and all 18 of M5-S2's. M5-S2's best
+  epoch was the 2nd to 4th. The budget was pre-registered (§20.6) and is not changed after the
+  fact (21.3, point 6).
+- **Trial count.** E4 adds 8 rows to trials.jsonl: 5 model configurations and 3 traded arms.
+
+### 21.2 Results
+
+All 685 P1 dev test days (2020H1 to 2022H2), every P1 test minute (2,466,000 rows), H30 (2,1),
+the row SL term, 2,000 day-clustered bootstrap resamples. Each score is the seed ensemble.
+Lifts are in percentage points of r_net.
+
+| Configuration vs its M1 reference | Lift difference (pp) | p | Holm p |
+|---|---|---|---|
+| M2 TCN vs M1-S1 | −0.043 (−0.111..+0.035) | 0.2530 | 0.7590 |
+| M3 GRU vs M1-S1 | −0.156 (−0.232..−0.069) | 0.0030 | 0.0150 |
+| M4 PatchTST vs M1-S1 | −0.095 (−0.166..−0.016) | 0.0240 | 0.0960 |
+| M5-S1 vs M1-S1 | −0.001 (−0.066..+0.075) | 0.9760 | 1.0000 |
+| M5-S2 vs M1-S2 | +0.019 (−0.054..+0.105) | 0.6390 | 1.0000 |
+
+The next table splits each score's top-decile lift into its gross and cost parts. It also gives
+the lift against the two no-skill references: the mechanical EV (binding) and the cost-only
+sort. Δ log-loss is the gain over the fold's training prior.
+
+| Scored by | Top-decile lift (pp) | Gross part | Cost part | vs mechanical EV | vs cost-only | AUC (TP) | Δ log-loss | ECE10 (TP) |
+|---|---|---|---|---|---|---|---|---|
+| M2 TCN | +0.719 (+0.669..+0.770) | +0.033 (−0.013..+0.080) | +0.686 (+0.661..+0.712) | +0.074 (+0.020..+0.125) | +0.490 (+0.423..+0.564) | 0.701 | +0.0353 | 0.0018 |
+| M3 GRU | +0.606 (+0.548..+0.666) | −0.023 (−0.074..+0.031) | +0.629 (+0.604..+0.654) | −0.039 (−0.099..+0.022) | +0.378 (+0.299..+0.461) | 0.698 | +0.0339 | 0.0018 |
+| M4 PatchTST | +0.667 (+0.613..+0.720) | +0.039 (−0.008..+0.086) | +0.628 (+0.603..+0.653) | +0.022 (−0.036..+0.078) | +0.438 (+0.367..+0.516) | 0.691 | +0.0281 | 0.0018 |
+| M5-S1 | +0.762 (+0.707..+0.819) | −0.018 (−0.066..+0.034) | +0.779 (+0.754..+0.805) | +0.117 (+0.062..+0.170) | +0.533 (+0.463..+0.606) | 0.703 | +0.0404 | 0.0014 |
+| M5-S2 | +0.846 (+0.782..+0.909) | +0.133 (+0.076..+0.193) | +0.713 (+0.686..+0.739) | +0.201 (+0.134..+0.269) | +0.617 (+0.538..+0.701) | 0.714 | +0.0446 | 0.0021 |
+| M1-S1 | +0.762 (+0.689..+0.825) | +0.008 (−0.062..+0.069) | +0.754 (+0.729..+0.780) | +0.117 (+0.035..+0.185) | +0.534 (+0.468..+0.597) | 0.610 | +0.0053 | 0.0019 |
+| M1-S2 | +0.827 (+0.746..+0.905) | +0.153 (+0.075..+0.228) | +0.674 (+0.647..+0.701) | +0.181 (+0.089..+0.268) | +0.598 (+0.519..+0.681) | 0.714 | +0.0431 | 0.0023 |
+| mechanical EV | +0.645 (+0.599..+0.695) | −0.043 (−0.081..+0.001) | +0.688 (+0.664..+0.712) | | +0.417 (+0.351..+0.492) | | | |
+| cost-only sort | +0.229 (+0.160..+0.299) | −0.623 (−0.688..−0.559) | +0.851 (+0.827..+0.876) | | | | | |
+
+| Configuration | Seeds | Lift difference per seed (pp) | SD (pp) | Guard flag |
+|---|---|---|---|---|
+| M2 TCN | 1 | −0.043 | | no |
+| M3 GRU | 1 | −0.156 | | no |
+| M4 PatchTST | 1 | −0.095 | | no |
+| M5-S1 | 3 | −0.036, +0.000, −0.013 | 0.018 | no |
+| M5-S2 | 3 | +0.015, −0.029, −0.023 | 0.024 | no |
+
+| Configuration | Parameters | Epochs run per fold | Best epoch | Peak GB | Process-hours |
+|---|---|---|---|---|---|
+| M2 TCN | 99,181 | 6, 8 | 4, 7, 8 | 3.87 | 7.4 |
+| M3 GRU | 43,717 | 6, 8 | 4, 6, 7, 8 | 2.87 | 3.0 |
+| M4 PatchTST | 108,357 | 8 | 7, 8 | 2.71 | 2.3 |
+| M5-S1 | 116,141 | 4 to 8 | 2 to 5, 7, 8 | 4.34 | 12.3 |
+| M5-S2 | 130,093 | 4, 5, 6 | 2, 3, 4 | 6.33 | 9.5 |
+
+The traded arms trade at EV > 0 on a fixed basis, as in E2 and E3. The pure arm is M2, the best pure
+configuration.
+
+| Traded arm | Mean %/day (CI) | Trades | Per day | Days traded | Net per $ | vs SPY open-to-close |
+|---|---|---|---|---|---|---|
+| M2 TCN | −0.037 (−0.062..−0.012) | 246 | 0.36 | 133 | −1.08% | −0.064 (−0.149..+0.022) |
+| M5-S1 | −0.031 (−0.060..−0.003) | 428 | 0.62 | 145 | −0.53% | −0.058 (−0.147..+0.024) |
+| M5-S2 | −0.055 (−0.096..−0.013) | 815 | 1.19 | 257 | −0.49% | −0.082 (−0.171..+0.006) |
+| SPY open-to-close | +0.027 (−0.054..+0.110) | | | 685 | | |
+
+### 21.3 Reading
+
+1. **Pure sequences lose to M1-S1, and capacity does not order them.**
+   - The TCN comes closest, at −0.043 pp. The GRU is furthest, at −0.156.
+   - Only the GRU's deficit survives Holm (p 0.015). M4's unadjusted CI lies below zero, but
+     its Holm p is 0.096.
+   - None of the three forecasts by amendment 6.
+   - M2 beats the mechanical EV by +0.074 pp (CI +0.020..+0.125), but its gross part
+     straddles 0 (+0.033, CI −0.013..+0.080). Its edge over the no-skill EV is therefore not
+     shown to be a forecast of the price move.
+2. **The networks get better probabilities, but not a better top decile.**
+   - From the bars and the time of day alone, every network lifts TP AUC to 0.69 to 0.71, and
+     the log-loss gain to +0.028 to +0.045. M1-S1 reaches 0.610 and +0.005.
+   - That is as much as M1-S2 gets from all 102 tabular features (0.714, +0.043).
+   - Yet in M5-S1, the sharper TP probability leaves the lift where M1-S1 has it (−0.001 pp),
+     with a gross part of −0.018.
+   - A reading, not a result: the 60-minute window mostly teaches the networks the scale of the
+     coming move, that is, whether a 2-ATR target is in reach that day. The EV already prices
+     that scale through r_TP and the cost. It ranks the minutes that are likely to hit TP
+     better. It does not find minutes whose net return is higher.
+3. **The sequence adds nothing measurable to the full tabular set.**
+   - M5-S2 vs M1-S2 is +0.019 pp (CI −0.054..+0.105). M5-S2 forecasts, but M1-S2 does too, by
+     about as much (gross +0.133 vs +0.153; over the mechanical EV +0.201 vs +0.181).
+   - The seed spread (SD 0.024 pp) is as large as the difference itself.
+   - The three-seed ensembles score above their average seed: by +0.015 pp for M5-S1 and +0.031
+     for M5-S2. That is about the size of effect being looked for.
+4. **Every traded arm loses, but less per day than §19's arms.**
+   - §19's best arm lost −0.12 %/day. These arms trade on 133 to 257 of the 685 days.
+   - Per dollar traded they still lose 0.49% to 1.08%.
+   - None beats SPY's open-to-close drift. Each difference has a CI that includes 0, and every
+     mean is negative.
+5. **What E4 rules out.** A 60-minute window of the 8 bar channels, through these three
+   encoders at this budget (400,000 rows a fold, 8 epochs), does not find net-return signal
+   that M1 misses on P1 at H30 (2,1).
+6. **What E4 leaves open.**
+   - Longer windows.
+   - Other targets: E5's labels and exits.
+   - More training. M2 and M4 had their best epoch at the cap in 4 of 6 folds, so they may be
+     under-trained. M5, which carries the M2 encoder, stopped early in 34 of 36 folds, so more
+     epochs are unlikely to change the M5 comparisons. They could still move M2 and M4 against
+     M1-S1.
+
+### 21.4 Predictions (§20.8)
+
+| # | Prediction | Result | |
+|---|---|---|---|
+| 1 | Pure sequence < M1: M2, M3 and M4 each have a mean difference vs M1-S1 below 0 | −0.043, −0.156, −0.095 | held |
+| 2 | M5-S2 vs M1-S2 has mean ≥ 0 and a CI that includes 0 | +0.019 (−0.054..+0.105) | held |
+| 3 | No deep configuration qualifies under Holm | the only positive difference (M5-S2) has Holm p 1.000 | held |
+| 4 | No pure-sequence model forecasts by amendment 6 | M2 gross CI lo −0.013; M3 and M4 vs mechanical EV CI lo −0.099 and −0.036 | held |
+| 5 | Every traded arm loses (daily CI hi < 0) | hi −0.012, −0.003, −0.013 | held |
+
+Every arm traded, so the zero-trade reading ruled before the run (ledger, 2026-10-29 20:42) was
+not needed.
+
+### 21.5 The stop check (§9)
+
+§9 stops the long-only track if, after E2 and E4, both of these hold:
+
+- the best dev top-decile lift has a CI that includes 0;
+- the best dev policy's daily-return CI upper bound is below 0.
+
+The second condition holds for every E4 arm (hi −0.003 to −0.013). The first fails. The best
+dev top-decile lift is M5-S2's +0.846 pp (CI +0.782..+0.909); M1-S2's is +0.827. **The rule
+does not fire, and the track continues to E5 (labels and exits) with M1.**
+
+The open question to the user is whether the stop rule should judge lift over the mechanical EV
+instead of raw lift. It does not change this outcome:
+
+- over the mechanical EV, the best is M5-S2's +0.201 pp (CI +0.134..+0.269);
+- on the gross part, the best is M1-S2's +0.153 (CI +0.075..+0.228).
+
+Both lie wholly above 0. The question stays open for E5 to E7, where it may bind.
+
+### 21.6 The final review and the M1 exposure
+
+A fresh reviewer read dc5333a..cf7045c during phase A: the plan's five Review Focus items, §20,
+and the ledger's rulings. It found 0 Critical, 1 Important and 10 Minor issues. All five Review
+Focus items hold:
+
+- the window at t sees only bars ≤ t;
+- the pre-market slots are exact;
+- EV terms and references pair by (date, symbol, t) on identical rows;
+- `fit` restores the best epoch;
+- parts are meta-checked.
+
+**I1, fixed at 9d357cf.** `evaluate --mode full` ran on whatever parts existed. A hand-run
+evaluate during the run would therefore have Holm-corrected over the wrong family and logged
+permanent trials. A full evaluation now requires:
+
+- all five configurations;
+- one of the two pre-registered seed layouts;
+- full-mode parts only.
+
+This run's own evaluate ran the cf7045c code, after every part had finished. The guard's
+condition was checked by hand on its results.json, and it holds:
+
+- the configurations are m2, m3, m4, m5_s1 and m5_s2;
+- the seeds are M2 to M4 [7] and M5-S1 and M5-S2 [7, 8, 9], the compute rule's second layout;
+- all nine parts are mode full, at cf7045cfa449, clean;
+- every M5 part's encoder is m2.
+
+**M1, re-graded Important, fixed at 9d357cf.**
+
+- **The finding.** A name-day without a finite, positive atr20 took the median scale of its
+  40-date build chunk, which includes later sessions. That breaks the rule that no future data
+  reaches an input. What leaked is a cross-sectional ATR median, not a label signal.
+- **The exposure.** It touched 8 of 7,270 P1 dev name-days: HUT 2021-07-14, GAME 2021-07-16,
+  CPOP 2021-07-29, MITQ 2021-08-05, MYSE 2021-09-13, KSCP 2022-02-25, NA 2022-08-09 and LASE
+  2022-10-28.
+- **The fix.** The scale now comes from the median of the same session's P1 names.
+- **The read.** This run was not rebuilt. An unregistered read (e4_m1_read.py on the run's
+  saved scores; e4/m1_read.json) drops those name-days' 2,880 test rows. No mean, CI end or Holm
+  p changes at four decimals.
+- **Why exactly nothing changes.** It is structural: all 2,880 rows are NO_FILL, because a
+  name-day with no finite atr20 never fills. They carry NaN EVs and NaN returns. E4's training
+  rows (`run_e2.budget_rows`) and validation rows (`models.training_rows`) both exclude NO_FILL.
+  The leaked scale therefore reached only windows that were never trained on, validated on or
+  scored. A re-run at 9d357cf would differ only in those windows.
+
+**The ten Minor findings** and the rulings on the reviewer's "declined to judge" list are in
+the E4 ledger. Two of them were checked by hand on this run:
+
+- **M2.** The determinism refit of M2, fold 2020H1, hashed identically.
+- **M3.**
+  - Each fold's train hash is equal across all nine parts.
+  - Every M5 part used encoder m2 and its own feature set (30 or 102 columns).
+  - E4's terms (fold, cls, price_bucket, r_net, c_rt_pit) equal E3's saved frame on all
+    2,466,000 keys.
+  - The references in E4's predictions are E3's own scores: M1-S1 is E3's +F5 and M1-S2 is
+    E3's all-families model. The mechanical EV is E3's too.
+
+### 21.7 The 858d5a1 check (§19)
+
+**Step 1 passed (2026-10-29, during phase A).** The caches were rebuilt with 858d5a1 into side
+roots (6 minutes, 0.53 GB). They differ from the 6674ea3 build only where the ruling allows:
+
+- **Minute cache:** 0 of 5,253 files changed.
+- **Pre-market cache:** 110 of 5,170 files changed, all in 2025 (February to 2025-08-06).
+  - None is in the holdout (compared by byte hash, never parsed).
+  - No changed symbol has a regular minute bar that day.
+- **Provenance listing:** the 238 changed pre-market name-days are the new "match" repairs, and
+  125 unmatched pre-market open-gaps are newly listed as "unexplained". That is a listing only:
+  no file outside 2025 changed.
+
+**Steps 2 and 3 passed (2026-10-31, after E4 ended).**
+
+- **The copy.** The 110 changed files and the provenance listing were copied into the canonical
+  roots. The old copies are kept in premarket_rebased.6674ea3, and every copy was sha-checked.
+  The canonical pre-market root then equalled the 858d5a1 build byte for byte (5,170 files).
+- **The E-1 re-run.** E-1 was re-run at cf7045c, whose E-1 code is byte-identical to
+  858d5a1's: the later commits add only E4 files.
+  - It rebuilt only the 2025 pre-market feature cache.
+  - It wrote pool hash fc6972f7d7058274, equal to the re-run's.
+  - 0 of 82,355 pool rows differ, and the dev rows hash identically (aaa1e6b50f1852f3).
+  - The run is MLflow 5f3b33c8bf6a4bfabdaf85b356707985, tagged as a check, not a trial.
+- **The fallback read was not needed.** It was ruled before the run, for a pool that would
+  differ only in 2025.
+
+E-1 through E4 therefore stand for 858d5a1, and for 9d357cf (21.6).
+
+### 21.8 Calls made by Claude in this section (review these)
+
+| # | Call | Where |
+|---|---|---|
+| 1 | Phase B kept its serial 10-thread layout after the first M5 fold was timed (parts resume only whole) | 21.1 |
+| 2 | The run was not rebuilt for review finding M1; an unregistered read without the 8 name-days stands in (it changes nothing) | 21.6 |
+| 3 | The run's evaluate (cf7045c, no I1 guard) was not re-run at 9d357cf; the guard's condition was checked by hand | 21.6 |
+| 4 | The 858d5a1 step 3 ran E-1 at cf7045c, whose E-1 code equals 858d5a1's; the provenance listing was swapped with the pre-market files | 21.7 |
+| 5 | The reading in 21.3 point 2 (the networks learn the move's scale, which the EV already prices) is a hypothesis, not a tested result | 21.3 |
