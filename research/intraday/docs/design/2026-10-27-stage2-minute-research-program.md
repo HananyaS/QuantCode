@@ -2849,3 +2849,152 @@ Three of seven held on the binding reading and five on the strict one.
 | 32 | The reads in 24b.4 and 24b.5 were computed after the run. They decide nothing. |
 | 33 | The duplicate-security fix was not applied. It changes the Stage-1 pool and cache-keyed code shared with every tranche, so it is the user's call before E7. |
 | 34 | §24.2's θ percentiles were wrong (24b.8). The levels are fixed values and stand. |
+
+## 25. Amendment 11: one security per name-day, the basis-repair minors, and the dev re-run (2026-11-01; committed before any code or re-run)
+
+User decision, 2026-11-01: "fix the duplicate tickers first, then go strict".
+- The duplicate fix (24b.5) is applied, and every dev tranche that feeds E7 re-runs on the fixed
+  universe.
+- The strict reading (§24.10) is the one carried to E7. E7's pre-registration (§26) is written
+  after this re-run, because its finalists are the re-run's strict policies.
+- The end check (§24.5) stays as pre-registered. The user did not ask to tighten it.
+- The basis-repair minors (§19's review), deferred until the caches were next rebuilt, are fixed
+  in the same rebuild.
+
+### 25.1 What a scan of the daily cache found (prices only; no label or result was read)
+
+- **The daily cache.** It holds 25,545 same-day groups of rows with identical unadjusted open,
+  high, low, close, volume and trade count (volume > 0), from 2016-01-04 to 2025-08-06. They
+  come from 70 symbol sets.
+  - 47 sets repeat over 11 to 2,395 sessions. These are renames and SPAC mergers that the
+    vendor serves under both symbols, for example IAC/PPLI, ATYR/LIFE, AIFC/JAN, AIFC/ARCI,
+    ECA/OVV, KIND/NXDR and AXG/SWIN.
+  - 23 sets match on a single session and never again.
+- **E-1's universe.** The scan checked §19's pool, which has every scored row from 2017-01 to
+  2025-08-06.
+  - 178 name-day pairs (356 rows) are one security under two symbols: 124 in dev and 54 in
+    confirmation.
+  - Both symbols sit in P1 on 29 days: 13 in dev and 16 in confirmation. AXG/SWIN in 2023-24
+    accounts for 14 of the 16.
+  - A same-day match on volume and trade count alone, with prices left free, finds the same 356
+    rows and no others.
+- **What a doubled P1 slot did.** On 3 of the 13 dev days, both symbols have the same minute
+  bars, so the account traded the security twice (24b.5). On the other 10, one symbol has no
+  minute bars that day: the minute vendor files the security's bars under one symbol, usually
+  its later one. That symbol filled a pool slot with a name that could not trade, and in Stage
+  1 it was a training row with a zero label.
+- **Every pair is visible before the open.** All 178 pairs also match on each of the two
+  sessions before the day.
+
+### 25.2 The rule (exact)
+
+- **Identity, known before the open.** On decision day D, two symbols are one security when
+  their daily-cache rows on each of the two sessions before D (the cache's own session
+  calendar) are identical in unadjusted open, high, low, close, volume and trade count, with
+  volume > 0 and trade count > 0.
+  - Two sessions, not one, because a single-session match can be chance: 23 sets match once
+    and never again.
+  - Symbols linked this way form groups (connected components).
+- **One row per group stays.** It is the symbol whose regular-session minute bars that day exist
+  (the label's n_bars >= 2), when exactly one symbol has them. Otherwise it is the
+  alphabetically first symbol.
+  - This reads day D's minute files. It chooses which symbol's copy of one security's bars is
+    used, and never whether the security is in the universe. Every security-day stays exactly
+    once, with or without bars. §1.1's rule (no filter on day-D bar counts) is about dropping
+    name-days, and none is dropped here.
+  - Where both symbols have bars, the bars are the same up to a constant price basis (AIFC/JAN:
+    0.79%).
+- **Where it is applied.** In E-1's universe (`stage2m.universe.load`), right after the
+  admissible-key join and the label join, and before the pre-market features and their
+  within-day ranks.
+  - So the walk-forward Stage 1s+pm model is fit and scored on one row per security-day.
+  - P1, P2 and P3 hold distinct securities, in dev and in confirmation.
+- **Left as it is.**
+  - The parent POC's cached daily panel computes its D-1 feature ranks over the whole $1-50
+    band, duplicates included. One extra row among the thousands of names of a day moves a
+    percentile rank by less than 0.1 points.
+  - The Stage 1w room model, a control arm in E-1, is not refit.
+- **Checks. Any failure stops the re-run.**
+  1. After the dedupe, no two universe rows of one day share their day-D daily volume and trade
+     count. This reads day-D data as a check, never as a filter.
+  2. No two P1 name-days of one day share their regular-session minute volume and trade count
+     (24b.5's scan, run on the new pool over dev and confirmation).
+  3. The rows removed are counted per year. In 2017-2025 the count must equal the scan's 178.
+
+### 25.3 The basis-repair minors (§19's whole-branch review)
+
+- **M1.** A conflict day is rebased with its symbol's cluster factor when its 09:30 open is
+  within 0.01 log of that factor.
+  - This repairs CXAI 2023-03-15, GRML 2024-07-05 and SMTK 2025-04-07. Each opens at exactly
+    x50, with the close 5-9% off. All three are in confirmation.
+- **M2.** A pre-market name-day whose minute name-day is listed but not rebased gets no overlap
+  factor, and is listed "unexplained". There are 0 such cases today.
+- **M3.** The overlap rule needs at least 2 shared minutes, or 1 shared minute whose q_open
+  agrees with it within 0.10 log.
+  - BNRG 2025-02-03 (6.00 vs 5.86) and KIDZ 2025-07-10 (15.0 vs 15.1) have one shared minute
+    each and agree, so nothing changes today.
+- **M5.** The build writes to `<root>.tmp`, then writes a manifest, then renames. The readers'
+  entry points refuse a root without the manifest.
+- **M6.** Name-days after `--last-day` but before the holdout are listed
+  "after-last-day-unrepaired", not "holdout-unrepaired".
+- **M7.** The rewrite asserts that price and volume columns are floats.
+- **M8.** `basis` uses rebase's public functions and its THRESH.
+- **M10.** `rescore` needs `--basis` explicitly. It has no unscoped default.
+- **M12.** `day_ratios` asserts one daily row per symbol.
+- **Not changed.**
+  - M4 fails safe, and loosening it would reopen the BBBY case.
+  - M9 is the erratum in §19.
+  - M11's type hints on existing test helpers are not added, because CLAUDE.md says tests are
+    never modified automatically. The M2 case gets a new test.
+- **Expected effect.** Byte-comparing the old and new rebased roots, only M1's three minute
+  name-days may differ. The holdout's day folders are again copied without being read.
+
+### 25.4 The re-run
+
+- **Where it runs.** From a detached run worktree at the fix's last commit, after the fix's
+  whole-branch review, one heavy run at a time.
+- **Order.**
+  1. The rebase build into new roots, the byte diff against the old roots, and
+     `basis --universe`.
+  2. E-1, with checks 1-3.
+  3. E0, E1, E2, E3 add-one, E3 leave-one-out, then `basis` and `rescore` (amendment 8).
+  4. E5a, E5b, E5c, E5d, E6.
+- **E4 is not re-run.** It takes 29 hours of wall time, and its decision (no sequence model beats
+  M1; M5 ties) does not feed E7, which uses M1. Its numbers stay as measured on §19's pool and
+  are labelled that way.
+- **Decision rules are unchanged.** Each decision is re-made by its own rule. Where code is
+  wired to an earlier decision, the re-run passes the new run's outputs explicitly:
+  - E3 reads E2's population.
+  - E5 reads E3's predictions and its S1 = base + F5.
+  - E5d is written for X* = H30 (2, 1).
+  - E6 reads E5d's exits and E1's C2 series.
+- **If a decision changes:**
+  - E2, E3 or E5a: the cascade stops before the next tranche. The change is written as an
+    amendment before that tranche runs.
+  - E5d, in one feature set: E6 uses that feature set's chosen exit. That is the barrier exit
+    if E5d does not replace it.
+- **What supersedes what.** The re-run's numbers supersede §19 (E-1 to E3), §23, §23b and §24b.
+  - The old MLflow runs are tagged `superseded_by`.
+  - The trial count is the old count plus the re-run's.
+- **E6's reading.** The strict reading is carried, per the user.
+  - The binding reading is still computed and reported.
+  - The end check still reads §24.5's 42 arms.
+
+### 25.5 Predictions (before any re-run)
+
+1. The pool churns through the walk-forward refit, as in §19: 5-15% of dev P1 name-days change.
+2. E-1 passes. E2 carries P1. E3's add-one keeps base + F5, possibly with another family. The all
+   model keeps a gross part with CI lo > 0.
+3. E5a: no set qualifies. E5b keeps the EV (A). E5c keeps the barrier exit.
+4. E5d: S2's exit is not replaced. S1's is replaced, which is a coin flip at §23b's p = 0.049.
+5. E6, strict reading: S1 keeps nothing. S2 keeps no entry before 09:45 and the B gate. No policy
+   has a daily CI lo > 0, and the end check does not fire.
+6. Every traded arm of E1-E5 still loses.
+
+| # | Call |
+|---|---|
+| 35 | The identity rule needs a match on two prior sessions, not one, because 23 symbol sets match once by chance. All 178 universe pairs pass it. |
+| 36 | Within a group, the symbol with the day's minute bars is kept. This reads day D only to choose which copy of one security's bars to use; no security-day is dropped or added. Otherwise the alphabetically first symbol is kept, because the free caches carry no vendor asset id. |
+| 37 | The Stage-1 panel's D-1 feature ranks over the $1-50 band are left as cached, and the Stage 1w room model is not refit. One duplicate among a day's thousands of names moves a percentile rank by less than 0.1 points. |
+| 38 | E4 is not re-run. Its decision does not feed E7, and it costs 29 hours. |
+| 39 | The basis-repair minors are fixed in this rebuild, except M4 (fails safe), M9 (erratum) and M11's edits to existing tests. |
