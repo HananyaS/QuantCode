@@ -2186,3 +2186,164 @@ S2 forecasting more widely than expected. None changes a decision.
 | 1 | Integrity check 2 runs right after the default set's folds, not after all fits (review I1). The outcome is the same; a failure would have cost minutes, not the hour. |
 | 2 | A check-2 stop record would carry check 1 as all True, by construction: the hook runs only after check 1 passed. |
 | 3 | The EV-level table in 23.1 was computed after the results and decides nothing. |
+
+## 23b. Results, tranche 5: E5d model-driven exit (2026-10-31; poolpoc 8ece6e9d7ee7, clean; MLflow cc0ac22653564e2d97147294d0131a96)
+
+### 23b.0 Runs and integrity
+
+- **Code.** poolpoc e5d.py and run_e5d.py at 8ece6e9. That is the plan's three tasks (ebc25da,
+  d318201, a9e97f4) plus the final review's fixes.
+  - A fresh whole-branch review (opus) found no leakage.
+  - Three findings were fixed test-first before the full run. One was its Important finding
+    (memory transients). Two I regraded from Minor: a fit-days check that could not fail, and
+    no check that E5a's default column holds X*'s labels.
+  - The suite passed, 1,916 tests.
+- **Smoke.** It ran at a9e97f4 and again at 8ece6e9, with identical predictions row for row
+  (229 s and 233 s, peak 4.2 and 4.1 GB).
+- **Full run.** One job, from the run4 worktree at the clean commit 8ece6e9.
+  - It took 2,202 s (§22.5a estimated 45 to 90 minutes), with a peak of 4.76 GB.
+  - Per fold in S1: heads about 62 s, relabel about 30 s, M1 about 30 s. Per fold in S2: heads
+    about 139 s, relabel about 29 s, M1 about 66 s.
+- **Checks, all passed.**
+  - Check 1: the panel equals X*'s cached labels.
+  - mfe and mae are finite on every filled minute.
+  - E5a's default column holds X*'s cls, r_net and exit_min on the same 2,466,000 test
+    minutes.
+  - Integrity 1: the relabel path with X*'s own inputs reproduces X*'s cache, on every P1 dev
+    name-day.
+  - Integrity 2: NO_FILL is unchanged after every fold's relabel, in both feature sets.
+  - Integrity 3: no head was fitted on rows from a day it scores, for each nested block and the
+    outer heads.
+- **Trials.** 2 model-level and 2 traded, logged to trials.jsonl and MLflow.
+
+### 23b.1 The comparison (at H30 (2, 1), score A, M1 refit)
+
+| Feature set | Exit | Top-decile net (pp) | Gross | Cost | Lift over mech. EV | Top tenth TP / SL / TIME | TP AUC |
+|---|---|---|---|---|---|---|---|
+| S1 | barrier (E5a's default) | −0.926 (−1.012..−0.855) | −0.033 | −0.893 | +0.117 (+0.035..+0.185) | 4% / 27% / 70% | 0.610 |
+| S1 | model-driven | −0.877 (−0.921..−0.834) | −0.020 | −0.857 | +0.354 (+0.307..+0.400) | 33% / 27% / 40% | 0.729 (fold mean) |
+| S2 | barrier (E5a's default) | −0.862 (−0.954..−0.775) | +0.111 | −0.973 | +0.181 (+0.089..+0.268) | 3% / 20% / 77% | 0.714 |
+| S2 | model-driven | −0.809 (−0.859..−0.762) | +0.096 | −0.905 | +0.482 (+0.429..+0.537) | 34% / 26% / 40% | 0.739 (fold mean) |
+
+| Feature set | Model-driven minus barrier (pp) | p | Decision | Per fold, 2020H1 to 2022H2 (pp) |
+|---|---|---|---|---|
+| S1 | +0.049 (+0.000..+0.108) | 0.049 | **model-driven exit** | −0.05, +0.06, +0.08, +0.01, +0.08, +0.11 |
+| S2 | +0.053 (−0.011..+0.118) | 0.105 | barrier exit | −0.12, +0.10, +0.12, +0.05, +0.04, +0.13 |
+
+- **Decision, by the pre-registered rule.**
+  - S1: mean > 0 and p 0.049 < 0.05, so the model-driven exit replaces the barrier exit in S1.
+  - S2: p 0.105, so the barrier exit stays.
+  - S1's p sits at the threshold and its CI touches zero. Holm over the two feature sets would
+    give 0.098, but the rule was one comparison per feature set, so the rule's answer stands.
+  - Both feature sets are positive in 5 of 6 folds; 2020H1 is negative in both.
+- **Every top-decile net is still negative**, −0.88 and −0.81 pp under the model-driven exit.
+- **The top tenth's exits change.** Its TP share rises from 3-4% to 33-34%, and its TIME share
+  falls from 70-77% to 40%.
+- **Not comparable across the two exits:**
+  - TP AUC and the lift over the mechanical EV both change with the label, since u_i and d_i
+    move the TP label and the mechanical EV's terms.
+  - The gross/cost split. Its cost is −c_rt_pit whatever the exit, but a TP exit pays no exit
+    spread and one impact leg less, so the gross column overstates the model-driven exit's
+    gross. Read the net only (review minor 7).
+
+### 23b.2 Where the exits sit
+
+| Feature set | u_i median | X*'s u median | u_i at the cost floor | d_i median | X*'s d median | d_i at its floor |
+|---|---|---|---|---|---|---|
+| S1 | 2.32% | 5.96% | 82% of filled test minutes (85% of all placed minutes) | 2.80% | 2.97% | 0% |
+| S2 | 2.35% | 5.96% | 81% (84%) | 2.76% | 2.97% | 0% |
+
+Medians are on filled test minutes, as the median over folds.
+
+- **The TP floor binds on about 4 in 5 minutes.** The median 30-minute MFE is below the
+  labels' cost floor of 1.5 c_rt. The review measured this on filled 2020-21 minutes: a median
+  MFE of 1.06% against a median floor of 2.14%, with P(mfe ≥ floor) = 0.31.
+- **So E5d mostly tested a TP at 1.5 c_rt** (median 2.3%, against X*'s 6.0%), with a stop near
+  X*'s (2.8% against 3.0%). The stop's floor never binds.
+- **What a result here says.** It is about a near, cost-floor TP. It is not about model-placed
+  exits in general.
+
+### 23b.3 Where the difference comes from (measured after the run; decides nothing)
+
+These numbers come from the saved predictions, over the same test minutes and days. They were
+not pre-registered. The score is either E5a's barrier-trained EV (A) or E5d's refit EV (D).
+Each row's top tenth is read under both exits.
+
+| Feature set | Score | Barrier exit (pp) | Model-driven exit (pp) |
+|---|---|---|---|
+| S1 | A (E5a) | −0.926 (−1.012..−0.855) | −0.918 (−0.964..−0.873) |
+| S1 | D (E5d refit) | −0.876 (−0.953..−0.808) | −0.877 (−0.921..−0.834) |
+| S1 | −c_rt only | −1.460 | −1.271 |
+| S2 | A (E5a) | −0.862 (−0.954..−0.775) | −0.887 (−0.937..−0.836) |
+| S2 | D (E5d refit) | −0.804 (−0.899..−0.724) | −0.809 (−0.859..−0.762) |
+| S2 | −c_rt only | −1.460 | −1.290 |
+
+- **The exit itself adds nothing.** On the same minutes, the model-driven exit differs from the
+  barrier exit by:
+  - S1: +0.008 pp (p 0.76) on E5a's top tenth, and −0.001 (p 0.94) on the refit's.
+  - S2: −0.025 pp (p 0.37) on E5a's top tenth, and −0.005 (p 0.83) on the refit's.
+- **The whole difference is in which minutes the refit ranks top.** With the barrier exit held
+  fixed, D's top tenth beats A's by +0.050 pp (p 0.025) in S1 and +0.058 (p 0.027) in S2.
+- **That top tenth is cheaper.**
+  - Its mean c_rt is lower by 0.036 pp in S1 and 0.067 in S2, about the whole difference.
+  - The gain is therefore in the cost part, not the gross part: about +0.01 pp of gross in
+    S1, and about −0.01 in S2.
+- **It is not plain cost sorting.** Ranking by −c_rt alone loses −1.27 and −1.29 pp.
+- **Reading.** Refitting M1 on cost-floor TPs moves its ranking toward cheaper minutes at about
+  the same gross. It does not forecast the move better. This is the cost-sort pattern seen
+  before.
+
+### 23b.4 Traded arms (EV > 0, fixed basis, each exit's own exit minutes)
+
+| Arm | Mean %/day (95% CI) | Trades/day | Net per $ | Sharpe |
+|---|---|---|---|---|
+| model-driven S1 | −0.027 (−0.057..−0.001) | 0.60 | −0.51% | −1.09 |
+| barrier S1 (E5a) | −0.121 (−0.195..−0.055) | 1.35 | −1.03% | −2.06 |
+| model-driven S2 | −0.039 (−0.086..−0.002) | 0.80 | −0.52% | −1.09 |
+| barrier S2 (E5a) | −0.162 (−0.243..−0.088) | 1.84 | −0.99% | −2.46 |
+
+- **Both E5d arms lose.** Their CI hi is below zero, barely.
+- **They lose less per day than E5a's default arms.** They trade about half as often, and they
+  lose about half as much per dollar traded.
+
+### 23b.5 Predictions
+
+| # | Prediction (before the run) | Outcome | Measured |
+|---|---|---|---|
+| E5d-1 | The model-driven exit does not replace the barrier exit in either feature set | failed | S1 replaced, p 0.049; S2 kept, p 0.105 |
+| E5d-2 | Its top-decile net is below zero in both | held | −0.877 / −0.809 pp |
+| E5d-3 | Its top-decile TP share is above the default's in both | held | 33.5% / 34.4%, against 3.7% / 3.0% |
+| E5d-4 | Every E5d traded arm loses (daily CI hi < 0) | held | hi −0.001 / −0.002 %/day |
+
+Three of four held. The failure is the threshold result in S1.
+
+### 23b.6 What follows
+
+- **E5's design going into E6, by the rules.**
+  - S1: H30 (2, 1), with TP and SL placed by the quantile heads and M1 refit on those labels,
+    scored by A.
+  - S2: H30 (2, 1), score A, the barrier exit.
+- **For the user.** By the rule, S1 now uses the model-driven exit. But 23b.3 shows the gain
+  comes from a cheaper selection, not from the exit. The E6 pre-registration (drafted, not run)
+  carries the rule's choice and asks the user about the alternative.
+- **Stop rule (§9 as amended in §22.6).** The lift over the mechanical EV has CI lo > 0 in every
+  configuration, so §9 does not fire. The end-of-E6 check stands as approved. E5d's two arms
+  both have hi < 0.
+- **The final review's deferred minors.**
+  - Integrity 1 does not run through the placement path.
+  - The floored share in the books covers all placed minutes.
+  - The heads' out-of-sample coverage is not reported.
+  - The gross/cost split is read across exits (see 23b.1).
+  - TP AUC is reported per fold only.
+  - The model-level trials lack q_u, q_d and the budget.
+  - There is no end-to-end identity test.
+
+### 23b.7 Calls made by Claude during E5d (review these)
+
+| # | Call |
+|---|---|
+| 14 | Integrity 1 ran on every P1 dev name-day in both modes, a superset of §22.5a's "the smoke's / the first fold's". |
+| 15 | Minutes without a placement keep X*'s labels, copied exactly. They were not relabelled under Barrier(30, 0, 1), which would have given them the cost-floor TP. |
+| 16 | Two checks were added before any fit: mfe and mae are finite on filled minutes, and E5a's default column holds X*'s labels on the same test minutes. |
+| 17 | Two review findings were regraded from Minor to Important and fixed before the full run: integrity 3's block check could not fail, and E5a's labels were never checked. |
+| 18 | The decomposition in 23b.3 was computed after the run, and it decides nothing. |
