@@ -2556,3 +2556,38 @@ One factor at a time against the default, in each feature set.
 | 27 | When a factor keeps several levels, the combined policy takes the one with the largest paired-difference mean. |
 | 28 | C1 draws from the minutes that pass the policy's non-EV filters, with the policy's slots and cooldown. C2 is E1's logged series. |
 | 29 | The end-of-E6 check does not read the exploratory arms or the controls. |
+
+### 24.10 Amendment 10: a strict reading beside the guard (2026-11-01; committed after the smoke, before the full run)
+
+- **Why.**
+  - The final code review ran 24.3's rule on synthetic worlds with no signal, where the default
+    loses. The point-estimate guard kept 26-45% of those noise levels.
+  - With a losing default, a level that trades less raises the daily mean. Its net per dollar is
+    above the default's about half the time by chance alone, so the guard does not stop it.
+  - The bootstrap p also understates the doubt when a difference rests on few days, as with a
+    level that changes few trades.
+  - The smoke (S1 only, on E5's smoke outputs) had already run. It kept no level. No full-data
+    E6 number existed when this was written.
+- **What does not change.** 24.3's decision stands as answer 1 set it. "Kept" is the binding
+  reading. The predictions (24.7), the combined policy (24.4) and the end check (24.5) are all
+  judged on it.
+- **Reported beside every level, the exploratory cap included:**
+  1. A paired, day-resampled 95% CI of the level's net per dollar minus the default's. The days
+     either arm traded on are resampled whole, and both ratios are recomputed on each resample.
+     There is no CI if either arm traded on fewer than 20 days.
+  2. The number of days on which the level's daily return differs from the default's.
+- **The strict reading.**
+  - A level is kept strictly iff it is kept, the CI in item 1 has a lower bound above 0, and it
+    differs from the default on at least 20 days.
+  - The strict combined policy takes one strictly kept level per factor, the one with the largest
+    mean.
+  - When it differs from 24.4's combined policy, it runs once, with its own C1, C2 and breakdown,
+    and is logged as a trial (`combined_strict_{s}`).
+  - The predictions are also read on the strict reading and reported beside the pre-registered
+    reading.
+  - The end check does not read the strict combined arm. Whether that arm would pass is reported.
+- **Which reading goes to E7 is the user's call.**
+
+| # | Call |
+|---|---|
+| 30 | The reviewer asked for the user to rule before the full run. The user is away. Claude kept the binding rule and added the strict reading, committed before any full-data number, so neither reading was chosen after seeing a result. |
