@@ -2347,3 +2347,212 @@ Three of four held. The failure is the threshold result in S1.
 | 16 | Two checks were added before any fit: mfe and mae are finite on filled minutes, and E5a's default column holds X*'s labels on the same test minutes. |
 | 17 | Two review findings were regraded from Minor to Important and fixed before the full run: integrity 3's block check could not fail, and E5a's labels were never checked. |
 | 18 | The decomposition in 23b.3 was computed after the run, and it decides nothing. |
+
+## 24. Pre-registration, tranche 6: E6 policy (2026-10-31, approved by the user; committed before any E6 code runs on real data)
+
+This section replaces the draft `2026-10-31-e6-preregistration-draft.md` (intraday 9ab4f37).
+
+User decision (2026-10-31, "approved, go ahead with your five answers"). The draft's §10 asked
+five questions:
+1. **The guard.** A level is kept only if its daily mean rises under Holm *and* its net per
+   dollar traded rises (proposed in the draft, approved).
+2. **θ** uses fixed levels compared on the dev test days with Holm, as E5a chose barrier sets
+   (proposed, approved). There is no per-fold inner-validation tuning.
+3. **S1's exit.** S1 keeps the model-driven exit that §22.5a's rule chose (proposed, approved).
+4. **The end-of-E6 check is tightened [my answer].** The draft offered no proposal here, so the
+   answer is mine. An arm passes only if both its mean daily net return *and* its net per dollar
+   traded have a 95% CI upper bound > 0 (24.5). Trading rarely can widen the daily CI to reach
+   zero, but it cannot lift the net per dollar.
+5. **The $10 price cap runs as an exploratory arm [my answer].** The draft offered no proposal
+   here either.
+   - Each feature set gets one arm that excludes names priced $10 or more.
+   - It is logged as a trial and reported with its paired difference.
+   - It can never be kept, it never enters the combined policy, and the end-of-E6 check does not
+     read it.
+   - It was added after §0's reads showed $10+ to be the worst bucket, so it is a forking path,
+     labelled as one.
+
+**Two levels the program promised that the draft left out.** Rereading the program found two E6
+levels the draft omitted:
+- **The B gate (§4: "gating on B is an E6 ablation") is restored [my call].** It is one level,
+  pre-planned in §4 before any E6 read. It needs no refit: E5a saved b_hat for both feature
+  sets.
+- **The bucket-mean SL term (§17 amendment 2: "becomes E6's comparison level") is not run [my
+  call].**
+  - It needs M1's class probabilities, which E5 did not save, so every fold would have to be
+    refit (about 30 minutes, one heavy job).
+  - It is the term E2 replaced because it selects volatile rows (§16: those entries' SLs cost
+    −9.2% against an assumed −4.7%). As a comparison level it cannot become E6's policy.
+  - The cost if this is wrong: a comparison the program listed goes unreported. It can run
+    later as one refit pass.
+
+### 24.0 What E6 starts from
+
+- **E5's design** (§23, §23b), with M1 and score A (M1's EV), at H30 (2, 1).
+  - S1 (base + F5) uses the model-placed TP and SL (E5d, chosen by the rule with p 0.049; §23b.3
+    shows the gain is a cheaper top tenth, not the exit).
+  - S2 (all families) uses the barrier exit.
+  - Data: P1, the six purged half-year folds, 685 dev test days (2020-2022).
+- **Every traded arm loses so far.**
+  - The best by mean is E5d S1: −0.027 %/day (CI −0.057..−0.001) at 0.60 trades a day.
+  - The only E5 arm whose daily CI reaches zero is E5a's H15 (1, 1) S1: −0.030 %/day (hi
+    +0.004) at 0.46 trades a day.
+- **Descriptive reads were made while drafting (draft §0).** They re-simulated E5's arms on the
+  same dev days E6 is judged on, so the predictions in 24.7 are not blind.
+  - The first 14 decision minutes lose about −2.5% per dollar in the barrier arms.
+  - $10+ is the worst price bucket in every arm, and under $2 is not the worst.
+  - 10 slots bind on some days.
+  - Net per dollar is not monotone in EV.
+
+### 24.1 Fixed
+
+- **Predictions.** The saved per-minute EV, r_net, class and exit minute. Nothing is refitted.
+  - S1: E5d's `md_s1_*` columns (poolpoc 8ece6e9d7ee7/e5d).
+  - S2: E5a's `H30_ku2_kd1_s2_ev` with H30 (2, 1)'s labels (ddc248da1892/e5a).
+  - b_hat: E5a's `s1_b_hat` and `s2_b_hat`. Label B does not depend on the barrier or the exit,
+    and E5d's refit used E5a's training rows, features and seed, so S1's b_hat is the same model.
+  - The two frames must have the same rows in the same order (asserted).
+- **Account.** §2's simulator, fixed basis.
+  - $25,000, with $2,500 per position, the labels' size. The costs depend on size, so a
+    different size would need new labels.
+  - One position per symbol, no entries after 15:30, flat by 15:56. Highest EV first within a
+    minute.
+- **Days.** The 685 dev test days (every day in the frames). Nothing after 2022-12-31 is read.
+- **The default policy is E5's arms:** θ = 0, 10 slots, no price floor, the first 15 minutes
+  allowed, a 5-minute cooldown, no B gate.
+
+### 24.2 Factors and levels
+
+One factor at a time against the default, in each feature set.
+
+| Factor | Default | Levels | Alternatives per feature set |
+|---|---|---|---|
+| θ: enter only if EV > θ | 0 | 0.25%, 0.5%, 1.0% (about the 25th, 50th and 85th percentiles of EV among EV > 0 in E5's arms) | 3 |
+| Slots | 10 | 3, 5 | 2 |
+| Price floor: the decision minute's traded price on the repaired basis (`price_bucket`) | none | $2 (bucket ≥ 1), $3 (bucket ≥ 2) | 2 |
+| First 15 minutes | entries allowed | no entry before the 09:45 open: decision minutes t ≤ 13 excluded | 1 |
+| Cooldown before a symbol re-enters | 5 min | 15, 30 min | 2 |
+| B gate: enter only if b_hat > g | none | g = the median b_hat of the default arm's candidates (EV > 0) in that feature set, computed once from the frame before any arm runs [my call] | 1 |
+
+- That is 11 alternatives per feature set: 22 traded trials, logged to trials.jsonl.
+- **The exploratory arm** (answer 5): price bucket 0-3, so under $10, with every other setting
+  at its default. That is 2 more logged trials, marked `exploratory`.
+- **The default arm** is E5's, already logged. It is re-run as an integrity check, not as a
+  trial.
+- A price floor or the cap also drops minutes whose price is missing (bucket −1).
+
+### 24.3 Metric and decision
+
+- **The primary metric** is the account's mean daily net return over the 685 days, with zero on
+  days without trades.
+  - It is paired by day against the default policy in the same feature set, with 2,000
+    resamples.
+  - Holm is applied within each factor and feature set.
+- **Decision.** A level replaces the default only if both hold:
+  1. Its paired difference has mean > 0 and Holm p < 0.05.
+  2. Its net per dollar traded (Σ r_net × notional over Σ notional) is higher than the
+     default's. This is a point estimate; its day-clustered CI is reported.
+  - A level with no trades has no net per dollar and is not kept.
+- **Also read, for every arm:**
+  - Trades, trades per day and days traded.
+  - Net per dollar with its day-clustered 95% CI (days resampled, Σ pnl over Σ notional per
+    resample).
+  - Sharpe, maximum drawdown, and the paired difference vs SPY open-to-close.
+
+### 24.4 The combined policy and its controls
+
+- **The combined policy.**
+  - It combines every kept level, taking one level per factor. If a factor keeps more than one
+    level, the one with the largest paired-difference mean is used [my call].
+  - It is run once per feature set and logged as one trial. It is the policy E5-E6 hands to E7.
+  - If no level is kept in a feature set, that feature set's policy is the default, and nothing
+    new is logged.
+- **For the combined policy only** (and for the default, where nothing is kept):
+  - Net per dollar by price bucket and by entry hour (the hour of the entry bar t + 1).
+  - The paired difference vs each control. These are reported, not gated.
+- **The controls.**
+  - **C1**, random timing.
+    - Per day, the same number of trades as the policy.
+    - They are drawn in a uniform random order (seed 11) from the filled minutes that pass the
+      policy's non-EV filters (price floor, first-15 rule) [my call: so C1 differs from the
+      policy only in how it chooses].
+    - They are admitted through sim.admit with the policy's slots and cooldown.
+  - **C2**, open-and-hold: E1's logged series (poolpoc 6674ea3d1f9f, P1, fixed basis), on the
+    same days.
+
+### 24.5 After E6: the end-of-E6 check (§22.6, tightened by answer 4)
+
+- **The rule.** The long-only track stops and is reported, without E7, unless at least one
+  traded arm logged in E5 or E6 has both:
+  - a mean daily net return whose 95% CI upper bound is > 0, and
+  - a net per dollar traded whose day-clustered 95% CI upper bound is > 0.
+- **The arms it reads:**
+  - E5's 18 traded arms (E5a 16, E5d 2), re-simulated from the saved predictions. Each must
+    reproduce its logged daily series exactly (24.6).
+  - E6's 22 alternatives and the combined policies.
+  - It does not read the exploratory arms or the controls.
+- **E7** (confirmation, at most 3 finalists) does not run without the user in any case.
+
+### 24.6 Integrity (any failure stops E6)
+
+1. **The default reproduces E5.** The default policy under E6's code, with slots = 10 and
+   cooldown = 5 passed explicitly, gives E5's arm:
+   - S1 against E5d's arm, S2 against E5a's H30 (2, 1) S2 arm.
+   - Full mode: the daily series equals the logged trial's series exactly. Both modes: the
+     mean and the trade count equal the run's results.json.
+   - Every one of E5's 18 arms that the end-of-E6 check re-simulates must reproduce its own
+     logged series in the same way.
+2. **The simulator's new parameters change nothing at their defaults.**
+   - sim.py's slot count and cooldown become parameters that default to config's. Unit tests
+     pin today's results.
+   - Each factor changes only what it names, checked at run time against the default arm's
+     candidates:
+     - θ, the price floor, the first-15 rule and the B gate give a subset of the default's
+       candidates.
+     - Slots and cooldown give the same candidates.
+3. **No late rows.** The frames' dates are asserted ≤ 2022-12-31, and the holdout guard runs on
+   them.
+
+### 24.7 Predictions (Claude's, before the run; informed by 24.0's reads)
+
+1. No E6 policy, the combined policy included, has a daily CI lower bound > 0 in either feature
+   set.
+2. The first-15-minute exclusion is kept in S2. It is not kept in S1, where those minutes are
+   only 7% of the model-driven arm's trades.
+3. Neither price floor is kept in either feature set.
+4. No slot or cooldown level is kept: they trade less without raising net per dollar.
+5. No θ level is kept in either feature set.
+6. The B gate is not kept in either feature set. b_hat's top tenth is the costliest of the
+   three scores (§23.2), so the gate leans to volatile, expensive minutes.
+7. The end-of-E6 check, as tightened, fires: no arm has both upper bounds > 0.
+
+### 24.8 Compute and order
+
+- Each arm is one account simulation over the saved predictions, taking seconds. With E5's 18
+  re-simulated arms, E6 is minutes, with no model fit.
+- **Code (poolpoc):**
+  - `sim.run_account` and `sim.admit` take `slots` and `cooldown`.
+  - An `e6.py` holds the policies, candidates, the net-per-dollar CI, the decision, the combined
+    policy, C1 and the end-of-E6 check.
+  - A `run_e6.py` loads the frames, runs the arms, writes the report and results.json, and logs
+    the trials and an MLflow run.
+- **Order.**
+  - A smoke run first, on E5's smoke outputs: S1 only, from E5d's smoke and E5a's smoke; 300
+    resamples; no trials.
+  - Then the full run, once, from one clean commit in the run worktree.
+
+### 24.9 Calls made by Claude (review these)
+
+| # | Call |
+|---|---|
+| 19 | E6 reuses E5's saved predictions; nothing is refitted. θ uses fixed levels compared on the dev test days with Holm (answer 2). |
+| 20 | Each position stays at $2,500, the labels' size, because the labels' costs depend on it. "Slots" changes how many positions can be open, not their size. |
+| 21 | The guard in 24.3 (net per dollar must rise) keeps E6 from rewarding trading less (answer 1). |
+| 22 | The θ levels come from the EV quantiles among EV > 0 in E5's arms (24.0). |
+| 23 | "The first 15 minutes" means no entry before the 09:45 open: decision minutes t ≤ 13, the entries §3 charges twice the half-spread. The draft's §0 read used t ≤ 14. |
+| 24 | The draft's §0 reads were made on the dev days E6 is judged on, before §24. They shaped the levels and predictions, and they are disclosed. |
+| 25 | Answers 4 and 5 are mine: the draft offered no proposal for them. |
+| 26 | The B gate is restored from §4 with one level, the median b_hat among the default's candidates. The bucket-mean SL term (§17) is not run. |
+| 27 | When a factor keeps several levels, the combined policy takes the one with the largest paired-difference mean. |
+| 28 | C1 draws from the minutes that pass the policy's non-EV filters, with the policy's slots and cooldown. C2 is E1's logged series. |
+| 29 | The end-of-E6 check does not read the exploratory arms or the controls. |

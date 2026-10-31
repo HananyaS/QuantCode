@@ -1,6 +1,8 @@
 # E6 pre-registration: policy (DRAFT for the user's review, 2026-10-31)
 
-**Status: a draft. Nothing in it runs until the user approves it.** On approval it becomes
+**Status: approved by the user on 2026-10-31 ("approved, go ahead with your five answers"), and superseded by §24 of the program, which is binding.** §24 records the answers, two of them mine (the draft offered no proposal for questions 4 and 5), and restores the B gate the draft left out. This draft is kept as the record of what was proposed.
+
+**Original status: a draft. Nothing in it runs until the user approves it.** On approval it becomes
 §24 of the research program (`2026-10-27-stage2-minute-research-program.md`). It will be
 committed there before any E6 code runs on real data. The user approved E5a-d; E6 needs its
 own approval.
