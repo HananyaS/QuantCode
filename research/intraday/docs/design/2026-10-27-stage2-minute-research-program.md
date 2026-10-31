@@ -2591,3 +2591,261 @@ One factor at a time against the default, in each feature set.
 | # | Call |
 |---|---|
 | 30 | The reviewer asked for the user to rule before the full run. The user is away. Claude kept the binding rule and added the strict reading, committed before any full-data number, so neither reading was chosen after seeing a result. |
+
+## 24b. Results, tranche 6: E6 policy (2026-11-01; poolpoc f8eea37adfce, clean; MLflow c8def45c6c724003b33bfa322f5c0c6e)
+
+### 24b.0 Runs and integrity
+
+- **Code.** poolpoc sim.py, e6.py and run_e6.py at f8eea37. That is the plan's four tasks
+  (c1bf838, e212404, e19d0ab, 7f830dc) plus the final review's fix pass (f8eea37).
+  - A fresh whole-branch review (opus) said "yes after fixes". It re-ran all 18 of E5's traded
+    arms on the full outputs through E6's code, and every one reproduced exactly.
+  - Two fixes were made test-first before the full run:
+    - Its Important finding, the guard. This gave the strict reading of §24.10, committed first
+      at intraday a5e6aa8.
+    - The trials path, regraded from Minor. A full run given `--trials` would have written E6's
+      trials into the real log anyway. The test for it also covers the full-mode tail, which
+      had no test.
+  - The suite passed, 1,953 tests.
+- **Smoke.** It ran at 7f830dc and again at f8eea37 (S1 only, E5's smoke outputs, 300
+  resamples). The numbers were identical. Each run took about 2 s, at a peak of 0.76 GB.
+- **Full run.** One job, from the run4 worktree at the clean commit f8eea37, with 2,000
+  resamples. It took 16.4 s, at a peak of 1.59 GB.
+- **Checks, all passed.**
+  - E5's 18 traded arms reproduce their results.json mean and trade count, and their logged
+    daily series exactly.
+  - Each feature set's default equals its E5 arm (S1 e5d/s1, S2 e5a/H30_ku2_kd1/s2).
+  - Each level changes only what it names.
+  - No date is after DEV_END.
+- **Trials.** 27 traded trials: per feature set 11 levels, the cap and the combined policy, plus
+  S2's strict combined policy. They went to trials.jsonl (133 lines to 160) and MLflow.
+- **The B gate's g.** 0.585 in S1, 0.502 in S2.
+
+### 24b.1 S1: model-placed exit (E5d), one change at a time
+
+The default (E5d's arm) makes −0.027%/day (CI −0.057..−0.001) at 0.60 trades a day, trading on
+74 of 685 days (410 trades). Its net per dollar is −0.51% (−0.93..−0.00).
+
+Columns:
+- "vs default": the paired daily difference, in %/day.
+- "net per $ minus default": §24.10's paired CI, in pp.
+- "days ≠": the number of days on which the level's daily return differs from the default's.
+
+| Level | vs default (95% CI) | Holm p | Net per $ (95% CI) | Net per $ minus default | Days ≠ | Trades/day | Kept | Strict |
+|---|---|---|---|---|---|---|---|---|
+| EV > 0.25% | +0.020 (+0.001..+0.041) | 0.064 | −0.22% (−0.62..+0.27) | +0.29 (−0.09..+0.67) | 68 | 0.36 | no | no |
+| EV > 0.5% | +0.026 (+0.004..+0.054) | 0.063 | −0.03% (−0.60..+0.56) | +0.48 (−0.11..+0.89) | 72 | 0.25 | no | no |
+| EV > 1.0% | +0.027 (+0.002..+0.057) | 0.064 | +0.00% (no CI: 14 days) | +0.51 (no CI) | 73 | 0.11 | no | no |
+| 3 slots | +0.009 (−0.001..+0.024) | 0.081 | −0.38% (−0.76..+0.05) | +0.13 (−0.04..+0.31) | 14 | 0.51 | no | no |
+| 5 slots | +0.006 (+0.001..+0.014) | **0.024** | −0.41% (−0.80..+0.05) | +0.10 (+0.01..+0.19) | **7** | 0.58 | **kept** | no |
+| price ≥ $2 | −0.001 (−0.007..+0.005) | 0.864 | −0.54% (−0.94..−0.08) | −0.03 (−0.15..+0.08) | 6 | 0.58 | no | no |
+| price ≥ $3 | +0.004 (−0.005..+0.013) | 0.864 | −0.51% (−0.97..−0.00) | −0.00 (−0.20..+0.19) | 13 | 0.51 | no | no |
+| no entry before 09:45 | +0.006 (−0.002..+0.019) | 0.203 | −0.40% (−0.76..+0.00) | +0.11 (−0.05..+0.27) | 14 | 0.58 | no | no |
+| 15-min cooldown | +0.007 (−0.006..+0.024) | 0.327 | −0.47% (−0.96..+0.05) | +0.04 (−0.25..+0.28) | 25 | 0.48 | no | no |
+| 30-min cooldown | +0.008 (−0.002..+0.019) | 0.210 | −0.52% (−1.14..+0.16) | −0.01 (−0.30..+0.28) | 28 | 0.41 | no | no |
+| B gate (b_hat > 0.585) | +0.021 (−0.003..+0.045) | 0.084 | −0.30% (−0.87..+0.37) | +0.21 (−0.46..+0.81) | 70 | 0.26 | no | no |
+| price < $10 (exploratory) | +0.007 (−0.001..+0.017) | p 0.094 | −0.45% (−0.93..+0.13) | +0.06 (−0.10..+0.29) | 20 | 0.50 | never | never |
+
+- **Only 5 slots is kept**, and it rests on 7 days. The account rarely fills more than 5 slots,
+  so the two arms are identical on the other 678 days. This is the few-days case the review
+  flagged. The strict reading refuses it on the days rule, although its per-dollar CI
+  is just above 0.
+- **The three EV thresholds miss Holm narrowly** (raw p 0.021-0.037, Holm 0.063-0.064). They
+  trade less: 0.11-0.36 a day against 0.60.
+
+### 24b.2 S2: barrier exit (E5a's H30 (2, 1)), one change at a time
+
+The default (E5a's arm) makes −0.162%/day (CI −0.243..−0.088) at 1.84 trades a day, trading on
+330 days (1,260 trades). Its net per dollar is −0.99% (−1.44..−0.57) and its drawdown is −68.9%.
+
+| Level | vs default (95% CI) | Holm p | Net per $ (95% CI) | Net per $ minus default | Days ≠ | Trades/day | Kept | Strict |
+|---|---|---|---|---|---|---|---|---|
+| EV > 0.25% | +0.069 (+0.034..+0.106) | 0.0015 | −0.89% (−1.50..−0.33) | +0.11 (−0.20..+0.41) | 264 | 1.19 | **kept** | no |
+| EV > 0.5% | +0.107 (+0.063..+0.153) | 0.0015 | −0.72% (−1.60..+0.10) | +0.27 (−0.27..+0.82) | 305 | 0.87 | **kept** | no |
+| EV > 1.0% | +0.120 (+0.069..+0.172) | 0.0015 | −0.91% (−2.20..+0.42) | +0.09 (−0.89..+1.18) | 321 | 0.53 | **kept** | no |
+| 3 slots | −0.005 (−0.026..+0.013) | 0.704 | −1.11% (−1.59..−0.61) | −0.11 (−0.28..+0.02) | 26 | 1.68 | no | no |
+| 5 slots | −0.002 (−0.006..+0.002) | 0.614 | −1.02% (−1.47..−0.59) | −0.03 (−0.05..−0.00) | 12 | 1.80 | no | no |
+| price ≥ $2 | +0.008 (−0.015..+0.029) | 0.454 | −1.00% (−1.46..−0.55) | −0.01 (−0.16..+0.11) | 40 | 1.72 | no | no |
+| price ≥ $3 | +0.017 (−0.011..+0.045) | 0.454 | −1.06% (−1.56..−0.59) | −0.06 (−0.25..+0.13) | 86 | 1.51 | no | no |
+| no entry before 09:45 | +0.073 (+0.040..+0.109) | 0.0005 | −0.61% (−1.10..−0.12) | **+0.39 (+0.18..+0.61)** | 132 | 1.66 | **kept** | **kept** |
+| 15-min cooldown | −0.002 (−0.035..+0.028) | 1.000 | −1.15% (−1.61..−0.69) | −0.16 (−0.38..+0.05) | 108 | 1.60 | no | no |
+| 30-min cooldown | +0.003 (−0.037..+0.047) | 1.000 | −1.27% (−1.72..−0.80) | −0.27 (−0.55..−0.01) | 122 | 1.41 | no | no |
+| B gate (b_hat > 0.502) | +0.133 (+0.081..+0.185) | 0.0005 | −0.39% (−1.16..+0.38) | **+0.60 (+0.08..+1.14)** | 290 | 0.85 | **kept** | **kept** |
+| price < $10 (exploratory) | +0.022 (−0.005..+0.050) | p 0.109 | −0.98% (−1.41..−0.58) | +0.01 (−0.16..+0.20) | 59 | 1.62 | never | never |
+
+p = 0.0005 is the floor at 2,000 resamples.
+
+- **The guard problem the review predicted shows up here.**
+  - The three EV thresholds raise the daily mean strongly (Holm 0.0015), and each has a point
+    net per dollar above the default's.
+  - Each of them trades much less (0.53-1.19 a day against 1.84).
+  - Their paired per-dollar differences have CIs that straddle 0. Most of their daily gain is
+    losing less by trading less. The strict reading refuses all three.
+- **Two levels raise net per dollar on its own CI:**
+  - Skipping the first 15 minutes: +0.39 pp on 132 differing days.
+  - The B gate: +0.60 pp on 290 days.
+  - These are the only strictly kept levels in E6.
+- **Longer cooldowns make each dollar worse.** The 30-minute cooldown's net per dollar falls by
+  0.27 pp, with a CI below 0 (−0.55..−0.01). Why was not measured.
+
+### 24b.3 The combined policies and their controls
+
+| Feature set | Policy | %/day (95% CI) | Trades/day | Days traded | Net per $ (95% CI) | vs C1 (%/day) | vs C2 | vs SPY o→c | End check |
+|---|---|---|---|---|---|---|---|---|---|
+| S1 | binding: 5 slots | −0.021 (−0.047..+0.001) | 0.58 | 74 | −0.41% (−0.80..+0.05) | +0.059 (+0.028..+0.095) | +1.99 (+1.69..+2.30) | −0.048 (−0.137..+0.037) | passes |
+| S1 | strict: the default | −0.027 (−0.057..−0.001) | 0.60 | 74 | −0.51% (−0.93..−0.00) | +0.054 (+0.026..+0.089) | +1.98 | −0.054 (−0.144..+0.032) | fails |
+| S2 | binding: EV > 1.0%, no entry before 09:45, B gate | **+0.015 (−0.036..+0.062)** | 0.32 | 54 | +0.54% (−1.32..+2.71) | +0.061 (+0.005..+0.123), p 0.026 | +2.02 (+1.72..+2.34) | −0.012 (−0.115..+0.081) | passes |
+| S2 | strict: no entry before 09:45, B gate | −0.013 (−0.074..+0.040) | 0.82 | 147 | −0.18% (−1.04..+0.60) | +0.100 (+0.035..+0.175) | +1.99 (+1.69..+2.31) | −0.040 (−0.145..+0.058) | passes (not read) |
+
+**The controls.**
+- C1 is random entry minutes with the same count per day, under the policy's price and open
+  rules. It loses −0.046 to −0.112%/day (net per $ −1.7 to −1.9%).
+- C2 is E1's open-and-hold. It loses −2.007%/day (−2.316..−1.708).
+
+**What the controls show.**
+- Every policy beats both controls. The model's timing is worth +0.05 to +0.10%/day over random
+  minutes from the same pool.
+- That is not enough to cover costs. No policy's daily CI clears 0, and none beats SPY's
+  open-to-close.
+
+### 24b.4 Where S2's binding result comes from (measured after the run; decides nothing)
+
+The scripts and outputs for 24b.4-24b.5 are in `data/research_poolpoc/stage2m/f8eea37adfce/e6/after_run/`.
+
+- **Five trades.**
+  - The policy made +$2,490 on 219 trades. Its top five made +$4,293. Their r_net were +0.37,
+    +0.36, +0.34, +0.34 and +0.31.
+  - Without those five, its net per dollar is −0.40%.
+  - Four of the five were on 2021-01-28, the meme-squeeze week. The fifth was LADR on
+    2020-03-18.
+- **The squeeze week carries it.**
+  - Its best day was 2021-01-25: +$2,031 on 9 trades, 8 of them winners. Without that day, the
+    policy made +$459.
+  - By half-year (%/day): 2020H1 +0.045, 2020H2 −0.025, 2021H1 +0.136, 2021H2 −0.004, 2022H1
+    +0.031, 2022H2 −0.081.
+- **By price bucket** (trades, net per $): <$2 16 at +4.23%; $2-3 35 at +1.88%; $3-5 50 at
+  +0.95%; $5-10 88 at −0.75%; $10+ 30 at +0.58%.
+- **By entry hour:** entries from 09:45 to 09:59 made +3.66% per $ on 46 trades. The 15:00 hour
+  made −4.67% on 2.
+- **The strict combined policy.** Its top five trades are nearly the same (four on 2021-01-28,
+  plus LADR). Its other 553 trades lose $6,495.
+  By half-year: −0.016, +0.026, +0.099, −0.040, +0.018, −0.156.
+
+### 24b.5 Data integrity: one security under two tickers (found after the run)
+
+- **What was found.** On 2021-01-28, AIFC and JAN took the same trades: the same entry minutes
+  and the same exits, with r_net within 0.0005 of each other. Their minute bars that day have
+  identical volume and trade count in all 309 minutes, and prices differing by a constant
+  0.79%. That is one security under two symbols, rebased differently. The account held it
+  twice.
+- **How common it is.** I scanned every P1 dev name-day for a same-day partner with identical
+  regular-session volume and trade count.
+  - 6 of 6,850 name-days (0.09%) are such pairs, on 3 days.
+  - AIFC/JAN on 2021-01-28 and 2021-02-25.
+  - ATYR/LIFE on 2021-03-24.
+- **What it changes.** I re-ran with the second symbol of each pair removed (JAN twice, LIFE
+  once; 1,080 rows):
+  - S1 does not change.
+  - The S2 default: −0.165%/day, against −0.162 logged.
+  - The S2 binding combined policy: +0.006%/day (−0.044..+0.050), net per $ +0.22%
+    (−1.57..+2.26), against +0.015 and +0.54% logged.
+  - The S2 strict combined policy: −0.022%/day (−0.080..+0.024), net per $ −0.32%.
+  - Which levels are kept was not re-decided on the cleaned frame; that would be a second E6.
+- **Earlier tranches.** These 6 name-days have been in the P1 pool since Stage 1. At 0.09% of
+  name-days, their effect on E1-E5's top-decile reads should be small, but it has not been
+  measured. Traded arms on those 3 days could have moved.
+- **The fix, before E7, is the user's call.**
+  - Dedupe the pool by security identity known before the open, such as the vendor's asset id
+    or a ticker-change table.
+  - Do not dedupe on the day's own bars. That would filter on day-D data, which a live system
+    cannot do at 09:30.
+  - The fix changes the Stage-1 pool and cache-keyed code, so the caches downstream of it
+    would be rebuilt.
+
+### 24b.6 The end-of-E6 check (§24.5, tightened by answer 4)
+
+- **The check.** It reads 42 arms: E5's 18, E6's 22 levels, and the 2 combined policies. An arm
+  passes if its daily CI hi > 0 and its net-per-dollar CI hi > 0.
+- **The result: 13 pass, so the check does not fire and the long-only track continues.**
+
+| Arm | Mean %/day | Daily hi | Net per $ hi | Trades/day |
+|---|---|---|---|---|
+| E5a H15 (1, 1) S1 | −0.030 | +0.004 | +0.10% | 0.46 |
+| S1 EV > 0.25% / > 0.5% | −0.007 / −0.001 | +0.007 / +0.011 | +0.27% / +0.56% | 0.36 / 0.25 |
+| S1 3 slots / 5 slots (= S1 combined) | −0.018 / −0.021 | +0.002 / +0.001 | +0.05% / +0.05% | 0.51 / 0.58 |
+| S1 15 / 30-min cooldown | −0.020 / −0.019 | +0.003 / +0.005 | +0.05% / +0.16% | 0.48 / 0.41 |
+| S1 B gate | −0.006 | +0.006 | +0.37% | 0.26 |
+| S2 EV > 0.5% / > 1.0% | −0.055 / −0.042 | +0.006 / +0.015 | +0.10% / +0.42% | 0.87 / 0.53 |
+| S2 B gate | −0.029 | +0.023 | +0.38% | 0.85 |
+| S2 combined | +0.015 | +0.062 | +2.71% | 0.32 |
+
+- **What a pass means.** Only one passing arm has a positive mean, and none has a lower bound
+  above 0.
+- **The check is weak.** Most arms pass by being uncertain: they trade rarely and their upper
+  bounds sit barely above 0. A pass says these arms are not ruled out. It does not say they
+  work.
+- **After the dedupe,** the S2 combined policy would still pass (hi +0.050, net per $ hi
+  +2.26%).
+
+### 24b.7 Predictions (§24.7)
+
+| # | Prediction (before the run) | Binding reading | Strict reading (§24.10) |
+|---|---|---|---|
+| 1 | No E6 policy has a daily CI lo > 0 | held | held |
+| 2 | Skipping the first 15 minutes is kept in S2, not in S1 | held | held |
+| 3 | Neither price floor is kept | held | held |
+| 4 | No slot or cooldown level is kept | **failed** (S1 5 slots, on 7 days) | held |
+| 5 | No EV threshold is kept | **failed** (all three in S2) | held |
+| 6 | The B gate is not kept | **failed** (S2) | **failed** (S2) |
+| 7 | The end-of-E6 check fires | **failed** (13 arms pass) | **failed** |
+
+Three of seven held on the binding reading and five on the strict one.
+
+### 24b.8 Reading
+
+- **No E6 policy makes money with confidence.**
+  - The best, S2's binding combined policy, is +0.015%/day (CI −0.036..+0.062).
+  - It is three filters chosen on the same 685 days they are judged on.
+  - It is positive only through five trades in one squeeze week, and two of those are one
+    security counted twice (24b.4-24b.5). Without the duplicate it is +0.006%/day.
+- **What E6 found that looks real is two filters in S2:**
+  - Skipping the 09:30-09:44 entries.
+  - The B gate.
+  - Both raise net per dollar on a paired CI that clears 0, over many differing days. Together
+    they still lose: −0.013%/day and −0.18% per $.
+- **The EV thresholds in S2 are the case the guard missed.** They cut a losing default's
+  trading by 35-71% and the daily loss with it. Per dollar they change nothing measurable.
+- **S1's model-placed exit leaves nothing to tune.** Its default already trades 0.6 times a day.
+  Only 5 slots passes the binding rule, and it does so on 7 days.
+- **The θ wording in §24.2 is corrected here.** §24.2 put the θ levels at "about the 25th, 50th
+  and 85th percentiles of EV among EV > 0". In E6's frames, the share of EV > 0 minutes at or
+  below each level is:
+  - S1: 38%, 62% and 85%.
+  - S2: 34%, 53% and 72%.
+  - The levels are fixed values and stand. Only the description was off.
+
+### 24b.9 What follows
+
+- **By §24.5 the long-only track continues.** E7 comes next and needs the user.
+- **Three questions for the user before E7:**
+  1. Which reading goes on: the binding one or the strict one?
+     - Binding: S1 at 5 slots. S2 with EV > 1.0%, no entry before 09:45, and the B gate.
+     - Strict: S1 at the default. S2 with no entry before 09:45 and the B gate.
+  2. The duplicate-security fix (24b.5), which changes the pool and its caches.
+  3. Whether the end check should stay as weak as it is. Any 1 of 42 arms keeps the track, and
+     13 do so only by being uncertain.
+- **Still pending before E7:**
+  - The basis-repair minors (§19), deferred because they change cache keys.
+  - The duplicate fix.
+- **The final review's deferred minor.** The paired daily difference's bootstrap p is still the
+  plain day bootstrap. It is anti-conservative when a difference rests on few days. The
+  days-differing count, now reported, is the disclosure.
+
+### 24b.10 Calls made by Claude during E6 (review these)
+
+| # | Call |
+|---|---|
+| 31 | The strict combined policy got its own C1, C2 and breakdown, so both readings carry the same evidence. The end check does not read it: adding arms after pre-registration could only weaken the stop rule. |
+| 32 | The reads in 24b.4 and 24b.5 were computed after the run. They decide nothing. |
+| 33 | The duplicate-security fix was not applied. It changes the Stage-1 pool and cache-keyed code shared with every tranche, so it is the user's call before E7. |
+| 34 | §24.2's θ percentiles were wrong (24b.8). The levels are fixed values and stand. |
