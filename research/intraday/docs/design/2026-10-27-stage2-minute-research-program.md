@@ -1796,3 +1796,134 @@ E-1 through E4 therefore stand for 858d5a1, and for 9d357cf (21.6).
 | 3 | The run's evaluate (cf7045c, no I1 guard) was not re-run at 9d357cf; the guard's condition was checked by hand | 21.6 |
 | 4 | The 858d5a1 step 3 ran E-1 at cf7045c, whose E-1 code equals 858d5a1's; the provenance listing was swapped with the pre-market files | 21.7 |
 | 5 | The reading in 21.3 point 2 (the networks learn the move's scale, which the EV already prices) is a hypothesis, not a tested result | 21.3 |
+
+## 22. Pre-registration, tranche 5: E5 label and exit design (2026-10-31, approved by the user; committed before any E5 code runs on real data)
+
+This section replaces the draft `2026-10-31-e5-preregistration-draft.md` (intraday 70da4d0).
+
+User decisions (2026-10-31, "approved, go ahead with your four answers. I won't be here so
+don't wait for my answers"):
+1. **The primary metric** is the top decile's absolute mean net return. Lift is reported beside
+   it.
+2. **The model-driven exit** runs as E5d, after E5a-c. Its rule is written once E5a has chosen
+   the barrier set. It is committed here as an amendment, with its predictions, before E5d runs.
+3. **The stop rule (§9)** reads lift over the mechanical EV, not raw lift. A second check is
+   added at the end of E6 (22.6).
+4. **Both feature sets** are carried: S1 (base + F5, 30 features) and S2 (all seven families,
+   102 features).
+
+Every other open choice below is my call, marked **[my call]** and listed in 22.8.
+
+### 22.1 Fixed, exactly as in E3 and E4
+
+These are fixed so that every E5 number pairs with the E3 re-run's frame on the same rows and
+days:
+- **Rows and days.** Population P1 (E2's call), the six purged half-year folds, the 685 test
+  days 2020H1-2022H2, every P1 test minute. NO_FILL rows (no bar t+1, a zero notional, or a
+  missing cost or sigma input) are excluded from training, validation and every metric.
+- **Training.** B = 400,000 filled training rows per fold, drawn once with seed 7. NO_FILL does
+  not depend on the barrier set, so the same rows are drawn for every set.
+- **M1.** LightGBM with Stage 1's parameters at 4 threads: multiclass + isotonic calibration on
+  the inner-validation block, the mu_TIME regressor, the B model, and EV with the row's own SL
+  term (§17 amendment 2).
+- **Costs and account.** The cost model of §3, the account of §2, theta = 0, fixed basis.
+- **Data.** The panel is E3's (`panel3_p1`, key 9df83a549f000ae3), and the pool hash is
+  fc6972f7d7058274. Dev data only (<= 2022-12-31). The holdout stays sealed.
+
+### 22.2 E5a: which barrier set? (one factor: the set, 8 levels, within each feature set)
+
+| Item | Exact definition |
+|---|---|
+| Levels | (H, k_u, k_d) in {15, 30, 60, close} x {(2, 1), (1, 1)}. The reference is the default, H30 (2, 1). |
+| Label (per set X) | §4's triple barrier with X's (H, k_u, k_d). T = min(t + H, 385), and T = 385 for "close". u = max(k_u sigma_t sqrt(T − t), 1.5 c_rt) and d = k_d sigma_t sqrt(T − t). So the sqrt term is sqrt(H) until T reaches 385, and it shrinks from there; for "close" it is sqrt(385 − t). This matches labels.py; §4's "sqrt(H)" is the same rule before 15:55. Tagging is §4's: TP (High >= e(1+u) + 1 tick), SL (Low <= e(1−d); a tie in one bar is SL) or TIME at T, whichever is first. X's labels come from the E0 label cache (`labels_stage2m_p1_dev_<X>`) and are joined to the panel on (date, symbol, t). They replace cls, r_net, u, d and exit_min, and add y_h. b_share, the costs and the features do not depend on X. |
+| Model | M1 refit per set and feature set, on X's labels: 8 sets x {S1, S2} = 16 configurations, 6 folds each. |
+| Output | EV_X with X's terms. The mechanical EV_X has probabilities at the fold's P1 training prior under X, and mu_TIME at the training TIME mean under X. It is the no-skill reference. |
+| Outcome per row | r_net_X, the row's realized net return under X's exits (§4). |
+| **Primary metric ("top-decile net")** | Per day, on filled rows: the mean r_net_X of the rows whose within-day percentile rank of EV_X is > 0.9 (the same top tenth as the lift). The comparison is the paired daily difference vs the default set's top-decile net in the same feature set, on the days both have. The CI is a day-clustered bootstrap (2,000 resamples). Holm runs over the 7 alternatives within each feature set. |
+| Decision | A set qualifies when its difference vs the default has mean > 0 and Holm p < 0.05. The qualifying set with the largest mean becomes E5b's set, decided separately for S1 and S2. If none qualifies, the default stays. |
+| Also reported per configuration | The lift and its gross/cost split, the lift over the mechanical EV_X, and the forecast test (amendment 6: lift over the mechanical EV and gross part, both CI lo > 0). The top decile's gross mean (r_net + c_rt) and cost mean (−c_rt). The top decile's TP/SL/TIME shares. Δ log-loss and TP AUC against X's own labels. The per-fold mean of the paired difference. |
+| Traded arms | Each configuration's EV_X > 0 arm through the account (fixed basis, X's exit minutes), against SPY open-to-close: 16 arms. |
+| Integrity check | Two checks run before any metric. (1) The default set's labels from the E0 cache equal the panel's own label columns exactly (cls, r_net, u, d, exit_min) on every row. (2) The default refit's EVs equal E3's saved EVs on every row: S1 against E3's `add_f5_ev` and S2 against `all_ev`, float32 equality with NaN in the same rows. If either fails, E5a stops and reports. |
+
+**Predictions (E5a):**
+1. No alternative set qualifies under Holm in either feature set, so the default stays. The
+   strongest gross signal so far is +0.15 pp. An exit moves the top decile mostly through cost
+   and drift, and E0 shows both are nearly flat across sets.
+2. The two to-close sets have the two lowest top-decile nets of the eight, in both feature sets.
+   That is the intraday fade, as for random entries in E0.
+3. Every traded arm loses (daily CI hi < 0).
+4. M1-S2 forecasts by amendment 6 under the default, and under at most two other sets.
+
+### 22.3 E5b: which score? (one factor: the target, 3 levels; the exit fixed at E5a's set)
+
+| Item | Exact definition |
+|---|---|
+| Levels | **A:** E5a's EV at its chosen set X*, the reference. **y_H:** a LightGBM regression on y_h at X*'s T. y_h is the label's stored barrier-free time exit: a market sell at the first present open >= T + 1, net of commission and both impact legs (labels.py). The prediction is the score. **B:** M1's B model (cross-entropy on b_share, §4), with the predicted share as the score. B does not depend on the barrier set. |
+| Exit and outcome | Fixed at X*'s r_net for every level. Only the ranking changes. |
+| Model details | y_H uses the `huber` objective with alpha = the training rows' median absolute deviation of y_h about its median **[my call: these names have fat tails]**. It uses LGB_BASE, the same budget rows, the same features and seed 7. It is not calibrated, because only its ranking is used. B is the b_hat already fitted inside E5a's M1. |
+| Primary metric | E5a's top-decile net of each score, paired by day vs A's, with Holm over the 2 within each feature set. |
+| Decision | y_H or B replaces A only with mean > 0 and Holm p < 0.05. If both qualify, the one with the larger mean wins. |
+| Also reported | The lift and its gross/cost split, the lift over the mechanical EV_X*, and the daily rank IC against r_net_X*. |
+| Trials | 4 model-level trials, one per score and feature set, on their daily top-decile net. There are no traded arms, because y_H and B have no EV threshold **[my call]**. |
+
+**Predictions (E5b):**
+1. Neither y_H nor B beats A, in either feature set. A's EV contains each row's cost, which
+   drives the top decile (the cost part was +0.67 to +0.78 pp in E4). y_H also nets out cost,
+   so it comes closest.
+2. B's top-decile net is below A's in both feature sets. B scores how many later minutes are
+   profitable, not how much.
+
+### 22.4 E5c: which exit? (one factor: the exit, 2 levels; the score fixed at E5b's winner)
+
+| Item | Exact definition |
+|---|---|
+| Levels | **Barrier:** X*'s TP/SL/TIME exits, outcome r_net_X*, the reference. **Time only:** no TP or SL, a market sell at the first present open >= T + 1 with X*'s T. Its outcome is y_h at X*. |
+| Ranking | E5b's winning score W in each feature set. Both levels rank the same filled rows by the same score. |
+| Primary metric | The top-decile net with outcome y_h minus the top-decile net with outcome r_net_X*, paired by day. It is a single comparison, so there is no Holm; alpha is 0.05. |
+| Decision | The time-only exit replaces the barrier exit only with mean > 0 and p < 0.05. |
+| Trials | 2 model-level trials (time-only, S1 and S2). There are no traded arms: a time-only arm would need each row's time-exit minute, which the labels store only for TIME rows **[my call]**. |
+
+**Prediction (E5c):** the time-only exit has the lower top-decile net in both feature sets. The
+stop cuts the left tail of names that fade, and the TP limit saves the exit spread.
+
+### 22.5 E5d: the model-driven exit (rule pre-registered after E5a-c)
+
+The question is whether TP and SL placed from predicted MFE/MAE quantiles over X*'s horizon
+(§4's auxiliary labels, §7's placement heads) beat E5c's exit. The rule will be committed here,
+as an amendment with its predictions, after E5a-c's results and before any E5d code runs on
+real data. The rule covers which quantiles, how they are fitted without the training rows
+scoring themselves, how u and d follow, the relabelling, and the metric. Its primary metric will
+be E5a's top-decile net, paired against E5c's chosen exit as a single comparison.
+
+### 22.6 Amendments to the stop rule (§9), from E5 on (user decision 2026-10-31)
+
+- **The reading.** "The best dev top-decile lift" in §9 means the best lift over the mechanical
+  EV: the paired daily difference, the binding no-skill reference of §18 amendment 6. E4's stop
+  check is unchanged; it did not fire under any reading (§21.5).
+- **The added check.** After E6, the long-only track stops and is reported, without E7, if no
+  traded arm logged in E5 or E6 has a mean daily net return whose 95% CI upper bound is > 0.
+
+### 22.7 Compute and order
+
+- **Labels.** All eight sets are in the E0 label cache. A miss rebuilds them in 35 to 77 s
+  each.
+- **Fits.** E3 fit 17 M1 configurations in 42 minutes (peak 5.8 GB). E5a is 16 configurations,
+  so about 45 to 60 minutes. E5b is 2 y_H fits per fold, about 10 minutes. E5c needs no fit.
+- **Order.** A smoke run first: 2 folds of the 3-group CV, the default and H60 (1, 1), S1 only,
+  B = 100,000, 300 resamples, no trials. Then E5a, E5b and E5c, each run once from one clean
+  commit in the run worktree, one heavy job at a time.
+- **Trials.** 16 model-level and 16 traded trials (E5a), 4 (E5b) and 2 (E5c), all logged to
+  trials.jsonl and MLflow.
+
+### 22.8 Calls made by Claude (review these)
+
+| # | Call | Where |
+|---|---|---|
+| 1 | E5 drops lambda (A+B through a shared encoder): M1 has no shared trunk, and no deep model was carried | 22.2 |
+| 2 | S1 and S2 are separate Holm families, each deciding its own set | 22.2 |
+| 3 | The default set's refit must reproduce E3's EVs exactly, or E5a stops | 22.2 |
+| 4 | No shuffled-label nulls in E5a; the mechanical EV per set is the no-skill reference | 22.2 |
+| 5 | E5b varies only the score; the exit stays at E5a's set | 22.3 |
+| 6 | Huber loss for the y_H regression, with alpha = the training MAD | 22.3 |
+| 7 | No traded arms in E5b or E5c (no EV threshold; no stored time-exit minute) | 22.3, 22.4 |
+| 8 | E5d's rule is written after E5a-c and committed before it runs | 22.5 |

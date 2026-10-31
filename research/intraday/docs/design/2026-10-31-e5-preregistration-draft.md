@@ -1,6 +1,8 @@
 # E5 pre-registration: label and exit design (DRAFT for the user's review, 2026-10-31)
 
-**Status: a draft. Nothing in it runs until the user approves it.** On approval it becomes §22
+**Status: approved by the user on 2026-10-31 with Claude's four proposed answers, and superseded by §22 of the program, which is binding.** This draft is kept as the record of what was proposed.
+
+**Original status: a draft. Nothing in it runs until the user approves it.** On approval it becomes §22
 of the research program (`2026-10-27-stage2-minute-research-program.md`), committed before any
 E5 code runs on real data. The rule that experiments are planned together with the user
 (memory: fully specified experiments) is why this is a draft and not a pre-registration. E4
