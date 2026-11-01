@@ -2924,11 +2924,18 @@ User decision, 2026-11-01: "fix the duplicate tickers first, then go strict".
 ### 25.3 The basis-repair minors (§19's whole-branch review)
 
 - **M1.** A conflict day is rebased with its symbol's cluster factor when its 09:30 open is
-  within 0.01 log of that factor.
+  within 0.01 log of that factor and its last regular close is within 0.10 log (SPREAD) of it.
   - This repairs CXAI 2023-03-15, GRML 2024-07-05 and SMTK 2025-04-07. Each opens at exactly
     x50, with the close 5-9% off. All three are in confirmation.
-- **M2.** A pre-market name-day whose minute name-day is listed but not rebased gets no overlap
-  factor, and is listed "unexplained". There are 0 such cases today.
+  - The close condition is a pre-run correction (2026-11-01, before any code ran on real data).
+    Without it, a day whose two prices disagree by more than a cluster's spread would be
+    rebased on its open alone. The existing test that a disagreeing day stays a conflict pins
+    this.
+- **M2.** A pre-market name-day whose minute name-day is listed but not rebased gets no
+  pre-market factor, neither overlap nor match, because its ratios were measured against
+  off-basis bars. If it is itself off-basis (an open gap or an overlap break), it is listed
+  "unexplained". There are 0 such cases today. (Pre-run correction, 2026-11-01: the first
+  wording named only the overlap factor.)
 - **M3.** The overlap rule needs at least 2 shared minutes, or 1 shared minute whose q_open
   agrees with it within 0.10 log.
   - BNRG 2025-02-03 (6.00 vs 5.86) and KIDZ 2025-07-10 (15.0 vs 15.1) have one shared minute
@@ -2948,6 +2955,12 @@ User decision, 2026-11-01: "fix the duplicate tickers first, then go strict".
     never modified automatically. The M2 case gets a new test.
 - **Expected effect.** Byte-comparing the old and new rebased roots, only M1's three minute
   name-days may differ. The holdout's day folders are again copied without being read.
+  - A dry run of the factor decisions on the raw caches (2026-11-01; no label read) changes
+    exactly 4 provenance rows. The three M1 days go from conflict to rebased. SMTK
+    2025-04-07's pre-market open gap is no longer listed, because the rebased 09:30 open now
+    meets the pre-market close; it gets no factor, so its bytes do not change.
+  - New counts: minute rebased 747, unexplained 40; pre-market match 252, overlap 3,
+    unexplained 124.
 
 ### 25.4 The re-run
 
