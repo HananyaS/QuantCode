@@ -3091,6 +3091,9 @@ User decision, 2026-11-01: "fix the duplicate tickers first, then go strict".
 
 ## 25b. Results, the dev re-run on one security per name-day (2026-11-01; poolpoc 11deec336929 for E-1 to E5c, 6a0620385fee for E5d and E6; clean)
 
+> **Superseded by §25d.** This run's dedupe matched on split-adjusted volume and missed about
+> half of the duplicates (§25c). Its numbers stand only as the record of that run.
+
 ### 25b.0 Runs and integrity
 
 - **Code.** §25's five tasks and the final review's fix pass (poolpoc 1811aa8..c38fe6e), §25.6's
@@ -3356,3 +3359,73 @@ one. The one strict failure is "the end check fires".
 |---|---|
 | 41 | E5d and E6 ran at 6a06203 (amendment 12's flag), reading E-1 to E5c from 11deec336929 by path. Only run_e5d.py differs, and no cache key reads it. |
 | 42 | E7 is not started. Its premise changed: the strict finalists' dev CIs are now wholly below 0. The confirmation years can be spent only once, so the user decides. |
+
+## 25c. Amendment 13: the identity rule reads unadjusted volume, as §25.2 says (2026-11-01; committed before the fix and the second re-run)
+
+- **What was found.** While writing §25b's note on the final review's minor M-d, a re-count
+  showed that M-d is not minor.
+  - The code's rule (identity.py) matched on the daily cache's `volume`, which is
+    split-adjusted. §25.2 says unadjusted. The prices it matched were unadjusted (`*_unadj`),
+    and trade counts are never adjusted.
+  - Each symbol's adjusted volume carries that symbol's own later split factors. A security
+    served under two symbols matched only when both symbols had the same corporate actions
+    after the day. Detection therefore depended on events after D.
+  - Example: on 2021-06-01, XL and SPRU have the same unadjusted open (6.97) and close (7.25),
+    the same unadjusted volume (7,837,026) and the same trade count (27,648). SPRU's adjusted
+    volume is 979,628, which is 1/8 of that, from a reverse split after the date. On
+    2020-03-18, RUBI's adjusted volume is 40 against MGNI's 2,378,082.
+- **What the rule finds on unadjusted volume** (daily cache only, no label or result read):
+  - The cache has 44,710 same-day groups with identical unadjusted OHLC, unadjusted volume and
+    trade count, from 114 symbol sets. §25.1 found 25,545 groups from 70 sets.
+  - §19's pool holds 362 pairs (724 rows): 262 in dev and 100 in confirmation. §25.1 found
+    178 (124 and 54). Both symbols sit in P1 on 23 dev days and 31 confirmation days. §25.1
+    found 13 and 16.
+  - The pre-open rule (two prior sessions) on unadjusted volume finds 184 groups that §25b's
+    universe still holds, 138 of them in dev. With the 178 already removed, that makes the
+    scan's 362. Check 3 tests the match pair by pair.
+  - The dev rows still held come from four sets: SPRU/XL (48 days), DGLY/KUST (40), MGNI/RUBI
+    (40) and HIND/RSLS (10). On 19 of those days at least one copy is in P1, and on 9 both
+    are.
+  - Two rows of §25.1's scan do not match on unadjusted volume (NRXP/TBRGU on 2019-01-16, one
+    trade each). Neither is in the pool.
+  - Matching on prices and trade count alone, with no volume, finds the same members in the
+    scored universe. It adds 80 members elsewhere in the cache, all rows with no unadjusted
+    volume.
+- **Why the checks passed.** Checks 1 and 3 and §25.1's scan read the same adjusted column, so
+  they shared the blind spot. The final review named exactly this as M-d. I graded it minor on
+  the evidence that today's numbers reproduced the scan, and that evidence was circular. Check
+  2 reads minute bars and could not catch these pairs: on the doubled P1 days one copy has no
+  minute bars.
+- **The fix.**
+  - identity's reader gives the rule the unadjusted share volume as its `volume` (the daily
+    cache's `volume_unadj`). The rule's functions are unchanged, so their committed tests still
+    describe them. A new test pins the reader.
+  - A row with no unadjusted volume cannot be matched (volume > 0 fails). None is in the scored
+    universe's pairs.
+  - CODE_VERSION becomes identity-v2, so the cached groups are rebuilt.
+  - Check 3's gate becomes 362.
+  - Checks 1 and 3 still read the rule's volume column. The independent evidence is the
+    prices-and-trade-count match above, which finds the same scored members.
+- **The re-run.** §25.4's cascade runs again from the run4 worktree, with the same stop rules,
+  the same E5d flag as amendment 12 (§25.7), and E7 still not started.
+  - §25b is superseded. Its results stand as the record of a run that missed half the
+    duplicates, and the new results go in §25d.
+  - The MLflow runs and trial lines it replaces get `superseded_by` tags and `supersede`
+    markers, as in §25b.0. The program gains about 103 more trial lines, which raises E7's DSR
+    trial count.
+- **Predictions (before the re-run):**
+  1. E-1 removes exactly 362 rows on scored 2017+ days, and checks 1 to 3 pass. The Stage 1
+     label still passes.
+  2. 10% to 25% of dev P1 name-days change against §25b's pool.
+  3. E2 keeps P1, E3 keeps base + F5, and E5a keeps H30 (2, 1) in both feature sets, so the
+     cascade does not stop.
+  4. Both strict E6 policies have a daily CI upper bound below 0.
+  5. The end-of-E6 check (§24.5) passes on at least one arm.
+- **Cost if wrong:** about 5 hours of compute and the extra trial lines, if the user then stops
+  the long-only track. Leaving it means E7, and any later use of the pool, runs on a universe
+  that still holds 138 dev and 46 confirmation duplicates.
+
+| # | Call |
+|---|---|
+| 43 | The identity rule reads unadjusted share volume, as §25.2 says. §25b is superseded, and §25.4's cascade re-runs. |
+| 44 | The fix is in the reader, which supplies `volume_unadj` as the rule's volume. The rule's functions and their committed tests stay unchanged. |
