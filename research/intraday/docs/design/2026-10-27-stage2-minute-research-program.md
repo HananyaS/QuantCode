@@ -3088,3 +3088,271 @@ User decision, 2026-11-01: "fix the duplicate tickers first, then go strict".
 | # | Call |
 |---|---|
 | 40 | E5b's S2 change (y_H over A) is not carried into E5d or E6. Both stay on score A, because their rules and E6's entry threshold are defined on a calibrated EV. |
+
+## 25b. Results, the dev re-run on one security per name-day (2026-11-01; poolpoc 11deec336929 for E-1 to E5c, 6a0620385fee for E5d and E6; clean)
+
+### 25b.0 Runs and integrity
+
+- **Code.** §25's five tasks and the final review's fix pass (poolpoc 1811aa8..c38fe6e), §25.6's
+  count (11deec3), and amendment 12's flag (6a06203). The suite passed at each commit (1,998
+  tests at 6a06203).
+- **Where it ran.** Everything ran from the run4 worktree, one job at a time.
+  - The rebase build ran at c38fe6e. rebase.py did not change after it, so its roots stand.
+  - E-1 to E5c ran at 11deec3. E5d and E6 ran at 6a06203, reading E-1 to E5c from
+    11deec336929 by explicit path. Only run_e5d.py differs between the two commits, and no cache
+    key reads it.
+- **Wall time.**
+
+  | Step | Time | Step | Time |
+  |---|---|---|---|
+  | E-1 | 72 s | E3 leave-one-out | 3,551 s |
+  | minute-twin scan | 13 s | basis, rescore | 34 s, 36 s |
+  | E0 | 369 s | E5a | 5,067 s |
+  | E1 | 286 s | E5b, E5c | 204 s, 19 s |
+  | E2 | 1,826 s | E5d | 2,256 s |
+  | E3 panel prebuild | 397 s | E6 | 22 s |
+  | E3 add-one | 2,414 s | | |
+
+  The peak was 5.8 GB, in E5a.
+- **§25.2's checks, all passed.**
+  1. No day-D twins are left among the kept rows.
+  2. There are 0 minute twins among P1's 12,940 name-days (2017 to 2025-08-06), and no P1 day
+     lacks a minute file.
+  3. The pre-open groups equal the day-D twin groups: 251 = 251. The rows removed on scored days
+     in 2017-2025 number exactly 178 (§25.6), and 225 on all days.
+     - By year: 2016 26, 2017 13, 2018 18, 2019 26, 2020 11, 2021 53, 2022 47, 2023 24, 2024
+       25, 2025 8.
+     - 9 of the removed rows had the day's minute bars, against a partner that also had them.
+- **Each tranche's own checks passed.**
+  - E3's panel equals E2's.
+  - E5a's check 2.
+  - E5d's integrity 1-3.
+  - E6: all 18 E5 arms reproduce their logged series exactly, and each default equals its E5a
+    arm.
+- **MLflow** (data/research_poolpoc/mlruns):
+
+  | Run | ID |
+  |---|---|
+  | E-1 | be31b252a3d942c28c2eb6fadfddaac8 |
+  | E0 | 4f232356cb564e61b3600e4b518ec73b |
+  | E1 | 0394ef20ed674d16baea9a8dd69c1081 |
+  | E2 | 841988ed4dc0412e9a06dd0ab590630c |
+  | E3 add-one | 3aece214077e46f4971d1ef54cda2384 |
+  | E3 leave-one-out | babe5d1aa2cb47439b2161047fa5041f |
+  | E5a | 722927c696c347688f7867465c20abdb |
+  | E5b | 5e728a3d7d6e4c5cb8b18afa26882725 |
+  | E5c | 9545b1afb7c3428a9a54d7f38b33c6e5 |
+  | E5d | 0fcee793394945b68a3a35bac8b64329 |
+  | E6 | 89ace9d9464248f0ad8d3e081d44c79f |
+
+  - Each is tagged `supersedes` with the run it replaces (§19's six, §23's three, §23b's, and
+    §24b's). Each replaced run is tagged `superseded_by`.
+- **Trials.** The re-run logged 103 trial lines: E1 10, E2 3, E3 21, E5a 32, E5b 4, E5c 2, E5d 4
+  and E6 27.
+  - The replaced runs' lines get a `supersede` marker each (10 markers in all) and still count.
+  - The program now has 261 trial lines.
+
+### 25b.1 E-1 and the pool
+
+| Contrast (share of random trades beating costs, top 10) | §19 | Re-run |
+|---|---|---|
+| model vs universe | 22.7% vs 16.4%, +6.3 (+6.0..+6.6) | 22.7% vs 16.4%, +6.2 (+5.9..+6.5) |
+| vs naive | +1.4 (+1.1..+1.8) | +1.3 (+1.0..+1.7) |
+| vs room model | +0.5 (+0.2..+0.8) | +0.4 (+0.1..+0.7) |
+| vs base | +1.0 (+0.7..+1.3) | +0.9 (+0.6..+1.1) |
+
+- **PASS.** 82,101 rows on 1,294 days (was 82,355 on 1,298).
+  - Four days fell below 20 names after the dedupe and are no longer scored (§25.6's
+    consequence).
+  - The no-bars share fell from 0.48% to 0.27%: most removed rows were the bar-less copy of a
+    security.
+- **The pool turned over more than predicted.**
+  - 1,508 of 7,270 dev P1 name-days left and 1,468 joined (20.7%). In 2020-2022 it was 1,411 of
+    6,850 (20.6%).
+  - By year, the share that left: 2017 13%, 2018 36%, 2019 17%, 2020 23%, 2021 20%, 2022 18%.
+  - In 2018, 40 of the 54 departures are the four days no longer scored: 2018-10-26, 10-31,
+    11-14 and 12-07.
+  - The cause is the walk-forward pool model, as in §19. The removed rows were training rows
+    for every later fit, mostly with zero labels, and the dedupe also changes the pre-market
+    features' within-day ranks.
+  - The within-day rank correlation of old and new scores is 0.94 (median; §19's was 0.977).
+    At a top-10 cut that replaces a fifth of P1.
+  - §25.5 prediction 1 (5-15%) **failed**.
+
+### 25b.2 E0 to E3
+
+| | §19 | Re-run |
+|---|---|---|
+| E0: C1 / C2 / oracle (%/day) | −1.271 / −1.948 / +2.83 | −1.187 / −1.801 / +2.81 |
+| E0: H30 (2,1) TP share vs p* | 2.7% vs 40.4% | 2.7% vs 40.1% |
+| E1: M1 top-decile lift | +0.302 pp (+0.210..+0.383) | +0.360 pp (+0.272..+0.441) |
+| E1: M1's lift minus the cost-only score's | +0.074 (−0.015..+0.165) | +0.154 (+0.065..+0.245) |
+| E1: M1 / C1 / C4 (%/day) | −0.675 / −0.568 / −1.095 | −0.621 / −0.557 / −1.007 |
+| E2: raw lift P1 / P2 / P3 | +0.744 / +0.710 / +0.688 | +0.739 / +0.693 / +0.713 |
+| E2: decision | P1 | P1 |
+| E3: +F5 vs base | +0.101 pp, Holm p 0.003 | +0.077 pp, Holm p 0.014 |
+| E3: decision | base + F5 | base + F5 |
+| E3: the all-families model's gross part | +0.153 pp (+0.075..+0.228) | +0.156 pp (+0.064..+0.234) |
+| E3: traded base / all / +F5 (%/day) | −0.150 / −0.162 / −0.121 | −0.115 / −0.147 / −0.127 |
+
+- **E0** holds 3 of 3 predictions, as before.
+- **E1** holds 2 of 3, as before: prediction 1 fails. M1's lift now beats the cost-only score
+  with CI lo > 0 (+0.154 pp). Its lift still splits into a negative gross part and a positive
+  cost part: −0.194 + 0.554 pp.
+- **E2** carries P1 on raw lift (amendment 3), as before.
+- **E3's add-one** keeps F5 alone. Leave-one-out finds no family the all-families model needs
+  (every Holm p ≥ 0.357), and the Δ log-loss guard flags none.
+- **Every traded arm of E1-E3 loses**, as before.
+
+### 25b.3 E5a to E5c
+
+- **E5a.** No set qualifies in either feature set, so H30 (2, 1) stays.
+  - The default top-decile net is −0.923 pp in S1 and −0.850 pp in S2 (was −0.926 and −0.862).
+  - The only arm whose daily CI reaches 0 is now H15 (1, 1) in S2: −0.042%/day (hi +0.004).
+    It was H15 (1, 1) in S1.
+- **E5b.** S1 keeps A. **S2's decision changed to y_H** (+0.067 pp, Holm p 0.014; it was
+  +0.045, p 0.109). Amendment 12 (§25.7) keeps A downstream.
+- **E5c** keeps the barrier exit in both feature sets. It ran under E5b's winner: in S2 the
+  time-only exit is +0.033 pp, p 0.069.
+
+### 25b.4 E5d (run with `--carry-a`; S2's y_H is recorded as not carried)
+
+| | Barrier top-decile net | Model-driven | Difference | p | Decision | Traded arm (%/day) |
+|---|---|---|---|---|---|---|
+| S1 | −0.923 pp | −0.887 pp | +0.036 (−0.013..+0.093) | 0.148 | **barrier** (was model exit, p 0.049) | −0.038 (hi −0.000), 0.58 trades a day |
+| S2 | −0.850 pp | −0.795 pp | +0.055 (−0.013..+0.136) | 0.127 | barrier | −0.007 (hi +0.026), 0.82 trades a day |
+
+- **S1's model-placed exit no longer replaces the barrier exit.** §23b's p = 0.049 was a coin
+  flip, as §25.5 said.
+- By §25.4, E6 now uses the barrier exit in both feature sets. `run_e6.sources` read E5d's
+  decision and chose E5a's frames.
+- The placement is as before: the median u_i is 2.3-2.4% against X*'s 5.9%, and the top-decile
+  TP share is 0.33-0.35 against 0.03-0.04.
+
+### 25b.5 E6 (both feature sets on the barrier exit)
+
+**S1.** The default (E5a's H30 (2, 1) S1 arm, no longer E5d's) makes −0.127%/day (CI
+−0.197..−0.069) at 1.46 trades a day, trading on 235 days. Its net per dollar is −1.00%
+(−1.50..−0.54).
+
+The columns are as in §24b.1:
+- "vs default": the paired daily difference, in %/day.
+- "Net per $ minus default": §24.10's paired CI, in pp.
+
+| Level | vs default | Holm p | Net per $ (95% CI) | Net per $ minus default | Days ≠ | Trades/day | Kept | Strict |
+|---|---|---|---|---|---|---|---|---|
+| EV > 0.25% | +0.047 (+0.018..+0.075) | 0.0015 | −1.01% (−1.76..−0.37) | −0.01 (−0.36..+0.33) | 188 | 0.93 | no | no |
+| EV > 0.5% | +0.081 (+0.045..+0.118) | 0.0015 | −0.89% (−2.03..+0.10) | +0.11 (−0.67..+0.80) | 212 | 0.61 | **kept** | no |
+| EV > 1.0% | +0.110 (+0.069..+0.153) | 0.0015 | −0.63% (−2.52..+0.93) | +0.36 (−1.11..+1.69) | 227 | 0.32 | **kept** | no |
+| 3 slots | +0.011 (−0.004..+0.027) | 0.340 | −1.01% (−1.56..−0.52) | −0.01 (−0.14..+0.12) | 26 | 1.29 | no | no |
+| 5 slots | −0.000 (−0.011..+0.012) | 0.874 | −1.02% (−1.53..−0.53) | −0.03 (−0.12..+0.08) | 13 | 1.41 | no | no |
+| price ≥ $2 | +0.005 (−0.014..+0.023) | 0.559 | −1.05% (−1.59..−0.61) | −0.06 (−0.21..+0.09) | 39 | 1.32 | no | no |
+| price ≥ $3 | +0.031 (+0.004..+0.060) | 0.050 | −0.93% (−1.49..−0.44) | +0.07 (−0.18..+0.30) | 60 | 1.16 | no | no |
+| no entry before 09:45 | +0.026 (+0.003..+0.050) | 0.028 | −0.85% (−1.35..−0.41) | +0.14 (−0.05..+0.33) | 73 | 1.36 | **kept** | no |
+| 15-min cooldown | +0.017 (−0.003..+0.040) | 0.120 | −0.98% (−1.55..−0.48) | +0.01 (−0.17..+0.20) | 64 | 1.28 | no | no |
+| 30-min cooldown | +0.033 (+0.009..+0.063) | 0.004 | −0.94% (−1.44..−0.44) | +0.06 (−0.14..+0.28) | 74 | 1.15 | **kept** | no |
+| B gate (b_hat > 0.506) | +0.092 (+0.050..+0.140) | 0.0005 | −0.69% (−1.34..−0.09) | +0.30 (−0.13..+0.76) | 213 | 0.59 | **kept** | no |
+| price < $10 (exploratory) | +0.029 (+0.009..+0.051) | p 0.006 | −0.95% (−1.45..−0.47) | +0.05 (−0.12..+0.21) | 48 | 1.22 | never | never |
+
+**S2.** The default (E5a's H30 (2, 1) S2 arm) makes −0.147%/day (CI −0.229..−0.073) at 1.74
+trades a day, trading on 325 days. Its net per dollar is −0.91% (−1.43..−0.43).
+
+| Level | vs default | Holm p | Net per $ (95% CI) | Net per $ minus default | Days ≠ | Trades/day | Kept | Strict |
+|---|---|---|---|---|---|---|---|---|
+| EV > 0.25% | +0.075 (+0.043..+0.112) | 0.0015 | −0.69% (−1.36..−0.04) | +0.23 (−0.07..+0.54) | 264 | 1.14 | **kept** | no |
+| EV > 0.5% | +0.086 (+0.047..+0.128) | 0.0015 | −0.85% (−1.81..+0.08) | +0.07 (−0.51..+0.64) | 294 | 0.78 | **kept** | no |
+| EV > 1.0% | +0.118 (+0.073..+0.166) | 0.0015 | −0.72% (−2.17..+0.81) | +0.20 (−0.94..+1.36) | 314 | 0.44 | **kept** | no |
+| 3 slots | −0.010 (−0.021..+0.000) | 0.088 | −1.01% (−1.52..−0.52) | −0.09 (−0.18..−0.02) | 21 | 1.67 | no | no |
+| 5 slots | −0.002 (−0.004..−0.000) | 0.088 | −0.94% (−1.46..−0.44) | −0.02 (−0.04..−0.00) | 5 | 1.72 | no | no |
+| price ≥ $2 | −0.017 (−0.043..+0.005) | 0.310 | −1.08% (−1.55..−0.66) | −0.17 (−0.35..−0.03) | 40 | 1.64 | no | no |
+| price ≥ $3 | −0.013 (−0.046..+0.019) | 0.455 | −1.15% (−1.66..−0.69) | −0.24 (−0.46..−0.05) | 76 | 1.49 | no | no |
+| no entry before 09:45 | +0.062 (+0.033..+0.094) | 0.0005 | −0.57% (−1.08..−0.07) | **+0.35 (+0.15..+0.57)** | 123 | 1.61 | **kept** | **kept** |
+| 15-min cooldown | +0.001 (−0.037..+0.039) | 1.000 | −1.04% (−1.52..−0.55) | −0.13 (−0.37..+0.12) | 130 | 1.52 | no | no |
+| 30-min cooldown | +0.009 (−0.030..+0.049) | 1.000 | −1.12% (−1.62..−0.63) | −0.20 (−0.46..+0.06) | 140 | 1.34 | no | no |
+| B gate (b_hat > 0.475) | +0.075 (+0.028..+0.122) | 0.0010 | −0.92% (−1.64..−0.25) | −0.01 (−0.46..+0.42) | 274 | 0.87 | no | no |
+| price < $10 (exploratory) | +0.041 (+0.015..+0.071) | p 0.002 | −0.78% (−1.24..−0.31) | +0.14 (−0.01..+0.29) | 60 | 1.49 | never | never |
+
+- **The B gate is no longer kept in S2.** Its net per dollar is now below the default's
+  (−0.92% against −0.91%). In §24b it was the larger of S2's two strictly kept levels (+0.60
+  pp).
+- **Skipping 09:30-09:44 is again the one level that raises S2's net per dollar on its own
+  CI**: +0.35 pp (+0.15..+0.57) over 123 differing days. It is the only strictly kept level in
+  E6.
+- **The guard problem is now in both feature sets.** Every EV threshold raises the daily mean
+  strongly by trading less, and none moves net per dollar on its own CI.
+
+| Feature set | Policy | %/day (95% CI) | Trades/day | Days traded | Net per $ (95% CI) | vs C1 (%/day) | vs C2 | End check |
+|---|---|---|---|---|---|---|---|---|
+| S1 | binding: EV > 1.0%, no entry before 09:45, 30-min cooldown, B gate | +0.004 (−0.015..+0.021) | 0.16 | 33 | +0.36% (−1.24..+1.85) | +0.023 (+0.001..+0.045), p 0.04 | +1.85 (+1.54..+2.16) | passes |
+| S1 | strict: the default | −0.127 (−0.197..−0.069) | 1.46 | 235 | −1.00% (−1.50..−0.54) | +0.065 (+0.004..+0.125), p 0.039 | +1.72 | fails |
+| S2 | binding: EV > 1.0%, no entry before 09:45 | −0.020 (−0.084..+0.036) | 0.41 | 117 | −0.53% (−2.17..+1.10) | +0.053 (−0.008..+0.109), p 0.097 | +1.83 | passes |
+| S2 | strict: no entry before 09:45 | −0.085 (−0.166..−0.014) | 1.61 | 305 | −0.57% (−1.08..−0.07) | +0.155 (+0.079..+0.233) | +1.76 | fails (not read) |
+
+- **No E6 policy makes money with confidence.** The best, S1's binding combined policy, is
+  +0.004%/day on 33 trading days. It is four filters chosen on the same days they are judged on.
+- **Neither strict policy has a dev CI that reaches 0.** S1's strict policy is its default:
+  −0.127%/day (hi −0.069). S2's is −0.085%/day (hi −0.014).
+- Every policy beats both controls. C1 loses −0.018 to −0.240%/day and C2 −1.849%/day.
+
+### 25b.6 The end-of-E6 check (§24.5, unchanged)
+
+- **7 of the 42 arms pass, so the check does not fire.** It fired for none in §24b either: 13
+  passed then.
+- The passing arms: E5a H15 (1, 1) S2; E5d S2; S1 EV > 0.5% and > 1.0%; S1's binding combined
+  policy; S2 EV > 1.0%; S2's binding combined policy.
+- Every one passes by being uncertain. Only S1's binding combined policy has a mean above 0
+  (+0.004%/day), and it trades on 33 days.
+- **Neither strict policy would pass.** Both have a daily CI upper bound below 0.
+
+### 25b.7 Predictions (§25.5)
+
+| # | Prediction | Result |
+|---|---|---|
+| 1 | 5-15% of dev P1 name-days change | **failed** (20.7%) |
+| 2 | E-1 passes; E2 carries P1; E3 keeps base + F5, maybe more; the all-families model keeps a gross part with CI lo > 0 | held |
+| 3 | E5a: no set qualifies; E5b keeps A; E5c keeps the barrier exit | **failed** in part (E5b chose y_H in S2) |
+| 4 | E5d: S2's exit is not replaced; S1's is | **failed** in part (S1's is not replaced) |
+| 5 | E6 strict: S1 keeps nothing; S2 keeps no entry before 09:45 and the B gate; no CI lo > 0; the end check does not fire | **failed** in part (S2 keeps the 09:45 rule but not the B gate) |
+| 6 | Every traded arm of E1-E5 still loses | held on the means. Two arms' CIs reach 0 (E5a H15 (1, 1) S2, E5d S2), as in §23 |
+
+On E6's own predictions (§24.7): 2 of 7 held on the binding reading and 6 of 7 on the strict
+one. The one strict failure is "the end check fires".
+
+### 25b.8 Reading
+
+- **The duplicate fix moved more than the duplicates.**
+  - It removed 178 scored rows (0.2%). Through the walk-forward pool model it replaced a fifth
+    of dev P1, and every later tranche re-ran on that pool.
+  - Three decisions flipped: E5b in S2, E5d in S1, and E6's B gate in S2. Each was near its
+    threshold before: p 0.109, p 0.049, and a per-dollar CI lo of +0.08 pp.
+  - The program's decisions near a threshold are not stable under a 20% change of the pool.
+- **What survives both runs:**
+  - Skipping the 09:30-09:44 entries in S2. It raises net per dollar on a paired CI that
+    clears 0 in both runs (+0.39 and +0.35 pp).
+  - The ranking skill that beats the mechanical EV (E3's gross part, about +0.15 pp).
+  - Every policy beats random timing and open-and-hold.
+  - No policy makes money.
+- **The strict reading leaves two finalists that lose on dev with their whole CI below 0:**
+  - S1, the default: −0.127%/day (hi −0.069).
+  - S2, no entry before 09:45: −0.085%/day (hi −0.014).
+  - §26's E7 would run them once on 2023-2025.
+
+### 25b.9 What follows
+
+- **E7 is not started.** The user chose the strict reading and E7 ("then go strict") while
+  §24b's strict S2 had a dev CI reaching 0 (−0.013%/day, hi +0.040). After the re-run, neither
+  strict finalist's dev CI reaches 0.
+  - E7 runs each finalist once and uses up the program's confirmation years.
+  - So whether to run it on these two is put back to the user, with E7's pre-registration
+    drafted but not committed.
+- **The choices:**
+  1. Run E7 on the two strict finalists as planned. Expected result: both fail.
+  2. Stop the long-only track here, per the strict reading, and keep 2023-2025 unspent.
+  3. Something else, such as the binding S1 policy as a third finalist. That would reverse
+     "go strict".
+- E4 stays as measured on §19's pool (§25.4).
+
+| # | Call |
+|---|---|
+| 41 | E5d and E6 ran at 6a06203 (amendment 12's flag), reading E-1 to E5c from 11deec336929 by path. Only run_e5d.py differs, and no cache key reads it. |
+| 42 | E7 is not started. Its premise changed: the strict finalists' dev CIs are now wholly below 0. The confirmation years can be spent only once, so the user decides. |
