@@ -3077,7 +3077,8 @@ User decision, 2026-11-01: "fix the duplicate tickers first, then go strict".
   - E7's S2 finalist ranks by A.
   - Why: carrying y_H would mean designing a new E6 for S2 (an entry threshold on an
     uncalibrated score) inside a re-run. The cascade exists to avoid that kind of forking path.
-    The flip also rests on a 0.3% change in the pool, so the score difference is marginal under
+    The flip also comes with a 20.6% turnover of dev P1: 1,411 of the 6,850 test name-days in
+    2020-2022 changed through the walk-forward refit. The score difference is marginal under
     either run.
   - Cost if wrong: S2's policy ranks by a score whose top decile is 0.067 pp a minute worse on
     dev than y_H's. Reversing this means building an E6 policy on y_H, about an hour of compute
