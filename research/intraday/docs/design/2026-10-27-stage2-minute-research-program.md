@@ -3045,3 +3045,45 @@ User decision, 2026-11-01: "fix the duplicate tickers first, then go strict".
   E-1 no longer scores it. This is part of the pool churn §25.5 predicts.
 - **Who ruled.** The executor ruled this while running the cascade. The user can reverse it. No
   number of the re-run depends on how the check is worded, because the check only gates.
+
+### 25.7 Amendment 12: E5b's S2 score changes in the re-run, and E5d and E6 keep score A (2026-11-01; committed before E5d is re-run)
+
+- **What happened.**
+  - The re-run reached E5d (poolpoc 11deec336929). E-1's checks passed, with 178 rows removed on
+    scored days (§25.6). E2 carried P1, E3 add-one kept base + F5, and E5a kept H30 (2, 1) in
+    both feature sets, so §25.4's stop rules did not fire.
+  - **E5b's decision changed in S2.** y_H (the Huber regression on y_h) now beats A on E5a's
+    top-decile net: +0.067 pp (CI +0.011..+0.123), Holm p 0.014. The old run had +0.045 pp
+    (−0.010..+0.100), p 0.109. S1 still keeps A: y_H +0.028 pp, p 0.219. B is below A in both
+    sets, as before.
+  - E5c ran under E5b's winner, as §22.4 says (y_H in S2), and kept the barrier exit in both
+    sets.
+  - E5d then stopped on its own guard before reading anything: "E5b did not keep the EV". §22.5a
+    was written on the premise that E5a-c kept score A in both feature sets.
+- **What the program says.** §25.4 lists the decisions whose change stops the cascade (E2, E3,
+  E5a) or is carried (E5d's exit, into E6). E5b's is in neither list. Downstream of E5b:
+  - E5d's rule (§22.5a) is built on A. The model-driven arm's score is M1's EV, refit on the
+    relabelled minutes, because the EV reads each minute's u_i and d_i. Its reference is "E5a's
+    H30 (2, 1) column, which is E3's M1".
+  - E6 (§24.1, approved by the user) takes S2's score by name: "E5a's `H30_ku2_kd1_s2_ev`". Its
+    entry rule (EV > θ, θ in percent of notional) needs a calibrated expected return. y_H is
+    "not calibrated, because only its ranking is used" (§22.3). It has no EV threshold, which is
+    why E5b has no traded arms.
+- **The ruling [Claude's; the user can reverse it].** E5d and E6 keep score A in both feature
+  sets, as §22.5a, §24.1 and §25.4 wire them. E5b's S2 result is reported and not carried.
+  - E5d runs as written. Its guard on E5b is lifted by an explicit flag, and the run records
+    which feature set's E5b decision it did not carry.
+  - E6 runs as written.
+  - E7's S2 finalist ranks by A.
+  - Why: carrying y_H would mean designing a new E6 for S2 (an entry threshold on an
+    uncalibrated score) inside a re-run. The cascade exists to avoid that kind of forking path.
+    The flip also rests on a 0.3% change in the pool, so the score difference is marginal under
+    either run.
+  - Cost if wrong: S2's policy ranks by a score whose top decile is 0.067 pp a minute worse on
+    dev than y_H's. Reversing this means building an E6 policy on y_H, about an hour of compute
+    after the code. E-1 to E5c are unaffected either way.
+- **§25.5's prediction 3** ("E5b keeps the EV") failed for S2. It is scored in §25b.
+
+| # | Call |
+|---|---|
+| 40 | E5b's S2 change (y_H over A) is not carried into E5d or E6. Both stay on score A, because their rules and E6's entry threshold are defined on a calibrated EV. |
