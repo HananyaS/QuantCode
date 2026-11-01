@@ -3011,3 +3011,37 @@ User decision, 2026-11-01: "fix the duplicate tickers first, then go strict".
 | 37 | The Stage-1 panel's D-1 feature ranks over the $1-50 band are left as cached, and the Stage 1w room model is not refit. One duplicate among a day's thousands of names moves a percentile rank by less than 0.1 points. |
 | 38 | E4 is not re-run. Its decision does not feed E7, and it costs 29 hours. |
 | 39 | The basis-repair minors are fixed in this rebuild, except M4 (fails safe), M9 (erratum) and M11's edits to existing tests. |
+
+### 25.6 Check 3's count, corrected after it fired (2026-11-01; committed before E-1 is re-run)
+
+- **What happened.**
+  - Step 1 of §25.4 came out exactly as §25.3 expected:
+    - 3 minute files differ: CXAI 2023-03-15, GRML 2024-07-05 and SMTK 2025-04-07;
+    - 0 pre-market files differ;
+    - 4 provenance rows change;
+    - each root now has a manifest.
+  - E-1 at poolpoc c38fe6e then stopped on §25.2 check 3's count, before scoring. In 2017-2025 it
+    removed 225 rows, not the scan's 178.
+  - Check 1 held: no day-D twins are left.
+  - Check 3's set equality held: the pre-open groups and the day-D twin groups are the same 251
+    pairs in 2016-2025.
+- **Why.** The scan (§25.1) counted twins among the rows of the old pool file.
+  - That file holds only the days E-1 scores: days with at least 20 universe names
+    (`evaluate.MIN_NAMES`).
+  - E-1's universe also holds 835 days in 2017-2025 with fewer than 20 names. Scoring drops them,
+    and none of their rows is in the old pool.
+  - 47 of the 225 pairs fall on those days. They are the same securities the scan found:
+    ANIX/ITUS, BIOS/OPCH, ECA/OVV, PGEN/XON, AIFC/ARCI, FLNA/PTIE, NEWM/TDAY, AIFC/JAN, KIND/NXDR
+    and AXG/SWIN.
+  - The other 178 are the scan's pairs.
+  - This was found from universe keys and daily-cache fingerprints only. No label, score or
+    result was read.
+- **The correction.** Check 3's count is taken on the scan's own days.
+  - The rows removed in 2017-2025 on days with at least 20 names before the dedupe must number
+    exactly 178.
+  - The rows removed on other days are reported beside it, not gated.
+  - The rule, check 1, check 3's set equality and every decision rule are unchanged.
+- **A consequence.** A day with exactly 20 names that holds a pair keeps 19 after the dedupe, so
+  E-1 no longer scores it. This is part of the pool churn §25.5 predicts.
+- **Who ruled.** The executor ruled this while running the cascade. The user can reverse it. No
+  number of the re-run depends on how the check is worded, because the check only gates.
