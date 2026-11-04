@@ -303,3 +303,120 @@
 | S5 | The stress arms count as trial lines (§2), so A0 adds 11 lines, not the plan's 3 to 5. |
 | S6 | The H1(e) gate is a point estimate > 0, because it only decides whether a trial runs. The trial has its own pass rule. |
 | S7 | A0.4's open spread for D+1 is day D's. A0.4 decides nothing. |
+
+## 4b. A0 results (2026-11-05)
+
+- **Run.** poolpoc 0062e2a6b777, from run4 in the ML venv. MLflow 178afccaf8ae43b18e4d3d772ef9170c.
+- **Scope.** 685 dev test days (2020H1 to 2022H2), 277 s, 2.34 GB peak.
+- **Code history.**
+  - The first commit, 81fa34b, had 4 Important review findings (§4b.7). The fix commit 0062e2a ran the full A0.
+  - The smoke ran on 81fa34b and again on 0062e2a.
+- **Trial lines.** 11 traded lines: `s3-b0` x1 and `s3-a0` x10. The ledger now holds 338 trial lines, so N = 359.
+
+### 4b.0 Fidelity (all pass)
+
+- Relabelling with no passive window reproduces E5a's labels exactly at both X*: 2,466,000 rows each, with cls, exit_min and r_net all equal.
+- B0-S1 and S2's DEFAULT arm reproduce their c7878 logged series exactly.
+- The market relabel's arm reproduces B0 exactly.
+- No row after 2022-12-31 is used.
+
+### 4b.1 B0
+
+| Arm | %/day (CI) | Trades/day | Net per $ |
+|---|---|---|---|
+| B0-S1, H30 (2,1), DEFAULT | −0.069 (−0.118..−0.019) | 1.25 | −0.63% |
+| B0-S2, H30 (1,1), skip-open | −0.057 (−0.114..+0.001) | 1.54 | −0.39% |
+
+### 4b.2 A0.1: gross against cost. LP does not hold.
+
+- **The population has no premium.** Every filled P1 test minute at S2's X* (1,148,948 rows) has a slope of gross_px on cost of −0.015 (CI −0.042..+0.012). By cost tercile, gross_px is −0.05 / −0.11 / −0.12%.
+- **The selected rows (s2_ev > 0, 9,513 rows).**
+  - Slope 0.55 (CI −0.02..+1.17).
+  - By cost tercile:
+
+    | Tercile | gross_px | Cost | Net |
+    |---|---|---|---|
+    | Low | 0.34% | 0.61% | −0.26% |
+    | Middle | 0.84% | 1.10% | −0.18% |
+    | High | 1.62% | 2.08% | −0.23% |
+
+  - S1 is the same: population slope −0.015, and net −0.39 / −0.11 / −0.11%.
+- **So the gross that tracks cost is not in the names.** The model's selection adds +0.4 to +1.7 pp of trade-price gross over the population, more in costly names, and stops about 0.2 pp short of the round trip.
+- **Descriptive only:** S1's selected rows in the tercile furthest down since the open net +0.10%.
+
+### 4b.3 A0.2: entry one minute later. No bounce.
+
+- The selected gross barely moves:
+  - S2 top tercile: 1.59 → 1.57% (difference CI −0.10..+0.05);
+  - S1 top tercile: 1.72 → 1.60% (CI −0.32..−0.001).
+- In both feature sets, the top tercile keeps far more than half its gross.
+- **Account arms.**
+  - shift1-S1: −0.092 %/day, vs B0 −0.023 (CI −0.067..+0.015).
+  - shift1-S2: −0.059 %/day, vs B0 −0.002 (CI −0.043..+0.034).
+- **So the selected gross is not a print-at-the-bid artifact,** and the sim bias that §4.2 worried about is not visible at one minute.
+
+### 4b.4 A0.3: passive exits. No gain, no rescue; they hurt.
+
+| Arm | Paired vs B0, %/day | Holm p |
+|---|---|---|
+| S1 N=5 | +0.005 | 0.61 |
+| S1 N=10 | −0.022 | 0.58 |
+| S2 N=5 | −0.011 | 0.58 |
+| S2 N=10 | −0.024 | 0.58 |
+
+- **Stress arms** are significantly worse: S2 N=10 −0.051 (CI −0.083..−0.020), and S2 N=5 −0.027.
+- **Per trade on B0's trades, S2 N=10.**
+  - 75% reach the window, and the limit fills 89% of those.
+  - Delta −0.21 pp (CI −0.39..−0.03). Filled rows −0.32; fallback rows 0.00, as they must be.
+- **Adverse selection runs against the limit.**
+  - On filled rows, the market time exit would have paid +0.61% over L.
+  - Fallback rows' time exits landed 3.4% below L.
+  - The same holds at N=5 and in S1: +0.22 to +0.94% on filled rows, −1.3 to −3.4% on fallback rows.
+- **So:**
+  - The rule's one-tick trade-through fills only on up-moves that keep going.
+  - Selling there gives up more than the half-spread and impact it saves.
+  - Missing the fill leaves the trade in a falling path.
+  - H6 is dead under the existing fill rule.
+
+### 4b.5 A0.4 overnight and A0.5 the intraday profile (descriptive)
+
+- **A0.4.**
+  - Over all 7,198 dev name-days with returns: intraday −0.64% (CI −0.99..−0.29), overnight +0.20% (CI −0.03..+0.42).
+  - The cost proxy exists on 3,441 name-days, those with a 15:30 fill. On them: overnight +0.37% against an approximate round trip of 1.87%, net −1.50%.
+  - The cheapest tercile's overnight is +0.67% (CI +0.04..+1.38), but its net is −0.36%.
+  - No tercile has net CI lo > 0, so there is no lead.
+- **A0.5.**
+  - The pool loses −0.29% from 09:31 to 10:00 and −0.16% from 10:00 to 10:30.
+  - After that it is about flat. The best window is 15:00 to 15:30 at +0.09% (CI +0.02..+0.16); the last, 15:30 to 15:56, is −0.07%.
+  - There is no last-30-minutes premium on this pool.
+  - Late entry (15:00 to 15:25, held to the close) on S2-selected rows nets −1.94% (n 422). **H1(e) is cut.**
+
+### 4b.6 Predictions (§4.8) and the decision
+
+- **Held:** 3a (75% of B0's trades reach the window) and 4 (overnight gross > 0, below cost, no lead).
+- **3e** scores True only because the base gain is negative. It is not meaningful (deferred minor).
+- **Failed:** 1 (LP), 2 (bounce), 3b (fills 89%, not 50 to 70%), 3c (the gain is negative), 3d (the < $2 bucket is +0.01), 3f, 5 and 6 (decision D2).
+- **Decision: D3.** LP does not hold. Phase A runs next, then Phase C in the plan's order.
+  - H6 drops: it showed no gain, and a stress arm is significantly worse.
+  - H1(e) drops: the late gate is shut.
+  - The bounce reading adds no one-minute-delay control; Phase D keeps its own.
+
+### 4b.7 Review and fixes
+
+- A fresh-context review (opus) of 81fa34b found 0 Critical, 4 Important and 9 Minor. All four Important findings were fixed test-first in 0062e2a:
+  1. Float32 outcomes, so an unchanged trade is bit-identical to B0, plus the market-arm check.
+  2. Adverse selection per §4.3, using `time_px`.
+  3. A0.4 gross over every name-day with returns.
+  4. A0.5 keeps a window's return when its start-minute cost is missing.
+- The nine Minor findings are in the poolpoc ledger, `.superpowers/sdd/2026-11-05-stage3/progress.md`.
+
+### 4b.8 What A0 changes (post-hoc; decides nothing)
+
+- **The 3x gap was the wrong frame for this population.**
+  - On the model's selected minutes, gross is real: it is not in the population, and it survives a one-minute delay.
+  - Net sits 0.2 to 0.4 pp below zero at every cost level.
+  - Closing that gap needs more ranking skill or better exits, not cheaper fills.
+- **A0.3's fill pattern points to exit timing.**
+  - Paths that tick up in a trade's last 5 to 10 minutes keep rising, by +0.2 to +0.9% to T+1.
+  - Paths that don't tick up end 1.3 to 3.4% below the limit.
+  - Phase A's myopic exit oracle (H4's gate) should therefore be read first.
