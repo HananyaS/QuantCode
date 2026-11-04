@@ -3429,3 +3429,31 @@ one. The one strict failure is "the end check fires".
 |---|---|
 | 43 | The identity rule reads unadjusted share volume, as §25.2 says. §25b is superseded, and §25.4's cascade re-runs. |
 | 44 | The fix is in the reader, which supplies `volume_unadj` as the rule's volume. The rule's functions and their committed tests stay unchanged. |
+
+## 25d. §25c's cascade stops at E5a, and stays there (2026-11-05)
+
+- **What ran.** §25c's re-run ran E-1 to E5a from the run4 worktree at c7878b02c333, then stopped
+  at the E5a gate as §25.4 requires (exit 3, by design).
+  - S1 keeps H30 (2, 1).
+  - S2 now picks H30 (1, 1): +0.060 pp against the default (CI +0.017..+0.104, Holm p 0.042).
+  - The best traded arm is H15 (1, 1) on S2, at −0.021 %/day (CI hi +0.015). Every E5a traded
+    arm loses.
+- **What follows.**
+  - On 2026-11-04 the user chose to freeze the cascade here. E5b to E6 do not run on c7878, and
+    §25.4's amendment before E5b is not written.
+  - §25b's E6 results are not re-measured on the corrected universe. They stand as the record of
+    a run that missed half the duplicates.
+- **What uses it.** c7878's E5a predictions (`c7878b02c333/e5a/predictions.parquet`) are the
+  input to Stage 3 (`2026-11-05-stage3-algo-program.md`), which takes its baselines from them.
+- **The trial count.**
+  - The ledger holds 327 trial lines and 10 supersede markers, so E7's DSR count starts Stage 3 at
+    N = 327 + 21 = 348.
+  - E7 has not started. Confirmation now belongs to Stage 3's finalists, and runs only when the
+    user says so.
+- **Interpreter.** E-1 to E5a ran on the system Python 3.13. From Stage 3 on, runs use the ML
+  venv, with mlflow 3.16.0 installed on 2026-11-04 and numpy, pandas and scikit-learn unchanged.
+  B0's fidelity check (Stage 3 §3) pins the venv to c7878's logged series.
+
+| # | Call |
+|---|---|
+| 45 | §25c's cascade stays frozen at E5a (the user's answer, 2026-11-04). Stage 3 builds on c7878's E5a predictions. |
