@@ -1232,3 +1232,192 @@ B0-S2 makes −0.057 %/day [−0.114, +0.001], with per-$ −0.39% [−0.83, +0.
 - **Neither makes the account profitable.** The best arm, h1c, makes +0.036 %/day [−0.019, +0.092] with per-$ +0.52% [−0.28, +1.33]. Its gains are concentrated in 2020H1 and 2021H1, and 2022 is negative for every arm.
 - **The model-side levers do not help.** h2q, h2c, h3m1 and h3meta show no gain on B0.
 - **Under §9.2 the dev screen produces no finalist.** Phase D does not run, and Phase E has nothing to confirm. What comes next is the user's decision (§9.9).
+
+## 10. H7 pre-registration: true-bounce entries with a per-trade exit plan (2026-11-06, before any H7 account or model runs)
+
+- **Why.** After §9b the user asked whether entry and exit were ever customised per trade. The
+  exit plan was never chosen per trade: E5a fitted one EV model per barrier set, but only ever used
+  them to pick one set for every trade. On 2026-11-06 the user said "pre-register it and run all",
+  and "make sure to only enter after a 'true' bounce".
+- **What has already run.**
+  - `stage3/bounce.py` was built test-first.
+  - It was run once on P1 dev to count bounce minutes. That run read bars, σ, costs and E5a's
+    S2 EVs only; it read no outcome column.
+  - The counts are in §10.2.
+- **Where to run.** Every choice is made on dev (≤ 2022-12-31). The confirmation and holdout rules
+  of §0 are unchanged.
+
+### 10.1 The true bounce (Claude's reading of the user's term; fixed here)
+
+A decision minute t is a **true bounce** if bar t is present and all five conditions hold, read
+from bars 0..t only (`bounce.bounce`):
+
+1. **Held low.** L is the lowest low of bars [t − 30, t] (its first occurrence, bar j_L), and
+   t − j_L ≥ 3. So none of the last 3 bars made a lower low.
+2. **Real drop.** H0 is the highest high of bars [j_L − 30, j_L]. The drop must satisfy
+   1 − L/H0 ≥ max(1 × σ_t·√30, 3 × c_rt(t)).
+3. **Reclaim.** The close C_t is above every high of bars j_L + 1 .. t − 1.
+4. **Retrace.** C_t ≥ L + 0.382 × (H0 − L).
+5. **Volume.** The volume V_t is at least the median volume of the present bars in
+   [t − 30, t − 1], and there are at least 10 of them.
+
+- **Unit tests.**
+  - Each condition, broken alone, removes the bounce.
+  - The flag and its levels at t do not change when bars after t are replaced.
+
+### 10.2 What the gate leaves (label-free, measured 2026-11-06)
+
+- **Bounce minutes.**
+  - There are 17,960 of the 2,466,000 P1 dev minutes (0.73%), and 17,849 of them pass P0's price
+    and open rules.
+  - They fall on 682 of 685 days and in 3,353 of 6,850 name-days.
+  - The minute of day has median t = 124; its 10th to 90th percentiles are t = 39 to 307.
+- **B0's score at bounces.** B0's score (X*'s S2 ev > 0) is positive at only 139 of them, on 56
+  days.
+  - So "B0's entries filtered by a bounce" cannot reach 150 days.
+  - The bounce is therefore the **entry trigger**. A model may skip it (h7_menu_ev) and picks its
+    exit.
+- **The chart plan at the bounces that pass P0's rules** (all fractions of C_t):
+  - u has a median of 2.25%, and the cost floor binds on 48%.
+  - d has a median of 4.43%.
+  - c_rt has a median of 1.09%.
+
+### 10.3 The exit plans (six)
+
+| Plan | Exit | Labels | EV model (per fold) |
+|---|---|---|---|
+| x15 | H15 (1, 1) | E0's label cache | M1 on E5a's rows (as E5a) |
+| x30 | H30 (1, 1), X*, B0's exit | E0's cache | M1, as E5a |
+| x60 | H60 (1, 1) | E0's cache | M1, as E5a |
+| x60u2 | H60 (2, 1) | E0's cache | M1, as E5a |
+| x60d2 | H60 (1, 2), h1d's exit | built into the label cache | M1 on E5a's rows (new) |
+| chart | stop 1 tick under L, TP at H0 (at least 1.5 × c_rt), H60 | `bounce.label_plan` | M1 on the bounce rows of the fold's training days |
+
+- **How the chart plan's barriers are expressed.**
+  - Its barriers are fractions of C_t, which is known at t: d = 1 − (L − tick)/C_t and
+    u = max(H0/C_t − 1, 1.5 × c_rt).
+  - The labeller applies them to the entry e, as every plan does.
+  - `bounce.label_plan` is `labels.label_day`'s TP/SL/TIME logic with u and d given per row. A
+    unit test pins it to `labels.label_day` on three σ-barrier sets.
+- **Plans left out.**
+  - h1c's no-stop exit: M1's EV needs an SL class, so x60d2 stands in for it.
+  - k_u = 2 at H15 and H30: E5a's S2 traded arms lost more there than at k_u = 1.
+  - The close sets: their EVs rank almost independently of the others' (Spearman 0.0–0.19), and a
+    naive menu picked them for 92% of its candidates.
+
+### 10.4 The arms (five trial lines)
+
+Every arm trades only at true bounces that pass P0's price and open rules. Each uses P0's account
+(fixed basis, 10 slots, cooldown 5), and an entry carries the chosen plan's outcome.
+
+| Arm | Entry | Exit | What it isolates |
+|---|---|---|---|
+| h7_x | every true bounce | x30 (B0's) | the bounce trigger, against B0 and random minutes |
+| h7_chart | every true bounce | chart | the trader's levels against B0's exit, at the same trigger |
+| h7_menu | every true bounce | p* = argmax over plans of g_p(ev_p) | choosing the exit per trade |
+| h7_direct | every true bounce | p̂ = the plan the classifier picks | choosing it with a direct model |
+| h7_menu_ev | a true bounce with h(g_p*(ev_p*)) > 0 | p* | choosing the entry and the exit per trade |
+
+- **Calibration rows** (per fold).
+  - These are every true-bounce minute of the fold's inner-validation days that is filled and
+    passes P0's rules.
+  - Each row carries every plan's ev (from the fold's models) and every plan's realised r_net.
+- **g_p.** An increasing isotonic map from ev_p to r_net_p, fitted on all calibration rows
+  (clipped out of bounds). It puts every plan's EV on one realised scale at bounces.
+- **h.** An increasing isotonic map from g_p*(ev_p*) to r_net_p*, fitted on the calibration rows.
+  It corrects the selection optimism of the max (the winner's curse).
+  - If a fold has fewer than 50 calibration rows, it has no h, and h7_menu_ev selects nothing
+    there.
+- **The direct classifier** (per fold).
+  - LightGBM multiclass (`models.LGB_BASE`, seed `config.SEED`) on S2's features.
+  - Training rows: the true-bounce minutes of the fold's training days that are filled and pass
+    P0's rules.
+  - Label: argmax over plans of r_net_p. Weight: max_p r_net_p − mean_p r_net_p; rows with weight
+    0 are dropped.
+  - p̂ is the plan with the highest predicted probability, among the plans present in training.
+
+### 10.5 Pass rule and controls
+
+- **Bars 1–6: §9.2, unchanged.**
+  - The contrasts are against B0-S2.
+  - Holm runs over the H7 arms that run, on the per-$ one-sided p with 10,000 resamples.
+  - The 150-day bar is decided first by the label-free pre-check: candidate days with a score > 0
+    under P0's rules. For a rule arm the score is 1 at a bounce.
+- **Bar 7, per arm.** No control is a trial line.
+
+  | Arm | Control | Bar 7 |
+  |---|---|---|
+  | h7_x | **C1m-X\*** | paired daily difference vs C1m-X\*: CI lo > 0 |
+  | h7_chart | h7_x | per-$ > h7_x's per-$ |
+  | h7_menu | **random plans** | per-$ > the 95th percentile of its random plans |
+  | h7_direct | random plans | per-$ > the 95th percentile of its random plans |
+  | h7_menu_ev | **random filters** | per-$ > the 95th percentile of its random filters |
+
+  - **C1m-X\*.** Each day it draws the arm's trade count from all eligible rows, bounce or not, at
+    the minutes the arm traded. Rows are admitted in a random order (`config.RANDOM_SEED`) and
+    carry x30's outcomes.
+  - **Random plans.** The arm's trades are held fixed. Each trade's outcome is replaced by a plan
+    drawn from the arm's own plan mix in its fold. 1,000 draws, seed 20261106.
+  - **Random filters.** 1,000 random subsets of h7_menu's trades, with h7_menu_ev's trade count in
+    each fold.
+- **No C4 control.**
+  - A shuffled-label menu would need 6 more model fits per fold.
+  - The two claims are tested directly instead: random plans test the choice of plan, and random
+    filters test the skip rule.
+- **Reported, not binding.**
+  - DSR with N = 367 + the lines logged. PBO is not reported (fewer than 8 arms).
+  - h7_chart against C1m-X\*.
+  - Each arm's exit and plan mix.
+  - The calibration maps.
+  - h7_menu's predicted against realised r_net.
+
+### 10.6 The refit (`run_m_fit`, one heavy job) and the evaluation (`run_m`)
+
+- **Refit, per fold of E5a's six purged folds.**
+  - M1 for x15, x30, x60, x60u2 and x60d2, on E5a's rows (budget 400,000; inner-validation rows as
+    E5a).
+  - The chart plan's M1, trained on bounce rows and validated on inner-validation bounce rows.
+  - The direct classifier.
+  - Each plan's ev on the test bounce rows and the calibration rows.
+  - Every plan's outcomes (cls, r_net, exit_min) on both.
+- **Evaluation.** The arms, the controls, the bars and Holm. It writes the trial lines, MLflow, a
+  report and results.json.
+- **Fidelity (any failure stops before a reading).**
+  1. Full mode: the refit's test ev equals E5a's for x15, x30, x60 and x60u2 on every test row
+     (max |Δ| ≤ 1e-6, NaN in the same rows).
+  2. x30's outcomes on the refit's bounce rows equal E5a's `H30_ku1_kd1_*` columns.
+  3. B0-S2 reproduces its `s3-b0` line.
+  4. The bounce flags the evaluation computes equal the refit's.
+  5. No row after 2022-12-31 is read.
+- **Trial lines.** Experiment `s3-m`: arms h7_x, h7_chart, h7_menu, h7_direct and h7_menu_ev.
+  - There are at most 5. An arm stopped by its pre-check logs no line.
+  - N = 367 + the lines logged.
+- **Smoke.** The refit runs on 2020H1 only, with budget 100,000 and no check 1. The evaluation runs
+  on 2020H1's days with 300 resamples, no lines and no MLflow.
+- **Phase D** runs only on finalists, under its own pre-registration. Phase E needs the user's go.
+
+### 10.7 Predictions (Claude's, before the run)
+
+1. No arm passes.
+2. **h7_x.**
+   - It trades 2–5 times a day on ≥ 600 days.
+   - It loses, with per-$ between −0.9% and −0.2%.
+   - Its paired daily CI vs C1m-X\* includes 0.
+3. **h7_chart.** Its TP share is ≥ 40%, and its per-$ is within ±0.4 pp of h7_x's.
+4. **h7_menu.** It picks an H60 plan (x60, x60u2, x60d2 or chart) for ≥ 60% of its trades. Its
+   per-$ is below its random plans' 95th percentile.
+5. **h7_direct.** Its per-$ is below its random plans' 95th percentile.
+6. **h7_menu_ev.** It fails its pre-check (< 150 days) and logs no line.
+
+### 10.8 Calls made by Claude (review these)
+
+| # | Call |
+|---|---|
+| C1 | The five bounce conditions and their constants are Claude's reading of "true bounce", fixed before any outcome is read. |
+| C2 | The bounce is the trigger, not a filter on B0's entries: B0's score is positive at 139 bounce minutes, on 56 days. |
+| C3 | Six plans. h1c's no-stop exit is replaced by x60d2; k_u = 2 at H15/H30 and the close sets are dropped (§10.3). |
+| C4 | The chart plan's u and d are fractions of C_t, so the EV at t uses no bar after t. |
+| C5 | The calibration rows overlap the rows that fit the σ-plan M1s' isotonic layer, as §9.11 C7. |
+| C6 | No C4 control. The random plans and random filters test the two claims directly. |
+| C7 | The random controls hold the arm's trades fixed. The account is not re-run per draw. |
+| C8 | Every H7 arm uses P0's cooldown-5 account. h1c's "once" rule is not carried over. |
