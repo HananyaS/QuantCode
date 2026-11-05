@@ -1421,3 +1421,71 @@ Every arm trades only at true bounces that pass P0's price and open rules. Each 
 | C6 | No C4 control. The random plans and random filters test the two claims directly. |
 | C7 | The random controls hold the arm's trades fixed. The account is not re-run per draw. |
 | C8 | Every H7 arm uses P0's cooldown-5 account. h1c's "once" rule is not carried over. |
+
+## 10a. G1 review of §10 and the amendments (2026-11-06, before any H7 model or account runs)
+
+- **Review.** A fresh-context adversarial review read §10 against §9.1–§9.2, §9a and §9b, and
+  read `stage3/bounce.py`, its tests and the reused modules (poolpoc at c66d1ed, bounce code
+  uncommitted). It found 1 Critical, 8 Important and 8 Minor findings, and verified seven claims,
+  among them that `bounce.py` matches §10.1 exactly (0 mismatches on 400 name-days) and that
+  nothing at t reads bar t + 1. Its verdict was "run after amendments".
+- **Data.** It read only label-free columns: bars, σ_t, c_rt_pit, the order size at bar t, the
+  bounce flags and levels, and the fold day lists. It read no outcome, fill flag, notional or EV.
+- **Effect.** Every Critical and Important finding changes §10 as below. Where this section and
+  §10.1 to §10.8 differ, this section governs.
+
+### 10a.1 Rulings on the findings
+
+| # | Grade | Finding | Ruling (what changes) |
+|---|---|---|---|
+| 1 | Critical | h7_x's bar 7 can be passed by cost sorting alone. At the same minutes, bounce rows cost 0.43 pp less per round trip than other names (mean c_rt 1.25% vs 1.68%) and their orders are 1.18× larger. | **h7_x's bar 7 = the gross per-$ difference vs C1m-X\***: r_net + c_rt_pit on both sides, paired by day, CI lo > 0. Every arm, B0 and C1m-X\* report **net, cost and gross per $** (cost = notional-weighted c_rt_pit at entry). The daily and net per-$ differences vs C1m-X\* are reported, not binding. |
+| 2 | Important | The trigger re-fires within a name-day. Under cooldown 5, h7_x would trade ≥ 10.7 times a day (before fills), ≥ 54% of them re-entries, and §9b found re-entries are where B0 lost. There are 9,160 bounce episodes (13.4 a day). | **One entry per bounce episode.** An episode is one (name-day, j_L). Its trigger is its first flagged minute (`bounce.episode_first`), and that minute must pass P0's price and open rules; if it does not, the episode has no entry, and no later minute of it stands in. P0's account (cooldown 5, 10 slots) is unchanged. This is Claude's ruling on the user's term (C9). |
+| 3 | Important | h7_chart's bar 7 (per-$ > h7_x's) is a point comparison, about a coin flip under the null, and it mixes the levels with the horizon and the trade set. | **h7_chart's bar 7 = the per-$ difference, chart outcomes minus x60's outcomes, on h7_chart's own trades**, paired by day, CI lo > 0. This holds the trades and the horizon. Reported: the same against x60d2, and h7_chart against h7_x. |
+| 4 | Important | Random plans do not test a menu against its best fixed plan or against a choice driven by the EV's mechanical terms. | **Bar 7 for h7_menu and h7_direct needs all three:** (a) per-$ > its random plans' 95th percentile; (b) per-$ > the **fold's best fixed plan** on the arm's trades (the plan with the highest mean r_net over the fold's filled calibration rows where every plan is finite, `menu.best_fixed`; so no test outcome chooses it); (c) per-$ > the **mechanical menu** on the arm's trades (p\* from maps fitted on each plan's mechanical ev, `models.mechanical_ev` at the plan's training class shares and mean TIME return). Every arm reports **all six fixed plans' per-$ on its own trades**. |
+| 5 | Important | h7_menu_ev's random filters let cost sorting through, and with C4 dropped no null catches it. | **Bar 7 for h7_menu_ev needs both:** (a) per-$ > the 95th percentile of its **random filters**, redefined as 1,000 random admissions of h7_menu's candidates (eligible and scored) at h7_menu_ev's trade count each day, each run through P0's account (`sim.admit`, seed 20261106); (b) per-$ > its **cost twin**, h7_menu's candidates ranked by −c_rt_pit at h7_menu_ev's count each day, through the account (`phase_c.c4_cands`, `phase_c.control`). The twin's net/cost/gross split is reported. |
+| 6 | Important | g_p and h are fitted in-sample on the same rows, so h learns too little shrinkage. The chart M1's isotonic layer was to be fitted on the calibration rows too. | (a) **g_p and h are isotonic fits on equal-count bins of ≥ 100 rows** (`menu.MIN_BLOCK`), on each bin's mean weighted by its count, clipped out of bounds. (b) **h is fitted out of fold**: the calibration days are split into 5 interleaved day-folds, each fold's g_p are refitted on the other four, and h is fitted on the tops so read. The in-sample h is reported beside it. (c) The **chart M1 is validated on every 5th training day**, not on the calibration rows, so no calibration row enters the chart model. The review suggested splitting the calibration days in half; validating on training days keeps every calibration row for g and h. |
+| 7 | Important | The direct classifier's label is ill-defined on exact ties (an estimated 43% of rows tie three ways, 14% four ways). | **Tied plans split the row.** A row whose best r_net is shared by several plans (within 1e-12) contributes one copy per tied plan, each with weight (max − mean)/(number tied). Rows with weight 0 or with any plan's r_net missing are dropped. The tie share of the training rows is reported. |
+| 8 | Important | The chart plan's M1 is under-specified. | **The chart M1.** Training rows: every filled bounce row (episode rule, P0's rules) of the fold's training days except every 5th training day; no stride. Validation rows (its isotonic class layer): the filled bounce rows of every 5th training day. Features: S2's plus the row's **u and d**. `sl_term = "row"`. The refit computes every plan's outcomes on the training bounce rows for the classifier (in memory, not written). |
+| 9 | Important | 8 of 11 single-edit mutants of `bounce.py` passed every test. | **Tests added**, one per mutant: hold of exactly 3 bars, an intermediate high, equal lows, the volume median without bar t, 9 vs 10 volume bars, the tick with f ≠ 1, H0's window anchored at j_L, and the episode rule. All 11 mutants and 3 more for the episode rule are caught (25 tests). |
+| 10 | Minor | C5's overlap is negligible for the σ plans but not for the chart. | Accepted for the σ plans. The chart's overlap is removed by #6(c). |
+| 11 | Minor | The calibration and training populations differ from the traded one. | Adopted with #2. The calibration rows, the chart M1's rows and the classifier's rows are all episode rows. |
+| 12 | Minor | The random-plans draw is under-specified. | A **within-fold permutation** of the arm's plan labels (exact mix), 1,000 draws, seed 20261106. Per-$ is unaffected by overlapping positions. The plan's effect on which trades are admitted is outside this control. |
+| 13 | Minor | No tie-break for p\*. | The first plan in §10.3's order wins a tie. A row missing any plan's ev has no plan. |
+| 14 | Minor | h7_x's row says "random minutes", but C1m-X\* varies the name at the arm's minutes. | Wording: h7_x isolates **the bounce trigger, against B0 and against other names at the same minutes**. No same-name-day control is added. |
+| 15 | Minor | x60d2 and the H60 weight were chosen after Phase C's dev result. | Covered by #4: every arm reports each fixed plan, x60d2 (h1d's exit) among them, on its own trades. Confirmation stays the binding test. |
+| 16 | Minor | Predictions 2 and 6 are settled or biased. | Restated in §10a.3. |
+| 17 | Minor | Code and spec differ when every bar between j_L and t is missing. | §10.1 condition 3 reads as the code does: C_t is above every high of bars j_L + 1 .. t − 1, **and at least one of them is present**. |
+
+### 10a.2 Rulings on what the review declined to judge
+
+- **§10.1 as the reading of "true bounce", and the episode rule (#2).** These are the user's call.
+  Both are reported to the user with the results, and either can be changed for a new
+  pre-registration.
+- **The isotonic block sizes and where h crosses 0** on the real calibration rows. Reported after
+  the run, descriptive.
+- **The fill rate at bounce minutes.** Reported after the run.
+- **The real tie share in the classifier's labels.** Reported by the refit.
+- **S2's features and the K-fold convention.** Inherited; §9a.3 stands.
+- **Runtime and RAM.** Measured by the smokes.
+
+### 10a.3 Predictions, restated before the run
+
+1. No arm passes. (Unchanged.)
+2. **h7_x.** 8–13 trades a day on ≥ 600 days. Per-$ between −1.3% and −0.5%. Its gross per-$ CI
+   vs C1m-X\* includes 0.
+3. **h7_chart.** TP share ≥ 40%. Its paired per-$ CI against x60 on its own trades includes 0.
+4. **h7_menu.** It picks an H60 plan (x60, x60u2, x60d2 or chart) for ≥ 60% of its trades. It
+   fails bar 7: its per-$ is below at least one of its three controls.
+5. **h7_direct.** It fails bar 7 in the same way.
+6. **h7_menu_ev.** It fails its pre-check (< 150 candidate days) and logs no line. If it runs, it
+   fails bar 7.
+- **Lines.** At most 5; N = 367 + the lines logged.
+
+### 10a.4 Calls made by Claude (review these)
+
+| # | Call |
+|---|---|
+| C6 (amended) | No C4 control. Random plans, the best fixed plan and the mechanical menu test the plan choice; random filters and the cost twin test the skip rule. |
+| C8 (amended) | P0's cooldown-5 account, but one entry per bounce episode (#2). |
+| C9 | The unit of "a true bounce" is one episode, (name-day, j_L), entered at its first flagged minute if that minute passes P0's rules. The alternative, every flagged minute under cooldown 5, was §10 as first written. |
+| C10 | The chart M1 is validated on every 5th training day, not on the inner-validation block (#6c). |
