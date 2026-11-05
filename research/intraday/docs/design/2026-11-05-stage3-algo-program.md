@@ -796,8 +796,8 @@
   Every account there still loses.
 - **What persistence changes.**
   - The exit share at ρ_cap falls from 0.97–0.99 (§8b) to 0.35–0.48 (V1) and 0.77–0.86 (V2).
-  - Under V1 the curve no longer dips: from ρ = 0.2 it is at or above B0 in every
-    configuration.
+  - Under V1 the curve barely dips: it is never more than 0.032 %/day below B0 (S2 15 at
+    ρ = 0.1), and from ρ = 0.3 it is at or above B0 in every configuration.
   - The required skill falls from 1 to 0.5–0.75 (V1) and 0.75–1 (V2). That is still 4 to 7 times
     the attained 0.07–0.14, or more on raw IC.
 - **Descriptive.** ev's lag-1 autocorrelation is 0.968 (S1) and 0.977 (S2): the model's view
