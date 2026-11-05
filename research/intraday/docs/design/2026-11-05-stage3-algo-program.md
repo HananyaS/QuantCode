@@ -1141,3 +1141,94 @@
   - h2q: unchanged. Its per-$ is also below its mechanical twin's.
 - **5 (H3).** "h3m1 trades on fewer than 150 days" now means its pre-check stops it, with no line. h3meta: unchanged, if it runs.
 - **Lines.** At most 10, as before.
+
+## 9b. Phase C results (2026-11-05): no arm passes; fewer round trips and the drift gate beat B0 but do not make money
+
+- **Runs.** All four from run4 at poolpoc c66d1ed747ec, after §9a.
+  - Refit full: 3,899 s, 4.17 GB.
+  - Evaluation full: 319 s, 2.65 GB, MLflow 3b6d5d646a364cecb0e3084ab8054c86, 685 days, 2,000 resamples. The Holm contrast used 10,000.
+  - Both smokes ran first (593 s and 104 s) and passed.
+- **Trial lines.** 8 (exp `s3-c`); `trials.jsonl` went from 348 to 356 lines. N = 359 + 8 = **367**.
+- **Fidelity (all pass).**
+  - B0-S2 reproduces its `s3-b0` line.
+  - The X* relabel reproduces E5a's labels.
+  - The stage3 account reproduces B0-S2 exactly.
+  - The refit's ev equals E5a's on all 2,466,000 rows (max |Δ| = 0, identical NaN).
+  - No row after 2022-12-31 is read.
+- **Pre-checks (label-free).**
+  - Candidate days: h1a to h1d 292, h5_drift 199, h5_pnl 189, h3meta 201, h2q 165.
+  - h2q's Spearman is 0.730, under 0.8.
+  - **h2c did not run.** No fold has a cut: every fold's cut is +∞ across 222,008 calibration rows, so it had 0 candidate days.
+  - **h3m1 did not run** (106 candidate days).
+
+### 9b.1 The arms against B0-S2
+
+B0-S2 makes −0.057 %/day [−0.114, +0.001], with per-$ −0.39% [−0.83, +0.04]. It trades 1.54 times a day, on 292 days.
+
+| Arm | %/day [CI] | per-$ % [CI] | trades/day | days | vs B0 %/day (lo) | per-$ vs B0 pp [CI] | p Holm | halves + | 2022 | C1m | C4 | bars failed |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| h1a | −0.005 [−0.049, +0.044] | −0.07 [−0.73, +0.61] | 0.74 | 292 | +0.052 (+0.019) | +0.33 [−0.06, +0.73] | 0.227 | 3/6 | −0.049 | −0.090 | −0.060 | mean, per-$, halves, Holm |
+| h1b | −0.033 [−0.088, +0.018] | −0.27 [−0.73, +0.15] | 1.34 | 292 | +0.023 (+0.003) | +0.13 [−0.02, +0.28] | 0.227 | 1/6 | −0.091 | −0.180 | −0.113 | mean, per-$, halves, Holm |
+| **h1c** | **+0.036** [−0.019, +0.092] | **+0.52** [−0.28, +1.33] | 0.74 | 292 | +0.092 (+0.055) | **+0.91** [+0.38, +1.47] | **0.002** | 2/6 | −0.040 | −0.078 | −0.066 | per-$, halves |
+| h1d | +0.023 [−0.046, +0.091] | +0.22 [−0.47, +0.90] | 1.11 | 292 | +0.080 (+0.039) | +0.62 [+0.22, +0.99] | **0.007** | 2/6 | −0.071 | −0.133 | −0.093 | per-$, halves |
+| **h5_drift** | +0.001 [−0.047, +0.049] | +0.01 [−0.44, +0.51] | 1.11 | 199 | +0.058 (+0.026) | +0.41 [+0.16, +0.70] | **0.004** | 2/6 | −0.037 | (−0.116) | (−0.081) | per-$, halves |
+| h5_pnl | −0.024 [−0.075, +0.026] | −0.23 [−0.72, +0.28] | 1.12 | 189 | +0.033 (+0.007) | +0.17 [−0.06, +0.40] | 0.227 | 1/6 | −0.021 | (−0.115) | (−0.095) | mean, per-$, halves, Holm, gates |
+| h2q | −0.063 [−0.084, −0.045] | −0.56 [−0.70, −0.42] | 1.29 | 165 | −0.007 (−0.065) | −0.17 [−0.60, +0.27] | 1.000 | 0/6 | −0.039 | −0.114 | −0.102 | mean, vs B0, per-$, halves, Holm |
+| h3meta | −0.048 [−0.084, −0.015] | −0.65 [−1.15, −0.19] | 0.78 | 201 | +0.009 (−0.048) | −0.25 [−0.80, +0.28] | 1.000 | 1/6 | −0.035 | −0.099 | −0.058 | mean, vs B0, per-$, halves, Holm |
+
+- **Reading the table.**
+  - "halves +" counts the half-years with a positive daily mean.
+  - For H5, C1m and C4 are in brackets: they are reported, not binding (§9a #4).
+  - Every arm that ran beats its C1m and C4. H5's binding control is its random gates: h5_drift's per-$ is above **99.8%** of its 1,000 random gates (q95 −0.14%), and h5_pnl's above 69.6% (q95 −0.09%).
+- **No arm passes §9.2, so there are no finalists.** No combined arm runs (§9.8), and Phase D does not run.
+- **The three near misses.** h1c, h1d and h5_drift pass every bar except two:
+  - per-$ CI lo > 0;
+  - ≥ 5 of 6 half-years positive. Each is positive only in **2020H1 and 2021H1**.
+- **Half-years (%/day).**
+  - h1c: +0.209, −0.031, +0.145, −0.008, −0.049, −0.030.
+  - h1d: +0.284, −0.040, +0.118, −0.061, −0.087, −0.054.
+  - h5_drift: +0.104, −0.063, +0.063, −0.007, −0.040, −0.034.
+
+### 9b.2 Descriptive reads
+
+- **H5.**
+  - On-days: h5_drift 429 of 685, h5_pnl 384 of 685.
+  - On-share of traded test days by fold: h5_drift 0.48 to 0.85, h5_pnl 0.30 to 0.82. In 2022H1 h5_pnl was on for only 30% of traded days.
+  - Forward-only read (gates refitted on earlier days only; 2021H1 to 2022H2; on-share 0.64 and 0.30):
+    - h5_drift: B0's per-$ is −0.18% on its on-days against −0.58% on all days.
+    - h5_pnl: −0.35% against −0.58%.
+- **h2q.**
+  - Trade count against B0 by fold: 0.39, 1.28, 0.58, 2.43, 0.27, 1.92.
+  - Cost per $: 0.65% against B0's 1.23%.
+  - It beats its mechanical twin (per-$ −0.56% against −0.89%) but not the F0-ev twin at its own count (−0.26%). At equal count, ranking by q̂₀.₃₅ is worse than ranking by ev.
+- **H3.** The rule alone makes −4.72 %/day at 38 trades a day. Events fire on 20.5% of real minutes against 32.0% on the replay.
+- **B0's re-entries.** B0's first entries of a name-day average −0.01% r_net per trade (504 trades). Its re-entries average −0.70% (551 trades). By §9a #14 this is h1a's own result, read on B0's trades.
+- **Overfitting.** Every DSR is < 0.04 (N = 367). PBO is 0.092 over the 8 arms.
+
+### 9b.3 Predictions (§9.10 as amended by §9a.4)
+
+- **1 (no arm passes)**
+  - **Held:** no arm passes.
+  - **Wrong:** I also said no Holm p < 0.05. Three arms are under it: h1c 0.002, h5_drift 0.004 and h1d 0.007.
+- **2 (H1)**
+  - **Held:** h1a trades 0.74 times a day. All four arms have paired daily CI lo > 0. None has per-$ CI lo > 0.
+  - **Wrong:** I said every H1 account loses −0.10 to −0.01 %/day with per-$ −0.8% to −0.2%. Only h1b falls in those ranges. h1c and h1d have positive means.
+- **3 (H5)**
+  - **Held:** both gates pass the pre-check, with about 200 days. Neither has per-$ CI lo > 0. h5_pnl is within ±0.3 pp of B0 and below its q95.
+  - **Wrong:** h5_drift is +0.41 pp from B0 and at the 99.8th percentile of its random gates.
+- **4 (H2)**
+  - **Held:** h2c has no cut and no line. h2q's Spearman is 0.73, and it loses with per-$ −0.56%.
+  - **Wrong:** I said h2q would fall below its mechanical twin. It is above it.
+- **5 (H3)**
+  - **Held:** h3m1 was stopped by its pre-check. h3meta loses with per-$ −0.65%. The rule alone loses −4.72 %/day.
+  - **Wrong:** the replay's event rate is +56% of the real one, not within 30%.
+- **Overall.** I was right that nothing passes, and too pessimistic about how much H1 and H5 improve on B0.
+
+### 9b.4 What it changes (post-hoc; decides nothing)
+
+- **Two levers improve on B0 per dollar, beyond chance after Holm.**
+  - **Fewer round trips.** h1c takes one entry per name-day and holds it 60 minutes with no stop: +0.91 pp per $ vs B0. h1a has the same 504 entries and B0's exit, and gains only +0.33 pp. So most of h1c's gain comes from the exit (no stop, longer hold), not from dropping re-entries.
+  - **The drift day gate** (h5_drift): +0.41 pp per $ vs B0.
+- **Neither makes the account profitable.** The best arm, h1c, makes +0.036 %/day [−0.019, +0.092] with per-$ +0.52% [−0.28, +1.33]. Its gains are concentrated in 2020H1 and 2021H1, and 2022 is negative for every arm.
+- **The model-side levers do not help.** h2q, h2c, h3m1 and h3meta show no gain on B0.
+- **Under §9.2 the dev screen produces no finalist.** Phase D does not run, and Phase E has nothing to confirm. What comes next is the user's decision (§9.9).
