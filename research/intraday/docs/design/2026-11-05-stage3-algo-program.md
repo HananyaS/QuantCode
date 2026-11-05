@@ -266,7 +266,7 @@
 
 ## 5. Later phases (each pre-registered here before it runs)
 
-- **Phase A.** Required-skill curves (ρ·rank + noise; a myopic exit oracle minus its martingale
+- **Phase A (pre-registered in §8).** Required-skill curves (ρ·rank + noise; a myopic exit oracle minus its martingale
   value); the allocation rule (ρ* ≤ 2 x attained skill, and an effect ≥ the paired MDE); and the
   label-free indicator-redundancy check.
 - **Phase C (hypotheses in order).**
@@ -420,3 +420,160 @@
   - Paths that tick up in a trade's last 5 to 10 minutes keep rising, by +0.2 to +0.9% to T+1.
   - Paths that don't tick up end 1.3 to 3.4% below the limit.
   - Phase A's myopic exit oracle (H4's gate) should therefore be read first.
+
+## 8. Phase A pre-registration (2026-11-05, after A0's D3; before any Phase A code runs)
+
+- **Why.** A0 found real gross on the model's selected minutes that stops about 0.2 pp short of
+  the round trip (§4b.8). It could be closed by better ranking (entry) or better timing (exit).
+  Phase A measures, without spending trial lines, how much skill each lever needs and how much
+  we have, and so decides which conditional hypotheses Phase C runs.
+- **Inputs.** As §4: c7878's E5a predictions (685 test days, 6,850 P1 name-days), the relabel
+  context cut to them, B0-S1 and B0-S2 with their policies (§3). X* is H30 (2,1) for S1 and
+  H30 (1,1) for S2.
+- **Code.** `stage3/oracle.py` (targets, the oracle rule, the exit relabel), `stage3/replay.py`
+  (the random-walk replay), `stage3/skill.py` (the entry reassignment, correlations, required
+  skill, allocation), `stage3/indicators.py`, `stage3/run_a.py`.
+
+### 8.1 Shared definitions
+
+- **Candidates of s.** `C_s` = the B0 frame's rows with `ev_s > 0` that pass B0's price and open
+  rules (`e6.price_mask`) and have a finite `r_net`.
+- **Held pairs.** (t, k) with t in `C_s`, t+1 ≤ k ≤ T_t − 1 and k < the static label's exit_min.
+  "Exit after bar k" means a market sell at the open of the first present bar j ≥ k+1, at
+  O_j(1 − h_j). If no bar is present in k+1..T_t, the TIME exit applies.
+- **Pass set Π for an arm.** Daily mean > 0, paired daily CI lo > 0 vs its B0, and per-$ CI
+  lo > 0 (§6's first three bars; NaN fails).
+- **Required skill ρ\*.** The smallest grid ρ whose oracle arm is in Π; "none" if no grid ρ is.
+- **CIs.** Whole days resampled, 2,000 resamples, seed 20261027 (smoke: 300).
+
+### 8.2 A.1 Exit skill (first)
+
+- **Targets per held pair** (O\*(j) is the open of the first present bar ≥ j; C\*(j) the close of
+  the last present bar ≤ j; σ_k is `sig` at minute k; values clipped to ±6; NaN where a price or
+  σ is missing):
+  - **m = 5, 15 (myopic):** x = ln(O\*(k+1+m)/O\*(k+1)) / (σ_k √m). It depends on (name-day, k)
+    only.
+  - **m = rest (continuation; H4's target):** D = (P_static − O\*(k+1)(1 − h))/e_t, plus imp_t when
+    the static exit is TP. That is the static label's r_net minus exiting after bar k. Then
+    x = D / (σ_t √(T_t − k)).
+- **Prior.** μ and sd of x over the held pairs of `C_s`, per (s, m).
+- **The oracle.**
+  - It observes y = ρ·(x − μ)/sd + √(1 − ρ²)·ε, with ε ~ N(0, 1). For m = 5 and 15, one draw per
+    (name-day, k), shared by every trade holding bar k; for rest, one per (name-day, t, k).
+  - It exits after the first held bar k with μ + sd·ρ·y < 0 (the posterior mean of x is
+    negative). A NaN target never exits.
+  - At ρ = 1 it exits when x < 0. At ρ = 0 it never exits when μ ≥ 0, so the curve starts at B0.
+  - The noise is drawn once per (s, m) with a fixed seed and reused at every ρ.
+- **The relabel** (`oracle.label_day_exit`). Each filled row gets the oracle's flags. Before the
+  exit bar, SL and TP run as in `labels.label_day`. In the exit bar the open comes first. The
+  class is ORACLE (4) and it pays comm + 2·imp. Rows outside `C_s` get flags too, because the
+  account may take them.
+- **Grid.** ρ in {0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1}, for m in {5, 15, rest} and s in {S1, S2}.
+  That is 48 relabels.
+- **Arms.** Each relabel goes into the B0 frame (r_net, exit_min, cls) under B0's policy, through
+  `e6.run_arm`. Reported against B0: the paired daily difference, the per-$ difference and the
+  days that differ. Also reported, on B0's own trades, the mean r_net(oracle) − r_net(B0).
+- **Attained exit skill.**
+  - **Signals at bar k:**
+    - mom5 and mom15: ln(C\*(k)/C\*(k − m'))/(σ_k √m');
+    - pnl: ln(C\*(k)/e_t)/(σ_t √(k − t));
+    - ev: `ev_s` at (name-day, k), defined for k ≤ 360.
+    - All are clipped to ±6.
+  - **IC** = the pooled Pearson correlation of a signal with x over held pairs where both are
+    finite, with a day-clustered CI.
+  - **Null.** The same IC on one random-walk replay (`replay.random_walk_bars`, seed 20261105).
+    - Each name-day's present bars are redrawn i.i.d. with replacement from its own present
+      bars. Each bar carries its gap from the previous close, its body, its high and low
+      relative to its open, and its volume. Missing minutes and the first open are kept.
+    - σ, spreads, costs, notional and ev stay as they are.
+    - On the replay, the static labels, the held pairs, x and the path signals are recomputed.
+      `C_s` keeps the same rows.
+  - **Net IC** = IC − null IC, with days resampled jointly.
+  - **ρ_att(s, m)** = the largest |net IC| over the four signals (point estimate).
+
+### 8.3 A.2 Entry skill
+
+- **Eligible rows** of day d: `E_d`, the rows passing B0's price and open rules with finite r_net.
+- **The oracle score** q = ρ·ns_d(r_net) + √(1 − ρ²)·ε. Here ns_d is the within-day normal score
+  ((rank − 0.5)/n through Φ⁻¹), and ε is one N(0, 1) draw per row (seed fixed per s, reused at
+  every ρ).
+- **Reassignment.** The day's ev values over `E_d`, sorted, are reassigned by q's order: the
+  highest q gets the highest ev. So the count of ev > 0 rows per day is B0's, and only which rows
+  carry them changes. Then B0's policy, through `e6.run_arm`.
+- **Grid.** ρ in {0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1}, for S1 and S2.
+- **Attained entry skill ρ_eq(s).** The oracle skill whose account matches B0's: the smallest
+  grid ρ whose daily mean ≥ B0's, linearly interpolated with the grid point below it. It is 0 if
+  ρ = 0 already matches.
+- **Also reported:** M1's within-day IC, the mean over days of corr(ns_d(ev), ns_d(r_net)) on
+  `E_d`, with a CI.
+
+### 8.4 Allocation (binding)
+
+- **Per configuration c,** ρ_cap(c) = min(1, 2·ρ_att(c)). The oracle runs once more at exactly
+  ρ_cap(c), with the same noise.
+- **A lever enters Phase C iff at least one of its configurations is in Π at ρ_cap.**
+  - The exit lever (H4) has configurations {S1, S2} x {5, 15, rest}, with ρ_att from §8.2.
+  - The entry lever (H2 and H3) has configurations {S1, S2}, with ρ_att = ρ_eq.
+- **Always in Phase C:** H1 (a) to (d) and H5. H6 and H1(e) are out (§4b.6).
+
+### 8.5 A.3 Indicator redundancy (label-free)
+
+- **Indicators at decision minute t,** on the day's bars ≤ t, with the close carried forward over
+  missing minutes. A missing high or low is that carried close.
+  - RSI(14): Cutler's, simple means of up and down moves over the last 14 changes (50 if flat).
+  - Bollinger %b(20, 2) and bandwidth 4·SD20/SMA20 (population SD).
+  - MACD histogram (12, 26, 9): EMAs from the day's first bar, divided by the close at t.
+  - Stochastic %K(14) on highs and lows, and %D(3), the mean of the last three %K.
+- **ORB distance and swing S/R** are F1 features already (`or5/15/30_dist`, `swing_hi/lo_dist`),
+  so the check covers the six outputs above.
+- **Rows.**
+  - Test rows with t in [35, 360] and all six indicators finite.
+  - 300,000 rows sampled (seeded) from folds 2020H1 to 2021H1 for training, and 150,000 from
+    2021H2 to 2022H2 for testing.
+  - The 102 S2 features come from the cached `panel3_p1` that E5a used.
+- **Model.** One LightGBM regressor per indicator on the 102 features: 500 trees, learning rate
+  0.05, 63 leaves, min_child_samples 200, seed 20261027, deterministic. The metric is R² on the
+  test rows.
+- **Reading.** If any indicator's R² < 0.5, one add-one refit enters Phase C: S2 plus every
+  indicator under 0.5, with M1 as in E5a on the same folds and X*. Otherwise the family is
+  closed.
+
+### 8.6 Fidelity (any failure stops Phase A before a reading)
+
+1. B0-S1 reproduces c7878's `e5a` line, and B0-S2 reproduces the `s3-b0` line (0062e2a6b777).
+2. The exit relabel with no flags reproduces E5a's cls, exit_min and r_net at both X* (§3
+   check 2), and its account reproduces B0 exactly.
+3. The entry reassignment with q = ns_d(ev) reproduces B0's daily series exactly.
+4. No row after 2022-12-31 is read.
+
+### 8.7 Trial lines and smoke
+
+- **No trial lines.** Every Phase A arm acts on realised outcomes, so none can become a finalist.
+  The arms are logged in results.json and MLflow. N stays 359.
+- **Smoke:** the first fold's days, 300 resamples, ρ in {0, 0.3, 1}, m in {5, rest}, an indicator
+  sample of 20,000 and 10,000 rows, no MLflow.
+
+### 8.8 Predictions (Claude's, before the run)
+
+1. μ > 0 for every (s, m): selected trades drift up while held.
+2. ρ_att ≤ 0.05 for every (s, m). For rest, pnl's raw |IC| is ≥ 0.05, and the null removes at
+   least half of it.
+3. At ρ = 1 every exit configuration is in Π. Where ρ\* exists for an exit configuration, it is
+   between 0.2 and 0.5.
+4. H4 does not enter.
+5. The entry oracle at ρ = 0 loses more than B0 in both feature sets. ρ_eq is 0.02 to 0.10, ρ\* is
+   0.15 to 0.30, and H2 and H3 do not enter.
+6. At least one indicator has R² < 0.5, so the add-one refit enters. At least four of six have
+   R² ≥ 0.5.
+
+### 8.9 Calls made by Claude (review these)
+
+| # | Call |
+|---|---|
+| A1 | The martingale subtraction sits on the attained skill, not on the oracle. An oracle's value at a given ρ measures foresight, so subtracting its replay value would measure nothing. The null removes mechanical correlations, such as P&L so far against what is left under barrier geometry. |
+| A2 | The replay draws bars with replacement (a random walk). A permutation fixes the day's total, which builds in a correlation of about −m/390 between adjacent m-minute windows. |
+| A3 | The entry's attained skill is ρ_eq, the oracle skill that matches B0's account, not the raw IC. Rank IC on barrier outcomes moves with σ and cost without mean information. |
+| A4 | The Bayes rule with the held-trade prior makes ρ = 0 equal B0 when μ ≥ 0, so a weak oracle does not exit on noise. |
+| A5 | The rest target (continuation value) is added beside the plan's 5- and 15-minute myopic oracles, because it is H4's training target. |
+| A6 | The allocation's 2x uses the point estimate of attained skill, which is generous to the lever. |
+| A7 | Phase A arms are not trial lines (§8.7). |
