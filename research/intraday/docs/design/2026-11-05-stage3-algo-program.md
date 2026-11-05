@@ -269,7 +269,7 @@
 - **Phase A (pre-registered in §8; results in §8b).** Required-skill curves (ρ·rank + noise; a myopic exit oracle minus its martingale
   value); the allocation rule (ρ* ≤ 2 x attained skill, and an effect ≥ the paired MDE); and the
   label-free indicator-redundancy check.
-- **Phase C (hypotheses in order).**
+- **Phase C (hypotheses in order; pre-registered in §9).**
   - H6 passive exits;
   - H1 fewer round trips: arms (a) to (d), and (e) if A0.5 allows;
   - H5 day gate;
@@ -809,3 +809,270 @@
     against a −0.07 %/day account.
   - The exit side's lever is the round-trip count (H1), not timing. Phase C runs H1 (a) to (d),
     H5, H2 and H3.
+
+## 9. Phase C pre-registration (2026-11-05, after §8d; before any Phase C code runs)
+
+- **Why.** §8b.3 and §8d allocate H1 (a) to (d), H5, H2 and H3 to Phase C. The user said "Run
+  all" (2026-11-05): pre-register them, review the design (G1), run them, and run Phase D on any
+  arm that passes. Confirmation (Phase E) still needs its own go.
+- **One feature set, one B0.** Every Phase C arm is B0-S2 with one set of changes:
+  - the frame `F0 = frame_e5a(pa, "H30_ku1_kd1", "s2")`, i.e. S2's EV at its X* = H30 (1,1);
+  - the policy `P0 = Policy(skip_open=True)`;
+  - B0-S2 is −0.057 %/day (CI −0.114..+0.001), per-$ −0.39%, 1.54 trades/day, 292 traded days of
+    685.
+  - B0-S2 beats B0-S1 on both bars, and one B0 halves the lines (call C1).
+- **A structural fact the arms rely on.** P1 has exactly 10 name-days per day (all 727 dev days),
+  and the account has 10 slots with one position per symbol. So slots never bind: each
+  name-day's trades are a sequence set by its own rows, the cooldown and its exits. "The freed
+  slot buys another round trip" (§8b.6) means the same name re-entering.
+- **Code.** `stage3/account.py` (the no-re-entry-after-stop account), `stage3/phase_c.py` (arms,
+  controls, the pass rule), `stage3/daygate.py` (H5), `stage3/select.py` (H2), `stage3/events.py`
+  (H3), `stage3/run_c_fit.py` (the refit, §9.7) and `stage3/run_c.py` (the evaluation).
+
+### 9.1 Shared definitions
+
+- **An arm** is a frame with F0's rows and columns, its own outcomes (`cls`, `exit_min`,
+  `r_net`) and its own score in the `ev` column, run through an account:
+  - candidates = score > 0, P0's price and open rules (`e6.price_mask`), a finite r_net;
+  - a score of NaN means "not eligible" (an H5 off-day, an H3 non-event minute, an H2 row not
+    selected);
+  - the account is `sim.run_account` (fixed basis, 10 slots, cooldown 5) unless the arm says
+    otherwise.
+- **Re-entry rules.**
+  - *cool5:* B0's 5-minute cooldown.
+  - *once:* one entry per name-day, i.e. `sim.run_account` with a cooldown of 10,000 minutes.
+  - *nosl:* `stage3.account.run_account`, which is `sim.run_account` plus one rule: after a trade
+    whose class is SL, that symbol takes no new entry that day. With the rule off it returns
+    `sim.run_account`'s trades and daily series exactly (a unit test on random candidates, and
+    fidelity check 3).
+- **Reported per arm.**
+  - The daily mean with its CI, per-$ with its CI, trades/day and traded days.
+  - Against B0-S2: the paired daily difference (CI, p) and the paired per-$ difference (CI and a
+    one-sided p = (1 + #{resampled differences ≤ 0}) / (R + 1)).
+  - The mean in each half-year (the six folds), the 2022 mean and the difference vs SPY
+    open-to-close.
+- **Controls per arm.** None is a trial line, because none can become a finalist.
+  - *C1m* (§6's C1, matched on minute of day). For each day d, n_d rows, where n_d is the arm's
+    trade count that day. They are drawn from the day's filled rows that pass P0's price and open
+    rules, at the minutes t at which the arm traded that day (any of the day's names). They are
+    admitted in a uniform random order (seed `config.RANDOM_SEED`) under the arm's cooldown, with
+    the arm's own outcomes.
+    - A nosl arm's C1m uses cooldown 5, because `sim.admit` has no stop rule.
+  - *C4:* n_d rows of the arm's frame admitted by descending F0 ev (`sim.admit`), under the arm's
+    cooldown. It uses the whole day's ev, so it is a hindsight-count control, not a policy.
+  - *shift1* (§4.6, case D3): the arm with its score lagged one minute within the name-day
+    (`run_a0.shifted`). It is reported as the arm's one-minute-delay control.
+- **CIs.** Whole days resampled, 2,000 resamples, seed 20261027 (smoke: 300).
+
+### 9.2 Pass rule (§6 made exact; every bar must hold)
+
+1. Daily mean > 0 (point estimate).
+2. Paired daily difference vs B0-S2: CI lo > 0.
+3. Per-$: CI lo > 0.
+4. ≥ 150 traded days.
+5. ≥ 5 of the 6 half-year means > 0.
+6. **Holm.** Each arm's primary contrast is its paired per-$ difference vs B0-S2, with the
+   one-sided p of §9.1. The p-values of every arm that runs are Holm-adjusted together, and the
+   arm's adjusted p must be < 0.05.
+   - Per-$ is primary because several arms trade less than B0, and against a losing B0, trading
+     less raises the daily mean by itself (bar 2 alone would reward it).
+7. Paired daily difference vs C1m: CI lo > 0. Daily mean > C4's.
+
+- **Reported, not binding.** These bind at confirmation (decision 3):
+  - DSR with N = 359 + this phase's lines and V[SR] = 1/(T − 1)
+    (`research.penny.eval.stats.deflated_sharpe_ratio`);
+  - PBO (CSCV, 16 blocks, `research.penny.eval.battery.pbo_cscv`) over the arms that run, if
+    there are ≥ 8;
+  - shift1 and 2022.
+- **After the rule.** A passing arm is a finalist and goes to Phase D (§9.9). If two or more
+  pass, one combined arm runs (§9.8).
+
+### 9.3 H1: fewer round trips (4 lines, no refit)
+
+- **Entry.** F0's ev > 0 under P0 (B0's entry, unchanged).
+- **Exit.** Relabelled through `run_a.relabel` with no flags, i.e. `labels.label_day`'s rules,
+  on the 6,850 test name-days.
+
+| Arm | Barrier | Re-entry |
+|---|---|---|
+| `h1a` | H30 (1,1), X* | once |
+| `h1b` | H30 (1,2): the stop at 2σ√(T−t) | nosl |
+| `h1c` | H60 (1,∞): no stop | once |
+| `h1d` | H60 (1,2) | nosl |
+
+- **Adaptations from the plan's arms.**
+  - S2's X* has k_u = 1, so the plan's k_u = 2 becomes 1 (call C2).
+  - k_d = ∞ is `labels.Barrier(60, 1, inf)`: the stop price is −∞, so no SL ever fires (a unit
+    test).
+  - The H60 arms keep X*'s ev as their score: only the exit and the re-entry rule change, not
+    the entry (call C3).
+- **Kill test (the plan's).** C1m with the arm's exit and count (bar 7), the half-year sign test
+  (bar 5), and 2022 read separately.
+- **Descriptive (decides nothing).** In B0-S2, the share of trades that are a name-day's first
+  entry, and the mean r_net of first entries vs re-entries.
+
+### 9.4 H5: the day gate (2 lines, a small model per fold)
+
+- **Timing.** The gate is set at decision minute 14 (bars ≤ 14, 09:30 to 09:44). That is P0's
+  first allowed decision, whose entry is the 09:45 open.
+  - On an "on" day the arm trades exactly as B0. On an "off" day it takes no trade.
+  - Because slots never bind, the gated arm's trades are B0's trades on its on-days.
+- **Day features (17), all at t = 14.**
+  - Twelve F5 columns from E5a's `panel3_p1`: `spy_ret_open`, `qqq_ret_open`, `iwm_ret_open`,
+    `qqq_ret_d1`, `qqq_tr5`, `qqq_tr20`, `vix_d1`, `vix_chg_d1`, `br_above_open`,
+    `br_med_ret_open`, `br_new_hod5` and `br_disp`. They are equal across a day's names.
+    `spy_r15` and `iwm_r15` are dropped: they are NaN at t = 14.
+  - The means over the day's 10 names of `ret_open`, `pm_gap`, `gap_atr`, `crvol` and `s_model`
+    (NaN ignored).
+  - A missing feature takes the training days' median.
+- **Targets (one arm each).**
+  - `h5_pnl`: 1[B0-S2's day return > 0], fitted on B0's traded days only. B0's daily returns come
+    from E5a's out-of-fold predictions, so the training days are the fold's training dates that
+    are test days of another fold.
+  - `h5_drift`: 1[the pool's drift > 0]. The drift is the mean over the day's names of
+    ln(C\*(389)/O\*(15)): from the 09:45 open to the last close. It is fitted on every training
+    date of the fold, 2017 to 2019 included.
+- **Model.** `LogisticRegression(C=1.0)` (L2, lbfgs, max_iter 2000) on features standardised with
+  the training days' means and SDs, refitted per fold on `Fold.train`.
+- **Threshold.** A day is on iff p̂ ≥ the 40th percentile of p̂ over the fold's training days, so
+  about 60% of days are on.
+  - B0 trades on 292 days, so about 60% keeps bar 4 (≥ 150 traded days) reachable (call C5).
+- **Extra control (descriptive).** 1,000 random gates, each with the arm's on-day count in each
+  fold (seed 20261108). Reported: the arm's per-$ percentile among them.
+- **Leakage note (call C6).** B0's daily returns on training days come from M1 models that were
+  fitted with the test fold's labels (E5a's K-fold), so `h5_pnl` has a second-order path from
+  the test fold. `h5_drift` does not.
+
+### 9.5 H2: selection-aware entry (up to 2 lines, from the refit in §9.7)
+
+- **`h2q` (the plan's (b)).**
+  - The score is a LightGBM quantile regression of r_net at X*, with α = 0.35.
+    - It uses S2's 102 features and E5a's training draw (budget 400,000 filled rows, E5a's seed
+      `config.SEED` = 7).
+    - Parameters: `models.LGB_BASE` (300 trees, learning rate 0.05, 31 leaves,
+      min_child_samples 200, deterministic) with `objective="quantile"` and `alpha=0.35`.
+  - The rule: enter iff q̂ > τ_f.
+    - τ_f is set per fold on its inner-validation rows that pass P0's rules and are filled. It is
+      the value that leaves the same share of those rows above it as ev > 0 does.
+    - So h2q trades about as often as B0 and differs in which rows it picks. The score column is
+      q̂ − τ_f.
+  - **Pre-check (label-free, on test).** The mean over days of the within-day Spearman
+    correlation of q̂ with F0's ev, on rows passing P0's rules. h2q runs only if it is < 0.8.
+    Otherwise it is close to B0 and costs a line for nothing.
+- **`h2c` (the plan's (c)): conformal selection (Jin & Candès 2023, cfBH).**
+  - *Calibration:* the fold's inner-validation rows that pass P0's rules and are filled, scored
+    with the refit's ev (the same model as E5a's).
+  - *Null* for a test row j: r_net_j ≤ 0. Its p-value is
+    p_j = (1 + #{i in calibration: r_net_i ≤ 0 and ev_i ≥ ev_j}) / (n_cal + 1).
+  - *Selection:* BH at α = 0.1 within each decision minute (date, t), across that minute's
+    eligible rows (≤ 10 names).
+    - BH within the minute is deployable: the cross-section at t is known at t.
+    - BH over a fold or a whole day is not deployable, because it uses later minutes.
+  - The score is 1 on selected rows and NaN elsewhere.
+  - **Pre-check (label-free, on test).** The selected rows fall on ≥ 150 distinct days. h2c runs
+    only if so.
+  - The calibration rows also fit M1's isotonic calibration (E5a's design). So calibration is
+    not independent of the model, and the FDR reading is approximate (call C7).
+- **Cut:** EV recalibration and shrinkage of θ. They are E6's θ sweep, which failed.
+
+### 9.6 H3: setups and meta-labeling (2 lines)
+
+- **Events.** `controls.rule_signals` on the context's bars, with `run_e1.assemble`'s inputs: the
+  pre-open high, and rvol from the 2017–2019 volume curve.
+  - A minute t of a name-day is an event iff any of the five rules fires at t: `orb15`,
+    `orb15_rvol`, `vwap_reclaim`, `pmh_break`, `hod_break`.
+  - The setup id is the five rule flags.
+- **`h3m1`.** F0's ev > 0, at event minutes only. No refit.
+- **`h3meta`.** The meta-model is M1 (`models.fit("m1")`, E5a's `sl_term`), fitted per fold:
+  - on the filled event rows of the fold's training dates (capped at 400,000 by
+    `run_e2.budget_rows`), at X*'s labels;
+  - with S2's 102 features plus the five rule flags;
+  - with isotonic calibration on the inner-validation event rows.
+  - It predicts the test event rows. The score is ev_meta at events, NaN elsewhere.
+- **Descriptive controls.**
+  - *Rule alone:* every event minute under P0, through the account (as Stage 2m's C3).
+  - *The martingale null of the rule's base rate:* the event rate per name-day on one
+    random-walk replay (`replay.random_walk_bars`, seed 20261105) vs the real bars.
+
+### 9.7 The refit (`run_c_fit`, one heavy job)
+
+- **E5a's pipeline.**
+  - The panel and folds come from `run_e5._panel_and_folds`, and X*'s labels from
+    `e5.set_labels` through `e5.swap_labels`.
+  - Per fold: `va = run_e1._fit_rows(p1, fold.inner_val, seed)` and
+    `tr = run_e2.budget_rows(p1, fold.train, 400,000, seed)`, both with E5a's seed `config.SEED` = 7.
+- **Per fold, three fits.**
+  1. M1 on S2 at X*: ev for the test rows (fidelity check 4) and the inner-validation rows (H2c).
+  2. q̂ at α = 0.35: test rows and inner-validation rows (h2q's τ_f).
+  3. The H3 meta-model.
+- **Also built:** the day-feature table for all 727 dev days, from the panel at t = 14.
+- **Outputs.** In `stage2m/<sha12>/s3-c-fit[-smoke]/`:
+  - `predictions_c.parquet`: KEY, ev_refit, q35, ev_meta and the five rule flags;
+  - `calib.parquet`: the inner-validation rows with fold, KEY, ev, q35, r_net and cls;
+  - `days.parquet`;
+  - `results.json`.
+
+### 9.8 The combined arm (only if two or more arms pass)
+
+- One arm applies the passing arms' changes together: an H1 exit and re-entry rule, the H5 gate,
+  and an H2 or H3 entry.
+  - If two passers change the same component, the one with the larger per-$ difference vs B0 is
+    used.
+- It is one more trial line, under the same pass rule, with the Holm family grown by one.
+
+### 9.9 Fidelity, trial lines, smoke and Phase D
+
+- **Fidelity (any failure stops Phase C before a reading).**
+  1. B0-S2 through `e6.run_arm` reproduces the `s3-b0` line (max |Δ| < 1e-12).
+  2. The no-flag relabel at X* reproduces E5a's cls, exit_min and r_net (§8.6 check 2).
+  3. `stage3.account.run_account` with the stop rule off reproduces B0-S2's trades and daily
+     series exactly.
+  4. Full mode: the refit's test ev equals E5a's `H30_ku1_kd1_s2_ev` on every row
+     (max |Δ| ≤ 1e-6).
+  5. No row after 2022-12-31 is read.
+- **Trial lines.** Experiment `s3-c`, arms `h1a`, `h1b`, `h1c`, `h1d`, `h5_pnl`, `h5_drift`,
+  `h2q`, `h2c`, `h3m1` and `h3meta`.
+  - At most 10 lines, plus 1 if the combined arm runs. An arm stopped by its pre-check runs no
+    account and logs no line.
+  - N = 359 + the lines logged.
+- **Smoke.**
+  - The refit runs on fold 2020H1 only, with budget 100,000; check 4 is skipped.
+  - The evaluation runs on fold 2020H1's days with 300 resamples, no lines and no MLflow.
+- **Phase D.** It runs only on finalists. Its checks (§5's list) are pre-registered after Phase
+  C's results and before they run. If no arm passes, Phase C reports and the user decides what
+  comes next.
+
+### 9.10 Predictions (Claude's, before the run)
+
+1. **No arm passes §9.2.** No arm's Holm-adjusted per-$ p is < 0.05.
+2. **H1.**
+   - Every H1 account loses: daily mean −0.10 to −0.01 %/day, per-$ −0.8% to −0.2%.
+   - h1a trades 0.6 to 0.9 times a day.
+   - At least one H1 arm has paired daily CI lo > 0 vs B0, by trading less.
+   - None has per-$ CI lo > 0.
+3. **H5.**
+   - Both gates' per-$ is within ±0.3 pp of B0's.
+   - Neither has per-$ CI lo > 0.
+   - Each is below the 95th percentile of its random gates.
+4. **H2.**
+   - h2q's pre-check passes (Spearman 0.4 to 0.75). h2q loses, with per-$ −0.9% to −0.2%.
+   - h2c's pre-check passes, and h2c loses.
+5. **H3.**
+   - h3m1 trades on < 150 days.
+   - h3meta loses, with per-$ ≤ −0.3%.
+   - The rule alone loses at least 0.5 %/day.
+   - The replay's event rate is within 30% of the real one.
+
+### 9.11 Calls made by Claude (review these)
+
+| # | Call |
+|---|---|
+| C1 | One B0 (S2): it is better on both bars, and the line count halves. S1's entry is not re-tested. |
+| C2 | The H1 arms take S2's k_u = 1, not the plan's 2. Each arm changes only the stop and the horizon of X*. |
+| C3 | The H60 arms keep X*'s ev. A refit at each new barrier would change entry and exit together. |
+| C4 | The primary (Holm) contrast is per-$, not the daily mean (§9.2 bar 6). |
+| C5 | The H5 threshold keeps about 60% of days, fixed from the training days' p̂, so bar 4 stays reachable. |
+| C6 | `h5_pnl` keeps a second-order path from the test fold through E5a's K-fold M1; `h5_drift` is the clean twin. |
+| C7 | h2c calibrates on rows that also fit M1's isotonic layer. The p-values are approximate. |
+| C8 | Controls (C1m, C4, shift1, random gates, rule alone) are not trial lines, as in E6. |
+| C9 | A pre-check that stops an arm logs no line, and the arm leaves the Holm family. |
