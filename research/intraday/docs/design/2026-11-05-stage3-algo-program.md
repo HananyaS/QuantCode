@@ -771,3 +771,41 @@
     per trade, plus one AR(1) variant").
   - A9: φ = 0.9 is fixed in advance, not fitted to the model's errors.
   - A10: the allocation takes the better of two variants, which is generous to the lever.
+
+## 8d. A.1b results (2026-11-05): persistence removes the saturation, but H4 stays out
+
+- **Run.** poolpoc 0902d3ed5ea7, from run4. MLflow eac76dcf70b74925b7d9ff9a4d91fd61. 685 days,
+  3,200 s, 1.48 GB peak. The smoke ran first (224 s; anchors passed).
+- **Trial lines.** None; `trials.jsonl` is unchanged, so N stays 359.
+- **Fidelity (all pass).**
+  - B0-S1 and B0-S2 reproduce their lines and §8b's means, and the labels reproduce E5a.
+  - All 24 ρ = 0 arms equal B0 on every day, and all 12 ρ = 1 arms equal §8b's.
+- **At Phase A's ρ_cap** (difference vs B0 in %/day, CI lo; the account's own mean; exit share =
+  the share of filled minutes whose label is the oracle exit):
+
+  | Config | ρ_cap | V1 vs B0 (lo) | V1 mean | V1 share | V1 ρ\* | V2 vs B0 | V2 share | V2 ρ\* |
+  |---|---|---|---|---|---|---|---|---|
+  | S1 5 | 0.155 | +0.011 (−0.019) | −0.058 | 0.44 | 0.75 | −0.006 | 0.86 | 0.75 |
+  | S1 15 | 0.256 | +0.001 (−0.028) | −0.067 | 0.46 | 0.75 | −0.010 | 0.86 | 1 |
+  | S1 rest | 0.270 | +0.040 (+0.006) | −0.029 | 0.44 | 0.75 | −0.014 | 0.85 | 1 |
+  | S2 5 | 0.137 | +0.006 (−0.029) | −0.051 | 0.43 | 0.5 | −0.064 | 0.84 | 1 |
+  | S2 15 | 0.227 | +0.001 (−0.028) | −0.056 | 0.48 | 0.75 | −0.046 | 0.86 | 1 |
+  | S2 rest | 0.186 | −0.000 (−0.026) | −0.057 | 0.35 | 0.5 | −0.031 | 0.77 | 0.75 |
+
+- **Allocation (binding, §8c): H4 stays out.** No (variant, configuration) is in Π at ρ_cap.
+  Every account there still loses.
+- **What persistence changes.**
+  - The exit share at ρ_cap falls from 0.97–0.99 (§8b) to 0.35–0.48 (V1) and 0.77–0.86 (V2).
+  - Under V1 the curve no longer dips: from ρ = 0.2 it is at or above B0 in every
+    configuration.
+  - The required skill falls from 1 to 0.5–0.75 (V1) and 0.75–1 (V2). That is still 4 to 7 times
+    the attained 0.07–0.14, or more on raw IC.
+- **Descriptive.** ev's lag-1 autocorrelation is 0.968 (S1) and 0.977 (S2): the model's view
+  persists more than V2's φ = 0.9, so V1 is the closer of the two.
+- **Predictions (§8c): all four held.** V1's share is 0.35–0.48 and V2's 0.77–0.86. V1's ρ\* is
+  ≤ 0.75 in all six configurations. H4 is out, and ev's lag-1 is ≥ 0.8.
+- **What it changes (post-hoc; decides nothing).**
+  - At the skill we have, exit timing is worth at most about +0.04 %/day over B0 (S1 rest, V1),
+    against a −0.07 %/day account.
+  - The exit side's lever is the round-trip count (H1), not timing. Phase C runs H1 (a) to (d),
+    H5, H2 and H3.
