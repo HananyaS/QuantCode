@@ -1068,11 +1068,76 @@
 | # | Call |
 |---|---|
 | C1 | One B0 (S2): it is better on both bars, and the line count halves. S1's entry is not re-tested. |
-| C2 | The H1 arms take S2's k_u = 1, not the plan's 2. Each arm changes only the stop and the horizon of X*. |
+| C2 | The H1 arms take S2's k_u = 1, not the plan's 2. (Corrected in §9a #9: h1b changes k_d and the re-entry rule; h1c and h1d change H, k_d and the re-entry rule.) |
 | C3 | The H60 arms keep X*'s ev. A refit at each new barrier would change entry and exit together. |
 | C4 | The primary (Holm) contrast is per-$, not the daily mean (§9.2 bar 6). |
-| C5 | The H5 threshold keeps about 60% of days, fixed from the training days' p̂, so bar 4 stays reachable. |
+| C5 | The H5 threshold keeps about 60% of days, fixed from the training days' p̂, so bar 4 stays reachable. (Amended in §9a #5: 70% of B0's traded training days.) |
 | C6 | `h5_pnl` keeps a second-order path from the test fold through E5a's K-fold M1; `h5_drift` is the clean twin. |
 | C7 | h2c calibrates on rows that also fit M1's isotonic layer. The p-values are approximate. |
 | C8 | Controls (C1m, C4, shift1, random gates, rule alone) are not trial lines, as in E6. |
 | C9 | A pre-check that stops an arm logs no line, and the arm leaves the Holm family. |
+
+## 9a. G1 review of §9 and the amendments (2026-11-05, before any Phase C code runs on data)
+
+- **Review.** A fresh-context adversarial review read §9 against §0 to §8d, the plan and the
+  poolpoc code at 0902d3e. It found 1 Critical, 6 Important and 10 Minor findings, and verified
+  five claims. Its verdict was "do not run §9 as written".
+- **Data.** It read only label-free columns of the test rows, and calibration labels from the
+  inner-validation blocks. No test outcome of any arm was read.
+- **Effect.** Every Critical and Important finding changes §9 as below. Where this section and
+  §9.1 to §9.11 differ, this section governs.
+
+### 9a.1 Rulings on the findings
+
+| # | Grade | Finding | Ruling (what changes) |
+|---|---|---|---|
+| 1 | Critical | h2c's per-minute BH counts the minute's *filled* names, and fill depends on bar t+1. | Cut. No rule may use another name's fill at t+1. h2c is redefined (#2). |
+| 2 | Important | h2c is a loose EV threshold. Simulated, it selects 68k rows on 532 days, 59k of them with ev ≤ 0. | **h2c = a fold-level cut.** `select.tau_fdr` on the fold's calibration rows (t > 13, filled; null = r_net ≤ 0). With rows sorted by ev, take the largest k ≥ 50 whose estimated false-discovery share (1 + nulls in the top k) / k is ≤ 0.1. The cut is the (k+1)-th ev, and a test row enters if ev_refit > cut. With no such k the fold selects nothing. The cut is fixed before the fold's first minute. |
+| 3 | Important | C4 was silently redefined as the real ev's top rows, a near-oracle for every ev-scored arm. | **Restored.** C4 = the top rows, at the arm's count per day, of M1 fitted on labels shuffled within each day (`run_e1._shuffled`, as in Stage 2m). The refit fits it as a fourth model per fold (`ev_null`). Top rows by the real ev remain only as h2q's twin (#7). |
+| 4 | Important | For H5, bar 7 tests B0's name choice, not the gate. | For a day gate, **bar 7 = per-$ above the 95th percentile of its 1,000 random gates**. Each random gate keeps, in every fold, as many of B0's traded test days as the gate does. C1m and C4 are reported but not binding for H5. |
+| 5 | Important | Bar 4 is a thin, count-driven hurdle for H5. | (a) The H5 threshold is the **30th percentile** of p̂ over **B0's traded training days**. Features are standardised and **clipped at ±3 SD**. The on-share per fold is reported over all days and over traded days. (b) For **every arm**, a label-free **candidate-day pre-check**: at least 150 test days with a row P0 may enter on the arm's score (score > 0 under P0's price and open rules). Slots never bind, so candidate days are traded days. Bar 4 is therefore decided before any account runs, and a bar-4 failure costs no line. |
+| 6 | Important | h5_pnl's leakage path is understated. It trains on blocks whose M1 was isotonic-calibrated on the test fold. h5_drift is a regime model trained partly on later half-years. | (a) For test fold i, both gates drop from training the test days of every fold whose M1 was calibrated on fold i's test days (`run_c.gate_train_folds`). (b) **h5_pnl can be a finalist only if h5_drift's per-$ difference vs B0 has the same sign.** (c) A descriptive **forward-only read**: each gate refitted on its fold's training days before the test fold (if ≥ 100 such days), reporting B0's per-$ on its on-days against all days. |
+| 7 | Important | h2q's count is not matched to B0's per fold (expected ratio 0.2 to 3.8), so its reading mixes count with ranking. | Two **twins** at h2q's count per day: the top rows by F0's ev, and by the mechanical score −(c_rt_pit + d). **h2q also needs per-$ above the mechanical twin's**; otherwise its lift reads as cost sorting. Also reported: the count ratio vs B0 per fold, and cost per $ (notional-weighted c_rt_pit) for h2q, B0 and the mechanical twin. |
+| 8 | Minor | The nosl arms' controls lack the stop rule. | Deferred. The bias favours h1b and h1d on bar 7 only, and is small at about 1.5 trades a day. |
+| 9 | Minor | H1 (b) to (d) bundle 2 or 3 changes; call C2 says otherwise. | C2 is corrected. h1b changes k_d and the re-entry rule. h1c and h1d change H, k_d and the re-entry rule. A pass belongs to the bundle, and Phase D decomposes it. |
+| 10 | Minor | The combined arm's Holm step is circular. | Adopted. Holm stays frozen on the first-round family. The combined arm is tested on its own at α (gatekeeping) and labelled "selected": it is not evidence until confirmation. |
+| 11 | Minor | Internal inconsistencies. | (a) shift1 is the descriptive bounce read of §4b.6, not a D3 delay control. (b) Controls are not trial lines; C8 stands. §2's "every dev account evaluation" is read as "every arm under test", as in E6. (c) The H3 replay null (one seed, not demeaned) is descriptive only. Deferred. |
+| 12 | Minor | h2q's Spearman pre-check measures the bulk of the rows, not the tail. | Deferred. The Spearman pre-check stays as registered; the twins (#7) now carry the "different from ev" reading. |
+| 13 | Minor | R = 2,000 is coarse for Holm's first threshold. | Adopted. The per-$ p uses **10,000 resamples**. A NaN replicate already counts as ≤ 0 (the conservative side). |
+| 14 | Minor | h1a's trades are exactly B0's first entries. | Noted. §9.3's "first vs re-entries" descriptive is h1a's own result read on B0's trades, so it is not independent support. |
+| 15 | Minor | Five details are under-specified. | Written down as the code does them: see §9a.2. |
+| 16 | Minor | orb15 is a state, not an event, and H3 has no label-free pre-check. | The pre-check is adopted for every arm (#5b). The event definition stays Stage 2m's C3 rules; it is not changed after the review. |
+| 17 | Minor | h2c's calibration rows overlap (stride 5) and fit the isotonic layer. | Deferred. Both effects make the cut anti-conservative. They can only let h2c run and spend a line; it then faces the full pass rule on test. |
+
+### 9a.2 The details of #15, as built
+
+- **(a) h3meta.**
+  - Training rows: `run_e2.budget_rows` over the event rows of the training days (every t, as M1).
+  - Validation rows: every filled event row of the inner-validation days (ledger ruling 2).
+- **(b) C1m.** For each day, it draws the arm's trade count from the eligible rows at the (date, t) minutes the arm traded. Rows are pooled per day, and the arm's own rows are included.
+- **(c) H5.**
+  - Threshold population: B0's traded training days (#5).
+  - Drift: a name without O*(15) is ignored in the day's mean.
+  - Random gates: matched on B0's traded test days (#4).
+- **(d) Smoke.** The smoke fold is the first of the six half-year folds (2020H1), taken from `_panel_and_folds(smoke=False)`.
+- **(e) Fidelity check 4.** NaN positions must be identical, and max |Δ| ≤ 1e-6 on the finite rows.
+
+### 9a.3 Rulings on what the review declined to judge
+
+- **The K-fold convention for row-level models.** It stands; it has been the program's convention since E5a. Phase E runs forward in time.
+- **Whether h3m1 or h3meta reach 150 days, H5's on-share, and h2q's Spearman.** These are now decided by the label-free pre-check, before any account runs.
+- **h2c's realised false-discovery share on test.** It is reported after the arm runs, if it runs. It is descriptive.
+- **Notional sized from bar t+1's dollar volume.** It stands for Phase C: it is the inherited fill model, the same for every arm and B0. It is added to Phase D's leakage audit.
+- **The plan-level choices** (k_u = 1, α_q = 0.35, α = 0.1). They stand. The on-rate is now about 70% of traded days (#5).
+- **The literature claims.** The 2026-11-05 factcheck note covers them; they were not re-verified here.
+
+### 9a.4 Predictions, amended where a ruling changed what they predict
+
+- **3 (H5).**
+  - Bar 7 is now the random gates. "Below the 95th percentile" stands, and it now decides bar 7.
+  - Both gates pass the pre-check, with about 200 traded days at a 70% on-share.
+- **4 (H2).**
+  - h2c: no fold has a cut (the null share is ≥ 0.44 among ev > 0 calibration rows). It has no candidate days and logs no line.
+  - h2q: unchanged. Its per-$ is also below its mechanical twin's.
+- **5 (H3).** "h3m1 trades on fewer than 150 days" now means its pre-check stops it, with no line. h3meta: unchanged, if it runs.
+- **Lines.** At most 10, as before.
