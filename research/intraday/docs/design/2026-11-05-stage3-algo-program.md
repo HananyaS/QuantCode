@@ -266,7 +266,7 @@
 
 ## 5. Later phases (each pre-registered here before it runs)
 
-- **Phase A (pre-registered in §8).** Required-skill curves (ρ·rank + noise; a myopic exit oracle minus its martingale
+- **Phase A (pre-registered in §8; results in §8b).** Required-skill curves (ρ·rank + noise; a myopic exit oracle minus its martingale
   value); the allocation rule (ρ* ≤ 2 x attained skill, and an effect ≥ the paired MDE); and the
   label-free indicator-redundancy check.
 - **Phase C (hypotheses in order).**
@@ -577,3 +577,127 @@
 | A5 | The rest target (continuation value) is added beside the plan's 5- and 15-minute myopic oracles, because it is H4's training target. |
 | A6 | The allocation's 2x uses the point estimate of attained skill, which is generous to the lever. |
 | A7 | Phase A arms are not trial lines (§8.7). |
+
+## 8b. Phase A results (2026-11-05)
+
+- **Run.** poolpoc 28ed6cb18a9c, from run4 in the ML venv. MLflow dd3cc3703c904cc9bf12dbfd4d22d8d7.
+- **Scope.** 685 dev test days, 2,000 resamples, 1,995 s, 4.13 GB peak. The smoke (first fold, 112
+  days) ran first: 351 s, 2.98 GB, fidelity passed.
+- **Trial lines.** None (§8.7). `trials.jsonl` is unchanged (338 trial lines + 10 supersede lines),
+  so N stays 359.
+
+### 8b.0 Fidelity (all pass)
+
+- The exit relabel with no flags reproduces E5a's labels exactly at both X*: 2,466,000 rows each,
+  with cls, exit_min and r_net equal (max |Δ r_net| 0).
+- B0-S1 reproduces c7878's `e5a` line and B0-S2 the `s3-b0` line. The no-flag exit arm reproduces
+  B0, and the entry reassignment with q = ns_d(ev) reproduces B0's daily series.
+- No row after 2022-12-31 is read.
+
+### 8b.1 A.1 Exit skill: only perfect foresight passes
+
+- **Prior.** μ > 0 for every (s, m): 0.056 / 0.095 / 0.089 for S1 (5 / 15 / rest) and
+  0.045 / 0.059 / 0.070 for S2. Held trades drift up.
+- **Attained skill.** Five of six ρ_att come from `ev` (the model's EV at bar k). The path
+  signals' net ICs are −0.002 to +0.078, and 15 of their 18 CIs cross 0.
+
+  | Config | ev raw IC | ev null | ρ_att (net, CI) | ρ_cap |
+  |---|---|---|---|---|
+  | S1 5 | +0.064 | −0.007 | 0.078 from mom5 (−0.007..+0.140); ev nets 0.070 | 0.155 |
+  | S1 15 | +0.105 | −0.023 | 0.128 (+0.050..+0.169) | 0.256 |
+  | S1 rest | +0.116 | −0.019 | 0.135 (+0.046..+0.186) | 0.270 |
+  | S2 5 | +0.038 | −0.030 | 0.068 (+0.034..+0.103) | 0.137 |
+  | S2 15 | +0.068 | −0.046 | 0.113 (+0.052..+0.174) | 0.227 |
+  | S2 rest | +0.058 | −0.035 | 0.093 (+0.035..+0.152) | 0.186 |
+
+- **The curve is U-shaped.** The paired daily difference vs B0, in %/day:
+
+  | Config | ρ 0.1 | 0.3 | 0.5 | 0.75 | 1 | at ρ_cap |
+  |---|---|---|---|---|---|---|
+  | S1 5 | −0.082 | −0.068 | −0.013 | +0.050 | +0.172 | −0.081 |
+  | S1 15 | −0.046 | −0.085 | −0.069 | −0.006 | +0.173 | −0.086 |
+  | S1 rest | −0.068 | −0.057 | −0.033 | +0.034 | +0.227 | −0.059 |
+  | S2 5 | −0.164 | −0.143 | −0.070 | +0.015 | +0.230 | −0.166 |
+  | S2 15 | −0.145 | −0.188 | −0.143 | −0.058 | +0.189 | −0.188 |
+  | S2 rest | −0.100 | −0.133 | −0.086 | +0.054 | +0.292 | −0.157 |
+
+  - Only ρ = 1 is in Π, so ρ\* = 1 for all six configurations.
+  - At ρ = 0.75 every account still loses: daily means are −0.003 to −0.115%.
+  - At ρ = 1 the accounts make +0.10 to +0.24 %/day, and B0's own trades gain +1.1 to +2.2 pp.
+- **Why: the exits saturate.**
+  - From ρ = 0.1 to 0.75 the oracle exits 92 to 99% of trades.
+  - Trades/day rise from 1.25 to 1.7–2.1 (S1) and from 1.54 to 2.4–3.0 (S2), because the freed
+    slot buys another round trip.
+  - On B0's own trades, the oracle's exits lower r_net at every ρ from 0.1 to 0.3
+    (−0.12 to −0.55 pp per trade), before any re-entry.
+
+### 8b.2 A.2 Entry skill: the gap is about 0.06 to 0.11 of oracle skill
+
+| ρ | S1 %/day | S1 trades/day | S2 %/day | S2 trades/day |
+|---|---|---|---|---|
+| 0 | −0.453 | 3.36 | −0.829 | 6.56 |
+| 0.1 | −0.227 | 3.32 | −0.496 | 6.51 |
+| 0.15 | −0.132 | 3.29 | −0.340 | 6.45 |
+| 0.2 | −0.043 | 3.25 | −0.170 | 6.38 |
+| **0.3** | **+0.145** (CI +0.059..+0.227) | 3.17 | **+0.126** (CI +0.048..+0.204) | 6.15 |
+| 0.5 | +0.518 | 2.88 | +0.697 | 5.52 |
+| 1 | +0.849 | 1.08 | +1.047 | 1.81 |
+| B0 | −0.069 | 1.25 | −0.057 | 1.54 |
+
+- ρ\* = 0.3 for both feature sets; ρ = 0.2 fails Π in both.
+- ρ_eq = 0.186 (S1) and 0.238 (S2). ρ_cap = 0.371 and 0.477, and both oracle arms there are in Π
+  (+0.288 and +0.642 %/day).
+- M1's within-day IC on `E_d` is 0.259 (S1, CI 0.250..0.268) and 0.263 (S2, CI 0.253..0.272).
+
+### 8b.3 Allocation (binding)
+
+- **Exit lever: out.** No configuration is in Π at its ρ_cap. H4 does not run.
+- **Entry lever: in.** Both configurations are in Π at ρ_cap. H2 and H3 run.
+- **Phase C:** H1 (a) to (d), H5, H2 and H3. H4, H6 and H1(e) are out.
+
+### 8b.4 A.3 Indicators: all redundant; the family is closed
+
+| RSI14 | %b | Bandwidth | MACD hist | %K | %D |
+|---|---|---|---|---|---|
+| 0.796 | 0.929 | 0.903 | 0.877 | 0.883 | 0.848 |
+
+- Test R² on 150,000 rows (2021H2 to 2022H2), trained on 300,000 rows (2020H1 to 2021H1). No
+  indicator is below 0.5, so there is no add-one refit.
+
+### 8b.5 Predictions (§8.8)
+
+- **Held:** 1 (μ > 0 everywhere) and 4 (H4 out).
+- **Failed:**
+  - 2: ρ_att is 0.068 to 0.135, not ≤ 0.05. For rest, pnl's raw |IC| is 0.028 / 0.023, and the null
+    is negative, so it removes nothing.
+  - 3: ρ = 1 passes everywhere, but ρ\* is 1, not 0.2 to 0.5.
+  - 5: ρ = 0 is below B0 and ρ\* = 0.3 is inside 0.15 to 0.30, but ρ_eq is 0.19 / 0.24 (predicted
+    0.02 to 0.10) and H2/H3 enter.
+  - 6: all six R² are ≥ 0.5 (that half held), but none is below 0.5.
+
+### 8b.6 What Phase A changes (post-hoc; decides nothing)
+
+- **The exit oracle's "ρ\* = 1" belongs to its decision rule as much as to exits.**
+  - The noise is independent from bar to bar, and the rule exits at the first bar whose noisy
+    posterior is negative. Over about 20 held bars, a false exit is almost certain at any ρ < 1.
+  - A real exit model's errors persist across adjacent bars, and its trigger can be set to exit
+    rarely. So the curve is a pessimistic bound for exit timing in general.
+  - It is binding as pre-registered. H4 returns only through a new pre-registered check, such as
+    noise that persists across bars; that is the user's call.
+  - Call A4 ("a weak oracle does not exit on noise") holds only at ρ = 0. At ρ = 0.05 the oracle
+    already exits 29 to 93% of trades.
+- **One robust lesson for any exit rule:** cutting trades early frees the slot, the account
+  re-enters, and the extra round trips cost more than weak timing gains. H1's fewer round trips
+  attack the same channel from the other side.
+- **The null is negative in all 24 (s, m, signal) cells (−0.001 to −0.046).**
+  - A likely mechanism, not tested: the replay keeps each name-day's drift, and barrier exits pick
+    which pairs stay held.
+  - Its sign makes ρ_att generous to the lever. H4 fails even at ρ = 0.5 to 0.75, so it cannot
+    change the verdict.
+- **ρ_eq depends on the match.**
+  - The oracle at ρ_eq trades 2.6x (S1) to 4x (S2) as often as B0, because random reassignment
+    spreads B0's ev > 0 count over more names and minutes.
+  - Matched on per-$ instead of the daily mean, ρ_eq would be about 0.14 (S1) and 0.19 (S2).
+  - Either way, M1's within-day IC (0.26) overstates its usable ranking skill, as call A3 expected.
+- **For H2 and H3:** the target is oracle-equivalent ranking skill of about 0.3, up from
+  0.19 to 0.24.
