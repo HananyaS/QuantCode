@@ -701,3 +701,51 @@
   - Either way, M1's within-day IC (0.26) overstates its usable ranking skill, as call A3 expected.
 - **For H2 and H3:** the target is oracle-equivalent ranking skill of about 0.3, up from
   0.19 to 0.24.
+
+## 8c. A.1b pre-registration: the exit oracle with persistent noise (2026-11-05, before any A.1b code runs)
+
+- **Why.** §8b.6: the noise was independent at every bar, and the oracle exits at the first bar
+  whose noisy posterior is negative, so it cut 92 to 99% of trades at any ρ in 0.1..0.75. A real
+  exit model's errors persist across bars. The user chose a re-check before Phase C
+  ("Re-check first", 2026-11-05).
+- **What stays as §8.2 and §8b.** The targets (5, 15, rest), the prior μ and sd per (s, m)
+  (taken from §8b's results.json), the Bayes rule, the relabel, the grid, the arms, B0, Π, and
+  each configuration's ρ_cap from §8b (the attained skill does not depend on the oracle's
+  noise).
+- **What changes: the noise.** The unit is the trade (name-day, t) for every target. For
+  m = 5 and 15 this departs from §8.2's one draw per (name-day, k) shared by every trade:
+  every trade decides with its own error.
+  - **V1 "trade":** one ε ~ N(0, 1) per trade, the same at every held bar.
+  - **V2 "ar1":** ε_1 ~ N(0, 1) and ε_δ = φ·ε_{δ−1} + √(1 − φ²)·η_δ along the trade's bars,
+    with φ = 0.9 per minute (half-life about 6.6 bars). Marginally N(0, 1) at every bar.
+  - Seeds: (20261107, variant, s, m, chunk start). The same noise at every ρ and at ρ_cap.
+  - At every bar the oracle's view still correlates ρ with the standardised target, so ρ keeps
+    the meaning that ρ_att and ρ_cap have.
+- **Grid and arms.** ρ in {0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1} plus ρ_cap, for V1 and V2,
+  s in {S1, S2} and m in {5, 15, rest}: 108 relabels. Reported per arm as §8.2 (the paired daily
+  difference, per $, trades/day, the oracle's exit share, and the per-trade Δ on B0's trades).
+- **Fidelity (any failure stops A.1b before a reading).**
+  1. B0-S1 and B0-S2 reproduce their logged lines, and their means equal §8b's.
+  2. The no-flag relabel reproduces E5a's labels (§8.6 check 2).
+  3. Every ρ = 0 arm equals B0 on every day (μ > 0, so nothing is flagged).
+  4. Every ρ = 1 arm's daily mean equals §8b's ρ = 1 arm (the noise has zero weight).
+  5. No row after 2022-12-31 is read.
+- **Allocation (binding; replaces §8.4's exit reading).** H4 enters Phase C iff, under V1 or V2,
+  at least one configuration is in Π at its §8b ρ_cap. Two variants x six configurations is
+  generous to the lever; entering only buys H4 a place in Phase C, where §6's pass rule and
+  trial lines apply.
+- **Descriptive (decides nothing).** The lag-1 autocorrelation of `ev_s` along t within a
+  name-day, pooled: a rough gauge of how persistent a real model's view is.
+- **Trial lines.** None. **Smoke:** the first fold, 300 resamples, ρ in {0, 0.3, 1}, m in
+  {5, rest}, against Phase A's smoke results.
+- **Predictions (Claude's, before the run).**
+  1. At ρ_cap the oracle's exit share is 25 to 60% under V1 and 60 to 95% under V2, in every
+     configuration.
+  2. Under V1, ρ\* is at most 0.75 in at least four of six configurations.
+  3. H4 still does not enter.
+  4. ev's lag-1 autocorrelation is at least 0.8 in S1 and S2.
+- **Calls made by Claude.**
+  - A8: the trade is the noise unit for every target (the user was offered "noise drawn once
+    per trade, plus one AR(1) variant").
+  - A9: φ = 0.9 is fixed in advance, not fitted to the model's errors.
+  - A10: the allocation takes the better of two variants, which is generous to the lever.
