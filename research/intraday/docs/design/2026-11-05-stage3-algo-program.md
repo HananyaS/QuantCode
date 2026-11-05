@@ -625,7 +625,8 @@
   - At ρ = 0.75 every account still loses: daily means are −0.003 to −0.115%.
   - At ρ = 1 the accounts make +0.10 to +0.24 %/day, and B0's own trades gain +1.1 to +2.2 pp.
 - **Why: the exits saturate.**
-  - From ρ = 0.1 to 0.75 the oracle exits 92 to 99% of trades.
+  - From ρ = 0.1 to 0.75 the oracle's exit is the label of 92 to 99% of filled minutes, i.e.
+    of every trade the account could take (§8b.7).
   - Trades/day rise from 1.25 to 1.7–2.1 (S1) and from 1.54 to 2.4–3.0 (S2), because the freed
     slot buys another round trip.
   - On B0's own trades, the oracle's exits lower r_net at every ρ from 0.1 to 0.3
@@ -685,15 +686,21 @@
   - It is binding as pre-registered. H4 returns only through a new pre-registered check, such as
     noise that persists across bars; that is the user's call.
   - Call A4 ("a weak oracle does not exit on noise") holds only at ρ = 0. At ρ = 0.05 the oracle
-    already exits 29 to 93% of trades.
+    exit is already the label of 29 to 93% of filled minutes.
 - **One robust lesson for any exit rule:** cutting trades early frees the slot, the account
   re-enters, and the extra round trips cost more than weak timing gains. H1's fewer round trips
   attack the same channel from the other side.
-- **The null is negative in all 24 (s, m, signal) cells (−0.001 to −0.046).**
-  - A likely mechanism, not tested: the replay keeps each name-day's drift, and barrier exits pick
-    which pairs stay held.
-  - Its sign makes ρ_att generous to the lever. H4 fails even at ρ = 0.5 to 0.75, so it cannot
-    change the verdict.
+- **The null is negative in all 24 (s, m, signal) cells (−0.001 to −0.046).** Corrected after
+  the review (§8b.7):
+  - Only rest x pnl is mechanically negative: barrier, target and spread geometry make it so even
+    on driftless random walks (−0.010 to −0.028 in the reviewer's simulation). Our −0.019 / −0.026
+    fit that, so the subtraction there does what call A1 intends.
+  - The other negatives are most likely the noise of one replay draw: their CIs all cross 0, and
+    the 24 cells share one or two independent draws. The drift the replay keeps pushes a null
+    up, not down. Untested on real data.
+  - The sign makes ρ_att generous to the lever. On raw IC (the conservative reading) ρ_cap would
+    be 0.08 to 0.23 instead of 0.14 to 0.27. H4 fails even at ρ = 0.5 to 0.75, so neither reading
+    changes the verdict.
 - **ρ_eq depends on the match.**
   - The oracle at ρ_eq trades 2.6x (S1) to 4x (S2) as often as B0, because random reassignment
     spreads B0's ev > 0 count over more names and minutes.
@@ -701,6 +708,21 @@
   - Either way, M1's within-day IC (0.26) overstates its usable ranking skill, as call A3 expected.
 - **For H2 and H3:** the target is oracle-equivalent ranking skill of about 0.3, up from
   0.19 to 0.24.
+
+### 8b.7 Review
+
+- A fresh-context review (opus) of 28ed6cb found 0 Critical, 0 Important and 11 Minor. None can
+  change the allocation.
+  - It hand-traced the exit oracle's t/k alignment, the noise reuse, the entry reassignment, Π,
+    ρ_cap and ρ_eq (it reproduced 0.1854 and 0.2382), and found no leakage.
+  - It checked the null with a small simulation on random walks with known answers (above).
+- **Two wording corrections, made above.**
+  - The exit share (`oracle_share`) is the share of filled minutes whose label is the oracle exit,
+    not of B0's or the account's trades.
+  - The null's mechanism (§8b.6).
+- **For later nulls:** the replay keeps each name-day's drift and σ, so it is not a martingale
+  null. A future one should demean each name-day's increments and average 5 to 10 seeds.
+- The other minors are in the poolpoc ledger.
 
 ## 8c. A.1b pre-registration: the exit oracle with persistent noise (2026-11-05, before any A.1b code runs)
 
