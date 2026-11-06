@@ -1489,3 +1489,117 @@ Every arm trades only at true bounces that pass P0's price and open rules. Each 
 | C8 (amended) | P0's cooldown-5 account, but one entry per bounce episode (#2). |
 | C9 | The unit of "a true bounce" is one episode, (name-day, j_L), entered at its first flagged minute if that minute passes P0's rules. The alternative, every flagged minute under cooldown 5, was §10 as first written. |
 | C10 | The chart M1 is validated on every 5th training day, not on the inner-validation block (#6c). |
+
+## 10b. H7 results (2026-11-06): no arm passes; at true bounces the gross return is zero under every exit plan
+
+- **Runs.** All from run4.
+  - Refit full at poolpoc 8a0a868c9819: 7,008 s, 3.87 GB.
+  - Evaluation full at poolpoc 2783a99c04c7: 157 s, 1.30 GB, MLflow fce90cd894454a38b883cd164dcbf10c,
+    685 days, 2,000 resamples. The Holm contrast used 10,000.
+  - Smokes. The refit smoke passed (723 s). The evaluation smoke ran every computation, then
+    crashed in its report: an arm that ran with no trades had no exit-mix entry. That was fixed
+    test-first at 2783a99, and the smoke re-ran and passed (357 s). Only `run_m.py` changed, so
+    the refit code is identical at both commits.
+- **Trial lines.** 4 (exp `s3-m`); `trials.jsonl` went from 356 to 360 lines. N = 367 + 4 = **371**.
+- **Fidelity (all pass).**
+  - B0-S2 reproduces its `s3-b0` line.
+  - x30's outcomes on the refit's rows equal E5a's.
+  - The evaluation's recomputed episode rows equal the refit's (9,382).
+  - The refit's ev equals E5a's for x15, x30, x60 and x60u2 on all 2,466,000 rows (max |Δ| = 0,
+    identical NaN).
+  - No row after 2022-12-31 is read.
+- **Rows.** There are 9,382 test episode rows under P0's rules (13.7 a day). The calibration rows
+  number 9,665, of which 1,246 to 1,982 per fold are filled.
+- **Pre-checks (label-free).**
+  - Candidate days: h7_x, h7_chart and h7_direct 682; h7_menu 679.
+  - **h7_menu_ev did not run** (27 candidate days). h > 0 on only 60 of the 9,382 test rows.
+
+### 10b.1 The arms against B0-S2
+
+B0-S2 makes −0.057 %/day [−0.114, +0.001], with per-$ −0.39% [−0.83, +0.04]. Per $, its gross is
++0.83% and its cost 1.23%. It trades 1.54 times a day, on 292 days.
+
+| Arm | %/day [CI] | per-$ % [CI] | gross / cost per $ % | trades/day | days | per-$ vs B0 pp [CI] | p Holm | halves + | 2022 %/day |
+|---|---|---|---|---|---|---|---|---|---|
+| h7_x | −1.18 [−1.28, −1.09] | −1.28 [−1.37, −1.18] | −0.00 / 1.27 | 10.04 | 679 | −0.88 [−1.31, −0.46] | 1.000 | 0/6 | −0.82 |
+| h7_chart | −1.15 [−1.26, −1.05] | −1.30 [−1.41, −1.20] | −0.02 / 1.28 | 9.60 | 679 | −0.91 [−1.34, −0.49] | 1.000 | 0/6 | −0.76 |
+| h7_menu | −1.16 [−1.28, −1.05] | −1.33 [−1.44, −1.21] | −0.07 / 1.27 | 9.47 | 679 | −0.94 [−1.37, −0.50] | 1.000 | 0/6 | −0.76 |
+| h7_direct | −1.34 [−1.44, −1.25] | −1.35 [−1.43, −1.27] | −0.08 / 1.27 | 10.76 | 679 | −0.95 [−1.38, −0.53] | 1.000 | 0/6 | −0.92 |
+
+- **Every arm fails every bar except the 150-day bar.** No finalists, so Phase D does not run.
+- **Bar 7, per arm (all fail).**
+  - **h7_x.** Gross per-$ vs C1m-X\*: −0.02 pp [−0.12, +0.08].
+    - The net per-$ difference is +0.23 pp [+0.13, +0.33].
+    - The gap between the two is cost: C1m-X\* pays 1.52% per $ against h7_x's 1.27%, and its
+      gross is +0.02%.
+    - §10's original bar (the daily difference, +0.035 [−0.050, +0.119]) would also have failed.
+  - **h7_chart.** Chart minus x60 outcomes on its own trades: +0.055 pp [−0.022, +0.133].
+    - vs x60d2: +0.053 [−0.037, +0.137].
+    - vs h7_x: −0.025 [−0.092, +0.039].
+  - **h7_menu.** −1.33%: below its random plans' q95 (−1.30%), above its best fixed plan
+    (−1.36%), and level with its mechanical menu (−1.33%).
+  - **h7_direct.** −1.35%: below its random plans' q95 (−1.31%) and its mechanical menu (−1.31%),
+    above its best fixed plan (−1.36%).
+
+### 10b.2 Descriptive reads
+
+- **Fixed plans on each arm's trades.** Every plan loses between −1.26% and −1.44% per $.
+  - x30 is the best plan on every arm's trades (−1.26% to −1.28%).
+  - x60u2 is the worst (−1.41% to −1.44%).
+  - The chart plan makes −1.27% to −1.30%.
+- **Exit mix (TP / SL / TIME).**
+  - h7_x: 16.5 / 20.6 / 62.9%.
+  - h7_chart: 33.8 / 31.0 / 35.2%.
+  - h7_menu: 18.1 / 22.1 / 59.8%.
+  - h7_direct: 15.8 / 23.4 / 60.9%.
+- **Plan mix.**
+  - h7_menu: chart 25.5%, x60u2 17.5%, x15 16.8%, x30 15.8%, x60 15.5%, x60d2 8.9%. H60 plans
+    make up 67.4%.
+  - h7_direct: x15 81.6%.
+  - The mechanical menu picks x30 most often (25.4%).
+- **Calibration.**
+  - h was fitted in every fold.
+  - The median of the calibration rows' top g_p\*(ev_p\*) is −0.65% to −1.01%.
+  - The 90th percentile of the out-of-fold h is −0.29% to −0.98%. In every fold this is below the
+    in-sample h's (−0.08% to −0.64%), as §10a #6 expected.
+  - h7_menu's mean top predicts −0.9%. Its corrected score predicts −1.3%, and it realised −1.3%
+    (Spearman 0.14 over 6,486 trades).
+  - The best fixed plan by fold: x60u2 (2020H1, 2021H1), x30 (2020H2, 2021H2, 2022H1), chart
+    (2022H2).
+- **The classifier.** Ties make up 22–23% of its training rows, and all six classes appear in every
+  fold.
+- **Overfitting.** Every DSR is about 0 (N = 371). PBO is not reported (fewer than 8 arms).
+
+### 10b.3 Predictions (§10.7 as restated by §10a.3)
+
+1. **No arm passes:** held.
+2. **h7_x:** held.
+   - 10.04 trades a day, on 679 days.
+   - Per-$ −1.28%, inside −1.3% to −0.5%, at the losing edge.
+   - The gross CI vs C1m-X\* includes 0.
+3. **h7_chart.**
+   - **Held:** its CI vs x60 includes 0.
+   - **Wrong:** its TP share is 33.8%, not ≥ 40%.
+4. **h7_menu:** held. H60 plans make up 67.4% of its trades, and it fails bar 7.
+5. **h7_direct:** held. It fails bar 7.
+6. **h7_menu_ev:** held. 27 candidate days, no line.
+
+### 10b.4 What it changes (post-hoc; decides nothing)
+
+- **At true bounces the gross return is zero.**
+  - This is the bounce of §10.1, with one entry per episode.
+  - The gross per $ is −0.00% for x30, and −0.08% to −0.02% for every arm.
+  - Other names at the same minutes are also about 0 gross. B0's own entries make +0.83% gross.
+  - So on this pool the bounce pattern carries no gross edge. At about 10 trades a day, each
+    paying about 1.27% to trade, the account loses about 1.2% a day.
+- **With no gross to forecast, the exit plan does not matter.**
+  - All six plans are within 0.2 pp of each other on the same trades.
+  - Neither the menu nor the classifier beats a random assignment of plans.
+- **§10a #1 was the decisive amendment.**
+  - Against C1m-X\*, h7_x's net per-$ difference is +0.23 pp, with a CI above zero.
+  - That gain is entirely the bounce rows' lower cost: the gross difference is −0.02 pp.
+  - Under a net per-$ bar, h7_x would have passed bar 7 on cost alone (`reference_cost_sort_lift`).
+- **H7 adds nothing to Phase C.** h1c and h1d (fewer round trips, a longer hold) and h5_drift
+  remain the only arms with a per-$ gain on B0, and none of them makes money.
+- **No finalists.** Phase D does not run, and Phase E has nothing to confirm. What comes next is
+  the user's decision.
