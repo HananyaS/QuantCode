@@ -55,7 +55,7 @@ from research.penny.strategy.engine import Spec, build_trades  # noqa: E402
 
 logger = logging.getLogger("eval")
 
-SEAL_DATE = pd.Timestamp("2024-01-01")
+from research.penny.dates import SEAL as SEAL_DATE                     # noqa: E402
 MIN_TRADES = 200
 MIN_DAYS = 100
 SENTINEL = -9999.0

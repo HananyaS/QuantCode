@@ -65,7 +65,7 @@ logging.basicConfig(level=logging.WARNING, format="%(message)s")
 SPEC = json.loads(Path("research/penny/specs/VETO.json").read_text(encoding="utf-8"))
 SIGNS = {k: float(v) for k, v in SPEC["composite_signs"].items()}
 VETO_FRAC = SPEC["veto_fraction"]
-DEV_START = pd.Timestamp("2020-01-01")
+from research.penny.dates import DEV_START                             # noqa: E402
 
 
 @dataclass

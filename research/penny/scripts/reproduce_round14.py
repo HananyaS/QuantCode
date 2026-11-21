@@ -51,7 +51,7 @@ logger = logging.getLogger("r14")
 SPEC = json.loads(Path("research/penny/specs/FINAL_RETAIL.json").read_text(encoding="utf-8"))
 VETO_SPEC = json.loads(Path("research/penny/specs/VETO.json").read_text(encoding="utf-8"))
 SIGNS = {k: float(v) for k, v in VETO_SPEC["composite_signs"].items()}
-DEV_START = pd.Timestamp("2020-01-01")
+from research.penny.dates import DEV_START                             # noqa: E402
 
 HOLD = SPEC["portfolio"]["horizon_sessions"]
 VOL_CAP = SPEC["filter"]["vol_cap_quantile"]

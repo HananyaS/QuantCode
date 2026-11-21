@@ -59,7 +59,7 @@ from research.penny.strategy.engine import (  # noqa: E402
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 logger = logging.getLogger("sector")
 
-SEAL = pd.Timestamp("2024-01-01")
+from research.penny.dates import SEAL                                  # noqa: E402
 MIN_SECTOR_NAMES = 8       # below this the "sector median" is not a sector
 
 

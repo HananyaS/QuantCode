@@ -42,6 +42,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
+from research.penny.dates import SEAL  # noqa: E402
 from research.penny.etl import bars  # noqa: E402
 from research.penny.etl.corporate_actions import (  # noqa: E402
     flag_forward_splits, flag_reverse_splits,
@@ -159,7 +160,7 @@ def main(argv=None) -> int:
 
     u.to_parquet(args.out, index=False)
     logger.info("wrote %s", args.out)
-    dev = int((u["date"] < pd.Timestamp("2024-01-01")).sum())
+    dev = int((u["date"] < SEAL).sum())
     logger.info("signal-date split: DEV %s | SEALED %s", f"{dev:,}", f"{len(u)-dev:,}")
     return 0
 

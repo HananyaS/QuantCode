@@ -35,7 +35,7 @@ from research.penny.strategy.cross_section import (  # noqa: E402
 )
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
-SEAL = pd.Timestamp("2024-01-01")
+from research.penny.dates import SEAL                                  # noqa: E402
 
 
 def build_frame(h: int, drop_pct: float) -> pd.DataFrame:

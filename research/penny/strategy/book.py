@@ -87,6 +87,12 @@ class BookConfig:
     account_usd: float = 50_000.0
     cost_mode: str = "size_aware"  # "size_aware" | "flat" | "none"
     cost_scale: float = 1.0        # 0.5 reproduces the legacy half-charge
+    # --- accounting ---------------------------------------------------------
+    # "realized": R15's original loop -- a position is carried at cost until
+    #   signal + hold and its P&L lands on that day (kept to reproduce R15).
+    # "mtm": PREREGISTRATION_R17 §2.5 -- positions marked to market every
+    #   session from causal.holding_paths; needs `paths=` and a `_path` column.
+    mark: str = "realized"
 
     def validate(self) -> None:
         assert self.n_slots >= 1, "n_slots must be >= 1"
@@ -99,6 +105,7 @@ class BookConfig:
         assert self.account_usd > 0, "account_usd must be positive"
         assert self.cost_scale >= 0, "cost_scale must be non-negative"
         assert self.sector_cap >= 0, "sector_cap must be non-negative"
+        assert self.mark in ("realized", "mtm"), self.mark
 
     @property
     def max_entries_per_session(self) -> int:
@@ -179,15 +186,39 @@ def _cost_frac(cfg: BookConfig, adv: float, position_usd: float,
 # --------------------------------------------------------------------------
 def run_book(df: pd.DataFrame, calendar: Sequence[pd.Timestamp],
              cfg: BookConfig, seed: int = 0,
-             min_entries: int = 40) -> Optional[BookResult]:
+             min_entries: int = 40, paths=None) -> Optional[BookResult]:
     """Event-driven, capital-constrained, one cost charge per trade.
 
     `calendar` is the **market** session list, not the candidate-day list. Days
     with no candidates still advance the clock and still count towards the
     return series, which is what makes the annualisation honest.
+
+    With `cfg.mark == "mtm"`, `paths` is a `causal.Paths` and every row of `df`
+    carries `_path`, its row in `paths`. The selection steps are unchanged; what
+    changes is the trade itself (the limit may not fill, exits come from the
+    causal path) and the accounting (marked every session, cost and fees at
+    entry, slot released at the entry session + hold). See
+    PREREGISTRATION_R17 §2.5.
     """
     cfg.validate()
     rng = np.random.default_rng(seed)
+    mtm = cfg.mark == "mtm"
+    if mtm:
+        from research.penny.strategy.causal import fees_frac
+        if paths is None or "_path" not in df.columns:
+            raise ValueError("mark='mtm' needs paths= and a `_path` column")
+        if paths.hold != cfg.hold:
+            raise ValueError(f"paths built for hold={paths.hold}, book has {cfg.hold}")
+        last_off = paths.marks.shape[1] - 1
+
+    def _value(p, i: int) -> float:
+        """A slot's current worth. Realized: its capital at cost. MTM: marked."""
+        if not mtm or i < p[6]:
+            return p[3]
+        mk = paths.marks[p[5], min(i - p[6], last_off)]
+        if not np.isfinite(mk):
+            raise ValueError(f"no mark for {p[1]} at session {i}: data ends before the calendar")
+        return p[3] * (mk - p[2])
 
     sessions = pd.DatetimeIndex(sorted(pd.to_datetime(pd.Series(calendar)).unique()))
     if len(sessions) < 2:
@@ -195,9 +226,12 @@ def run_book(df: pd.DataFrame, calendar: Sequence[pd.Timestamp],
     day_index = {d: i for i, d in enumerate(sessions)}
 
     work = df.copy()
-    work["_gross"] = gross_return(work, cfg.target)
+    # In MTM mode the trade's outcome is not known at selection, so a missing
+    # outcome cannot remove a candidate (that was R15's look-ahead).
+    work["_gross"] = np.nan if mtm else gross_return(work, cfg.target)
     work["_adv"] = _adv_from_features(work)
-    work = work[np.isfinite(work["_gross"]) & np.isfinite(work["_adv"])]
+    keep = np.isfinite(work["_adv"]) if mtm else (np.isfinite(work["_gross"]) & np.isfinite(work["_adv"]))
+    work = work[keep]
     work = work[work["B7_realised_vol"] > 0]
     if work.empty:
         return None
@@ -219,7 +253,7 @@ def run_book(df: pd.DataFrame, calendar: Sequence[pd.Timestamp],
         for s in range(cfg.n_slots):
             p = open_slots[s]
             if p is not None and p[0] <= i:
-                cash += p[3] * (1.0 + p[2])
+                cash += _value(p, i) if mtm else p[3] * (1.0 + p[2])
                 open_slots[s] = None
 
         free = [s for s in range(cfg.n_slots) if open_slots[s] is None]
@@ -273,7 +307,7 @@ def run_book(df: pd.DataFrame, calendar: Sequence[pd.Timestamp],
                 else:
                     pool = pool.nlargest(take, cfg.fill_col)
 
-                deployed = sum(p[3] for p in open_slots if p is not None)
+                deployed = sum(_value(p, i) for p in open_slots if p is not None)
                 eq_now = cash + deployed
                 if cfg.weight == "invvol":
                     iv = 1.0 / pool["B7_realised_vol"].to_numpy()
@@ -295,19 +329,49 @@ def run_book(df: pd.DataFrame, calendar: Sequence[pd.Timestamp],
                         sec = str(row["sector"])
                         if by_sec.get(sec, 0) >= cfg.sector_cap:
                             continue
+                    if mtm:
+                        pid = int(row["_path"])
+                        if not paths.filled[pid]:
+                            # the opening-auction limit did not fill: the slot
+                            # stays free and this session's entry is spent
+                            taken += 1
+                            fills.append({"symbol": row["symbol"], "date": d, "filled": False,
+                                          "kind": "unfilled", "sector": str(row.get("sector", ""))})
+                            continue
                     size = min(eq_now * float(wi), cash)
                     if size <= 1e-12:
                         break
                     position_usd = cfg.account_usd * float(wi)
                     c = _cost_frac(cfg, float(row["_adv"]), position_usd,
                                    float(row["cost"]))
-                    net = float(row["_gross"]) - c
-                    exit_i = min(i + cfg.hold, len(sessions) - 1)
+                    if mtm:
+                        c += fees_frac(position_usd, float(paths.entry_unadj[pid]))
+                        xo = int(paths.exit_off[pid])
+                        net = float(paths.exit_value[pid]) - 1.0 - c   # NaN while open
+                        exit_i = i + 1 + max(cfg.hold, xo)                 # may pass the calendar end
+                    else:
+                        net = float(row["_gross"]) - c
+                        exit_i = min(i + cfg.hold, len(sessions) - 1)
                     cash -= size
                     sec = str(row["sector"]) if cfg.sector_cap else ""
                     if cfg.sector_cap:
                         by_sec[sec] = by_sec.get(sec, 0) + 1
                     taken += 1
+                    if mtm:
+                        open_slots[s] = (exit_i, row["symbol"], c, size, sec, pid, i + 1)
+                        fills.append({
+                            "symbol": row["symbol"], "date": d, "filled": True,
+                            "kind": str(paths.kind[pid]), "exit_off": xo,
+                            "release_date": sessions[exit_i] if exit_i < len(sessions) else pd.NaT,
+                            "entry_unadj": float(paths.entry_unadj[pid]),
+                            "gross": float(paths.exit_value[pid]) - 1.0, "cost_frac": c,
+                            "net": net, "weight": float(wi), "capital": size,
+                            "position_usd": position_usd, "adv20": float(row["_adv"]),
+                            "realised_vol": float(row["B7_realised_vol"]),
+                            "n_corr": int(paths.n_corr[pid]), "sector": sec or str(row.get("sector", "")),
+                        })
+                        vols.append(float(row["B7_realised_vol"]))
+                        continue
                     open_slots[s] = (exit_i, row["symbol"], net, size, sec)
                     vols.append(float(row["B7_realised_vol"]))
                     fills.append({
@@ -326,7 +390,7 @@ def run_book(df: pd.DataFrame, calendar: Sequence[pd.Timestamp],
         elif g is not None:
             n_skipped_no_slot += len(g)
 
-        equity[i] = cash + sum(p[3] for p in open_slots if p is not None)
+        equity[i] = cash + sum(_value(p, i) for p in open_slots if p is not None)
 
     if len(fills) < min_entries:
         return None
@@ -334,6 +398,11 @@ def run_book(df: pd.DataFrame, calendar: Sequence[pd.Timestamp],
     eq = pd.Series(equity, index=sessions, name="equity")
     r = eq.pct_change().fillna(0.0).rename("ret")
     trades = pd.DataFrame(fills)
+    n_orders = len(trades)
+    if mtm:
+        trades = trades[trades["filled"]].reset_index(drop=True)
+        if trades.empty:
+            return None
 
     years = len(sessions) / TRADING_DAYS
     ann = (eq.iloc[-1] / eq.iloc[0]) ** (1 / years) - 1 if eq.iloc[-1] > 0 else -1.0
@@ -344,7 +413,7 @@ def run_book(df: pd.DataFrame, calendar: Sequence[pd.Timestamp],
         daily=r, equity=eq, trades=trades,
         n_sessions=len(sessions), n_entered=len(trades),
         n_skipped_no_slot=int(n_skipped_no_slot),
-        orders_per_session=len(trades) / len(sessions),
+        orders_per_session=n_orders / len(sessions),
         weight_pct=100.0 / cfg.n_slots,
         ann=100.0 * float(ann), sharpe=float(sharpe), max_drawdown=100.0 * dd,
         median_vol=float(np.median(vols)),
