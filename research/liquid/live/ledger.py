@@ -21,8 +21,12 @@ CREATE TABLE IF NOT EXISTS trades (
     decision_price REAL NOT NULL, limit_price REAL NOT NULL, entry_price REAL NOT NULL,
     entry_ts TEXT NOT NULL, stop_at_entry REAL NOT NULL,
     exit_price REAL, exit_ts TEXT, exit_kind TEXT, exit_check INTEGER, stop_at_exit REAL,
-    weight REAL NOT NULL, equity REAL NOT NULL);
+    weight REAL NOT NULL, equity REAL NOT NULL,
+    entry_order_id TEXT, entry_filled_at TEXT, exit_order_id TEXT, exit_filled_at TEXT,
+    stop_level REAL);
 """
+# stop_at_exit: the stop price actually sent (floored to the cent); stop_level: the
+# unrounded research level max(UB, VWAP) at the last check. *_filled_at: broker time.
 
 
 class Ledger:
@@ -52,6 +56,13 @@ class Ledger:
         cur = self.db.execute(q, (day,) if day else ())
         cols = [c[0] for c in cur.description]
         return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def unclosed_before(self, day: str) -> list[dict]:
+        """Trades of earlier days never closed: a crashed run (G3 B4)."""
+        return [t for t in self.trades() if t["day"] < day and t["exit_kind"] is None]
+
+    def days(self) -> list[str]:
+        return [r[0] for r in self.db.execute("SELECT DISTINCT day FROM events ORDER BY day")]
 
     def events(self, day: str | None = None, kind: str | None = None) -> list[dict]:
         q, args = "SELECT ts, day, kind, payload FROM events WHERE 1=1", []

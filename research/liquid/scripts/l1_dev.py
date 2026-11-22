@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from research.liquid import cells, costs                                    # noqa: E402
 from research.liquid.calendar import DEV_END, DEV_START, assert_through     # noqa: E402
 from research.liquid.data import CACHE_DIR, load                            # noqa: E402
+from research.liquid.provenance import git_state                            # noqa: E402
 from research.penny.eval import benchmark as bm                              # noqa: E402
 from research.penny.eval.stats import deflated_sharpe_ratio                  # noqa: E402
 from research.penny.scripts.fetch_benchmarks import load as load_bench       # noqa: E402
@@ -74,7 +75,7 @@ def main() -> int:
     run = {"C1": lambda **k: cells.c1(spy, **k), "C2": lambda **k: cells.c2(qqq, **k),
            "C3": lambda **k: cells.c3(spy, **k)}
     out: dict = {"window": [str(dates[0].date()), str(dates[-1].date())], "n_sessions": len(dates),
-                 "n_trials": N_TRIALS, "cells": {}, "diagnostics": {}}
+                 "n_trials": N_TRIALS, "cells": {}, "diagnostics": {}, "code": git_state()}
     daily = {}
     for name, fn in run.items():
         tr = fn()

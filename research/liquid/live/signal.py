@@ -92,3 +92,12 @@ def shares(equity: float, weight: float, price: float, buying_power: float) -> i
 def tick(price: float) -> float:
     """Alpaca price increment: 2 decimals at or above $1, 4 below (fact sheet item 7)."""
     return round(price, 2) if price >= 1.0 else round(price, 4)
+
+
+def floor_tick(price: float) -> float:
+    """Round down to the Alpaca increment. The runner uses this for the buy limit, the sell
+    stop and the forced-exit test (G3 W1): prices trade on the cent grid, so for a grid price p,
+    p <= L exactly when p <= floor(L), and the live order triggers or fills exactly where the
+    research order does. Rounding to nearest diverged on 98 of 1,741 dev sessions."""
+    scale = 100 if price >= 1.0 else 10_000
+    return float(np.floor(price * scale + 1e-7)) / scale

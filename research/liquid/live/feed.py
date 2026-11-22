@@ -30,6 +30,8 @@ class TodayBars:
     volume: np.ndarray
     vwap: np.ndarray
     complete: bool             # bar 0 present and every bar 0..upto present or carried
+    has_upto: bool = True      # the decision bar itself arrived (not carried) (G3 W3)
+    n_carried: int = 0         # bars 1..upto carried forward
 
     def last_price(self) -> float:
         return float(self.close[self.upto])
@@ -46,12 +48,33 @@ def today_from_rows(rows: pd.DataFrame, upto: int) -> TodayBars:
         for j, f in enumerate(FIELDS):
             g[j, idx[keep]] = rows[f].to_numpy(float)[keep]
     ok = bool(np.isfinite(g[3, 0]))
+    has_upto = bool(np.isfinite(g[3, upto]))
+    carried = 0
     if ok:
         for i in range(1, upto + 1):
             if np.isnan(g[3, i]):
                 p = g[3, i - 1]
                 g[:, i] = (p, p, p, p, 0.0, p)
-    return TodayBars(upto, float(g[0, 0]), g[3].copy(), g[4].copy(), g[5].copy(), ok)
+                carried += 1
+    return TodayBars(upto, float(g[0, 0]), g[3].copy(), g[4].copy(), g[5].copy(), ok, has_upto, carried)
+
+
+SIP_DELAY_MIN = 16            # SIP bars this old are free on the basic plan (15 min, plus a margin)
+
+
+def merge_today(sip: pd.DataFrame, iex: pd.DataFrame, sip_through: int) -> pd.DataFrame:
+    """SIP rows for bars 0..sip_through, IEX rows after (the hybrid live feed, G3 B2)."""
+    def idx(df):
+        if not len(df):
+            return np.array([], int)
+        hh = df["minute_et"].str.slice(0, 2).astype(int)
+        mm = df["minute_et"].str.slice(3, 5).astype(int)
+        return ((hh - 9) * 60 + (mm - 30)).to_numpy()
+    a = sip[idx(sip) <= sip_through] if len(sip) else sip
+    b = iex[idx(iex) > sip_through] if len(iex) else iex
+    cols = ["minute_et", *FIELDS]
+    return pd.concat([a[cols], b[cols]], ignore_index=True) if len(a) or len(b) else \
+        pd.DataFrame(columns=cols)
 
 
 class Feed(Protocol):
@@ -63,14 +86,20 @@ class Feed(Protocol):
 class AlpacaFeed:
     def __init__(self, key: str, secret: str) -> None:
         from alpaca.data.historical import StockHistoricalDataClient
+        from research.liquid.live.broker import with_timeout
         self._c = StockHistoricalDataClient(key, secret)
+        with_timeout(self._c)
 
-    def _bars(self, symbol: str, start: datetime, end: datetime, feed: str) -> pd.DataFrame:
-        from alpaca.data.enums import DataFeed
+    def _bars(self, symbol: str, start: datetime, end: datetime, feed: str,
+              adjustment: str = "all") -> pd.DataFrame:
+        """adjustment 'all' for history matches the dividend-adjusted research cache (G3 W2);
+        today's bars carry no later corporate action, so 'all' and 'raw' agree on them."""
+        from alpaca.data.enums import Adjustment, DataFeed
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame
         req = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Minute, start=start, end=end,
-                               feed=DataFeed.IEX if feed == "iex" else DataFeed.SIP)
+                               feed=DataFeed.IEX if feed == "iex" else DataFeed.SIP,
+                               adjustment=Adjustment(adjustment))
         df = self._c.get_stock_bars(req).df
         if df is None or not len(df):
             return pd.DataFrame(columns=["date", "minute_et", *FIELDS])
@@ -81,16 +110,50 @@ class AlpacaFeed:
         return df[["date", "minute_et", *FIELDS]]
 
     def today(self, symbol: str, day: pd.Timestamp, upto: int) -> TodayBars:
+        """Bars 0..upto: SIP for bars at least SIP_DELAY_MIN old, IEX for the rest (hybrid)."""
         start = pd.Timestamp(day).tz_localize(ET) + timedelta(hours=9, minutes=30)
         end = start + timedelta(minutes=upto + 1)
-        return today_from_rows(self._bars(symbol, start.to_pydatetime(), end.to_pydatetime(), "iex"), upto)
+        sip_through = upto - SIP_DELAY_MIN
+        now = pd.Timestamp.now(tz=ET)
+        sip_through = min(sip_through, int((now - start).total_seconds() // 60) - SIP_DELAY_MIN - 1)
+        iex = self._bars(symbol, start.to_pydatetime(), end.to_pydatetime(), "iex")
+        if sip_through < 0:
+            return today_from_rows(iex, upto)
+        sip = self._bars(symbol, start.to_pydatetime(), (start + timedelta(minutes=sip_through + 1)).to_pydatetime(),
+                         "sip")
+        return today_from_rows(merge_today(sip, iex, sip_through), upto)
 
-    def history(self, symbol: str, sessions: list[tuple[pd.Timestamp, int]]) -> Minutes:
+    def history(self, symbol: str, sessions: list[tuple[pd.Timestamp, int]],
+                adjustment: str = "all") -> Minutes:
         days = [pd.Timestamp(d) for d, _ in sessions]
         start = days[0].tz_localize(ET) + timedelta(hours=9, minutes=30)
         end = days[-1].tz_localize(ET) + timedelta(hours=16)
-        df = self._bars(symbol, start.to_pydatetime(), end.to_pydatetime(), "sip")
+        df = self._bars(symbol, start.to_pydatetime(), end.to_pydatetime(), "sip", adjustment)
         return minutes_from_frame(symbol, df, sessions)
+
+    def iex_history(self, symbol: str, sessions: list[tuple[pd.Timestamp, int]],
+                    adjustment: str = "all") -> Minutes:
+        """IEX bars of past sessions, laid out like `history` (for the fidelity calibration)."""
+        days = [pd.Timestamp(d) for d, _ in sessions]
+        start = days[0].tz_localize(ET) + timedelta(hours=9, minutes=30)
+        end = days[-1].tz_localize(ET) + timedelta(hours=16)
+        df = self._bars(symbol, start.to_pydatetime(), end.to_pydatetime(), "iex", adjustment)
+        return minutes_from_frame(symbol, df, sessions)
+
+    def mid_at(self, symbol: str, ts: datetime, window_s: float = 3.0) -> float:
+        """SIP NBBO midpoint in force at `ts` (free once 15 minutes old). NaN if none."""
+        from alpaca.data.enums import DataFeed
+        from alpaca.data.requests import StockQuotesRequest
+        for w in (window_s, 30.0):
+            req = StockQuotesRequest(symbol_or_symbols=symbol, start=ts - timedelta(seconds=w), end=ts,
+                                     feed=DataFeed.SIP)
+            df = self._c.get_stock_quotes(req).df
+            if df is not None and len(df):
+                q = df[(df["bid_price"] > 0) & (df["ask_price"] >= df["bid_price"])]
+                if len(q):
+                    r = q.iloc[-1]
+                    return float((r["bid_price"] + r["ask_price"]) / 2)
+        return float("nan")
 
 
 def minutes_from_frame(symbol: str, df: pd.DataFrame, sessions: list[tuple[pd.Timestamp, int]]) -> Minutes:

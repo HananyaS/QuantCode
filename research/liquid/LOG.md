@@ -31,7 +31,8 @@ guard. That guard was fixed in advance and is not relaxed here.
 
 ### C3 in detail
 - **Market exposure.** Beta to SPY is 0.08 (0.06 to QQQ, 0.06 to IWM). It is in
-  the market on 32% of sessions, with 1.0 trades on each of those days. Exits are
+  the market on 32% of sessions, with 1.99 trades on each of those days (1,137
+  trades on 571 days; corrected from "1.0" after the G3 review). Exits are
   83% stops and 17% at the close. The net win rate is 25%. Mean leverage is 2.7×,
   and 28% of trades sit at the 4× cap.
 - **Edge per trade.** Gross is 2.9 bp a trade and net 1.9 bp, at about 1.0 bp of
@@ -85,3 +86,53 @@ C3 failed only L1's cost-stress rule (c). So the question that decides it is
 **what C3 really costs to trade**, and that can be measured live without
 spending the confirmation window. The rules, measurements and gates are fixed
 in `PAPER_C3.md`, before any order is sent. The confirmation window stays sealed.
+
+## 3. G3 review of the paper runner, and amendment A1 (before any order)
+
+2026-11-22.
+- **Verdict.** An independent G3 review
+  (`research/intraday/docs/critiques/G3-C3-paper.md`) returned **"ready with
+  fixes"**, with four blocking items.
+- **What it confirmed.**
+  - `cells.c3` implements the pre-registration with no look-ahead, and the fills
+    are as registered.
+  - The L1 verdict reproduces to the last digit: net Sharpe 1.0909, 2×-cost
+    0.6179 < SPY 0.6759.
+- **The fixes.** All are in `PAPER_C3.md` amendment A1, made before any order.
+
+**Evidence produced for A1.** Each item is a diagnostic of the closed cell, or a
+test of the live code on dev data L1 already read. None is a new trial.
+
+| item | result | file |
+|---|---|---|
+| Break-even cost | C3's dev Sharpe equals SPY's at a uniform 1.66 bp per round trip. The model charges 0.99 bp at dev prices; gross is 2.9 bp per trade. | `results/c3_breakeven.json` |
+| Runner parity | The real runner, filled by the research rules, was replayed on all 1,741 valid dev sessions. With prices floored to the cent, entries and exit bars equal `cells.c3` everywhere; 3 sessions label a last-minute exit "time" where research says "sl" (by design). Rounding to the nearest cent, the pre-A1 code, diverges on 98 sessions, reproducing the review's count. | `results/c3_live_parity.json` |
+| Feed fidelity, 2022 | Pooled Jaccard of entries against research: IEX only 0.86 [0.80, 0.91]; hybrid SIP ≥ 16 min + IEX 0.97 [0.94, 0.99]. Skipping or carrying a missing decision bar changed nothing. The hybrid feed is adopted, and G-fidelity's bar is 0.85. | `results/c3_iex_fidelity.json` |
+| Launcher (W7) | Under Windows PowerShell 5.1, `$ErrorActionPreference = "Stop"` with `& python ... *>> log` aborted at the first stderr line; the log held one line. The `cmd /c` launcher keeps every line. Smoke-tested with a harmless one-liner. | — |
+| SIP quotes | The basic plan serves historical SIP NBBO quotes (2,521 quotes in 3 s at 10:00 on 2026-11-20), so the cost gate can measure execution against the mid at each fill. | — |
+
+**Corrections.**
+- §1 said C3 trades "1.0" times per in-market day. It is 1.99 (1,137 trades on
+  571 days).
+- So 20 round trips take about 31 sessions, and 40 about 62.
+
+**Holdout bookkeeping (W9).**
+- The pre-registration's holdout starts 2025-08-07. For the liquid track it is
+  now bounded as **2025-08-07..2026-11-20**.
+- These reads touched that window; each computed **entry decisions, not
+  returns**:
+  1. 2026-11-22, before A1: an ad-hoc IEX-vs-SIP comparison of C3's entry flags
+     on the 25 sessions 2026-10-16..2026-11-20. The flags agreed on 99.3% of 300
+     checks. The script was not kept; the trade-level 2022 calibration above
+     replaces it.
+  2. `main --check` and `plan_for` read the previous 20 sessions of SIP bars to
+     build each day's plan.
+- No return in that window has been computed. Its sealing for any future
+  L-track test stands.
+- **The forward paper window** starts with the first paper session. It is new
+  data, not the holdout.
+
+**Keys used for market-data reads before the C3 account existed.** The
+IEX-vs-SIP comparisons and the SIP quote probe read market data with the KELLY
+key pair. No order was sent and no account endpoint was called. The committed
+scripts default to the C3 pair; `--env-pair` records any other.
