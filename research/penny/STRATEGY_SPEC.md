@@ -1,5 +1,14 @@
 # Penny-stock strategy specification
 
+> **Round 17 (2026-11-22): do not use the Sharpe figures below as evidence.**
+> - They come from a realised-only equity curve and a frame that read the future
+>   (`PREREGISTRATION_R17.md`, `LOG.md` §101).
+> - Measured causally and marked to market on dev, the strategy scores **Sharpe
+>   0.68** with a 95% CI of [−0.27, 1.73]. SPY scores 0.61 and QQQ 0.76.
+> - Alpha is +5.6%/yr with a CI of [−11, +23]. Beta to SPY is 0.84.
+> - It was **killed for live trading** by the pre-registered rule. Under
+>   realised-only booking the same trades score 1.63.
+
 **Status as of round 15 (2026-08-30).** This is the consolidated design: the
 strategy as it now stands, every element of it, the reasoning and references
 behind each choice, and the catalogue of what has been tested and what remains.

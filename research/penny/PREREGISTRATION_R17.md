@@ -4,6 +4,18 @@
 recorded in `LOG.md` §100 and in the outcome table added above §0 afterwards;
 the body below is not edited once a run exists.
 
+## Outcome, recorded after the fact (2026-11-22)
+
+| | outcome |
+|---|---|
+| **Cell A** | Sharpe **0.68**, 95% CI [−0.27, 1.73]; CAGR +15.1%; maxDD −31.7%; alpha vs SPY +5.6%/yr, NW CI [−11.4, +22.6]; beta 0.84. SPY 0.61, QQQ 0.76. |
+| **Cell B** | Sharpe 0.56; maxDD −31.9%. **Stop rejected** (rule 1). |
+| **Decision** | **KILL** (rule 2: the adopted cell's Sharpe CI includes 0). R15 is not taken live and **no holdout read #8** follows. |
+| Diagnostic D1 | The same causal trades score 0.77 marked to market and 1.63 under realised-only booking (gross of cost). |
+
+Erratum, pointer only: the results are in `LOG.md` **§101**, not §100, which
+was already taken.
+
 **What had already run when this was written (and nothing else):**
 1. The legacy reproduction: `r15_matched_book.run` at 60 slots, sector cap 3,
    15 seeds on dev → **Sharpe 1.2138 ± 0.2015, +12.5%/yr, maxDD −25.2%,

@@ -4583,3 +4583,104 @@ And the one it rules out on evidence rather than taste: **breakout and
 continuation patterns**. The 441-cell grid tested momentum, gap-ups, new 20-day
 highs and volume shocks, and every family was negative gross. In this universe
 continuation is the losing side.
+
+---
+
+# 101. Round 17 — R15 measured the way it would be traded: killed on dev
+
+Pre-registered in `PREREGISTRATION_R17.md` (commit `8654541`, pushed before any
+causal number existed). Dev only: market sessions 2020-01-02..2023-12-29, panel
+truncated at 2023-12-29 before anything read it. **The holdout was not
+touched.** Trial count 317.
+
+## Why it was re-measured
+
+R15 was about to drive a live account, and its numbers had four defects:
+
+1. The frame dropped candidates using their future (a flagged split in the next
+   61 bars, or a missing forward return, `cross_section.py:89-90`). It did this
+   before the within-day ranking, so it changed which names were selected.
+2. The equity curve was realised-only: positions carried at cost until
+   signal + 60 (`book.py:329`).
+3. Dev windows reached into the sealed period.
+4. The holdout had already been read 7 times.
+
+A data audit that read only prices settled what "causal" had to mean. Of the
+panel's split flags inside dev holding windows, 84% have no Alpaca
+corporate-action record. They are genuine gaps on near-round multiples, so
+defect 1 removed real trades, not artifacts.
+
+## Reproduction first
+
+`r15_matched_book.run`, 60 slots, cap 3, 15 seeds, dev: **Sharpe 1.2138 ±
+0.2015, +12.5%/yr, maxDD −25.2%, 41.0 live**. That is §91 exactly, and it was
+unchanged after `book.py` gained its MTM mode.
+
+## Result (15 seeds; paired stationary bootstrap, block 60, 2,000 reps)
+
+| series | Sharpe | 95% CI | CAGR | maxDD | total |
+|---|---|---|---|---|---|
+| **A** causal, no stop | **0.68** (seed sd 0.16) | [−0.27, 1.73] | +15.1% | −31.7% | +76.6% |
+| B causal, −50% stop | 0.56 (0.19) | [−0.44, 1.66] | +11.0% | −31.9% | +53.1% |
+| SPY (total return) | 0.61 | | +11.7% | −33.8% | +55.3% |
+| QQQ | 0.76 | | +18.4% | −34.7% | +95.6% |
+| IWM | 0.36 | | +6.4% | −41.2% | +28.0% |
+
+**Cell A against the benchmarks:**
+- vs SPY: Sharpe +0.07, bootstrap CI [−0.62, +0.66], Ledoit–Wolf p 0.80.
+- vs QQQ: −0.08, CI [−0.80, +0.67].
+- Alpha vs SPY: +5.6%/yr, Newey–West CI [−11.4, +22.6], t 0.65.
+- Beta: 0.84 to SPY, 0.77 to IWM, 0.61 to QQQ.
+
+**Diagnostics:**
+- Fills: the limit at prior close × 1.10 filled 99.2% of the time.
+- Positions: 40.7 live on average. Cost: 81 bps mean.
+- Exits: 83% time, 10% target, 5.7% open at the cutoff, 0.8% delisted.
+- Closed trades: +5.9% mean net, −2.1% median.
+- Deflated Sharpe at N = 317: 0.07.
+- Split corrections: one vendor split was missing from the adjusted series, and no traded position carried it.
+
+## Decisions, as pre-registered
+
+- **Stop:** B's Sharpe is 0.12 lower and its drawdown is no shallower, so the
+  stop is **rejected**. "Every stop hurts" holds a third time.
+- **Kill:** cell A's Sharpe CI includes 0. **R15 is not taken live.** No holdout
+  read #8 follows.
+
+## Where the 1.21 went (labelled diagnostic, not a cell)
+
+`scripts/r17_decompose.py` D1 books cell A's own causal trades both ways, gross
+of cost, over 15 seeds:
+
+| | Sharpe |
+|---|---|
+| marked to market | **0.77** |
+| realised-only booking (carried at cost, P&L on release) | **1.63** |
+
+**The same trades score more than twice as high when the open P&L is hidden.**
+Most of R15's 1.21 was the accounting, not the edge. Gross against net is not
+like for like, but cost runs about 2.3%/yr of equity (81 bps × ~172 trades a
+year ÷ 60 slots), and that is too small to take 1.63 down to 1.21. So the
+causal frame and paths do not appear to have made the trades worse. D2 was
+meant to show this directly.
+
+The run was stopped by the session's memory reaper before D2 (what the leak
+dropped) and D3 (path conventions) finished. They are recorded as **not run**.
+
+## What R15 actually is
+
+A crashed-microcap book with beta 0.84 to SPY and 0.77 to IWM. Its point Sharpe
+sits between SPY's and QQQ's, and no interval separates it from either. Its
+alpha is +5.6%/yr, with a 95% interval 34 points wide. Four years of 60-session
+holds are about 17 independent bets, too few to tell a 5%/yr alpha from zero.
+
+## Standing lessons
+
+- **Never read a Sharpe off a realised-only equity curve.** Here it inflated the
+  Sharpe 2.1× on identical trades. `eval/benchmark.assert_marked` now refuses
+  such a series.
+- **A filter on the future does not only drop rows; it re-ranks the survivors.**
+  The forward filter ran before the within-day median and the composite
+  z-ranks.
+- **A split flag is not a split.** Check it against the vendor's corporate-action
+  records before treating it as one (`scripts/fetch_corporate_actions.py`).
