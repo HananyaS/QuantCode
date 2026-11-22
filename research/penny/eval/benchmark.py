@@ -178,12 +178,15 @@ class Comparison:
 
 def compare(strategy: pd.DataFrame, bench: pd.DataFrame, rf: pd.Series,
             mean_block: float = 60.0, n_boot: int = 2000, seed: int = 17,
-            alpha_lags: int = 60) -> Comparison:
+            alpha_lags: int = 60, flat_ok: bool = False) -> Comparison:
     """Strategy seeds (columns) against benchmark columns (SPY, QQQ, ...).
 
     All inputs are daily returns indexed by session; the first session (a
     strategy's zero day-0 return) is dropped. Point Sharpe for the strategy is
     the mean of per-seed Sharpes; drawdown and CAGR are means over seeds.
+
+    `flat_ok=True` skips the realised-only guard. Use it only for a strategy
+    that holds nothing overnight, so a flat day is genuinely flat (intraday).
     """
     idx = strategy.index.intersection(bench.index)
     idx = idx[1:]
@@ -193,7 +196,7 @@ def compare(strategy: pd.DataFrame, bench: pd.DataFrame, rf: pd.Series,
     S = strategy.loc[idx].to_numpy(float)
     B = bench.loc[idx].to_numpy(float)
     f = rf.reindex(idx).ffill().fillna(0.0).to_numpy(float)
-    for j in range(S.shape[1]):
+    for j in range(S.shape[1] if not flat_ok else 0):
         assert_marked(S[:, j], f"seed {strategy.columns[j]}")
     if not (np.isfinite(S).all() and np.isfinite(B).all()):
         raise ValueError("non-finite daily return in strategy or benchmark")
