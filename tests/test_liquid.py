@@ -262,3 +262,24 @@ def test_compare_flat_ok_for_intraday():
         bm.compare(s, b, rf, n_boot=50)
     out = bm.compare(s, b, rf, n_boot=50, flat_ok=True)
     assert out.n_days == 299
+
+
+def test_infinite_stop_is_a_market_exit_at_the_open():
+    o, h, l, c = bars()
+    o[6] = 100.3
+    stop = np.full(10, np.nan)
+    stop[6] = np.inf
+    r = simulate(o, h, l, c, Order(2, 100.1, 9, stop=stop))
+    assert (r.kind, r.exit_bar, r.exit) == ("sl", 6, 100.3)
+    r = simulate(o, h, l, c, Order(2, 99.9, 9, stop=-stop), side=-1)
+    assert (r.kind, r.exit_bar, r.exit) == ("sl", 6, 100.3)
+
+
+def test_c3_checktime_stops_exit_at_the_next_open():
+    m = _c3_setup()
+    i = 15
+    m.close[i, 20:] = 100.8; m.open[i, 20:] = 100.8; m.high[i, 20:] = 100.8; m.low[i, 20:] = 100.8
+    m.vwap[i, 20:] = 100.8
+    m.close[i, 59] = 100.0                         # below the stop at the 10:30 check only
+    t = [x for x in cells.c3(m, resting_stop=False) if x.date == m.dates[i]][0]
+    assert (t.kind, t.exit_bar, t.exit) == ("sl", 60, 100.8)

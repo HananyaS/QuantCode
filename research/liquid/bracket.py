@@ -11,7 +11,8 @@ bar e = decide + 1 only.
 Exits, live from the entry bar e onward, checked bar by bar:
 - stop: low[k] <= stop[k] -> filled at min(stop[k], open[k]); on the entry bar
   at min(stop[k], entry). The stop level for bar k must be known by the close
-  of bar k-1 (the caller's job).
+  of bar k-1 (the caller's job). NaN means no stop; +inf means "sell at this
+  bar's open", a market exit decided at the previous close.
 - take-profit: high[k] > tp (strictly: the queue ahead must trade first) ->
   filled at tp; on the entry bar at max(tp, entry).
 - both on one bar: the stop.
@@ -60,7 +61,7 @@ def simulate_long(o: np.ndarray, h: np.ndarray, l: np.ndarray, c: np.ndarray, or
     tp = float(order.take_profit)
     for k in range(e, order.last + 1):
         s = _stop_at(order.stop, k)
-        hit_s = np.isfinite(s) and l[k] <= s
+        hit_s = not np.isnan(s) and l[k] <= s          # +inf = exit at this bar's open
         hit_t = np.isfinite(tp) and h[k] > tp
         if hit_s:
             px = min(s, entry) if k == e else min(s, float(o[k]))

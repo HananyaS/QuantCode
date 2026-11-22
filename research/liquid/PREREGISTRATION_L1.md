@@ -4,6 +4,19 @@
 in `research/liquid/LOG.md` and an outcome table added above §0 afterwards; the
 body below is not edited once a run exists.
 
+## Outcome, recorded after the fact (2026-11-22)
+
+| cell | net Sharpe | 2× cost | alpha vs SPY (NW 95%) | Holm p | dev |
+|---|---|---|---|---|---|
+| C1 | −0.81 | −0.96 | −4.5% [−8.0, −1.0] | 0.99 | fail |
+| C2 | 0.52 | 0.30 | +5.7% [−7.0, +18.3] | 0.38 | fail |
+| C3 | 1.09 | 0.62 | +5.5% [+1.2, +9.8] | 0.018 | **fail on rule (c) only** |
+| SPY / QQQ | 0.68 / 0.70 | | | | |
+
+**No cell passes; no confirmation read follows (rule 3).** Details are in
+`research/liquid/LOG.md` §1. After the run, a bug in diagnostic D4 only was
+fixed: the cells and the other diagnostics were byte-identical on re-run.
+
 **What existed when this was written:**
 - the code: `research/liquid/` (calendar, data, costs, bracket, cells);
 - 21 unit tests on synthetic bars (`tests/test_liquid.py`);
