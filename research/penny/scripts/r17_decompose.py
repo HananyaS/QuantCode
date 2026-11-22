@@ -58,7 +58,11 @@ def stepped(paths: causal.Paths, cost_guess: float) -> causal.Paths:
                         paths.exit_value, paths.n_corr, paths.hold)
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--skip-d1", action="store_true", help="D1 already recorded (LOG §101)")
+    args = ap.parse_args(argv)
     cal = market_calendar("dev")
     cutoff = cal[-1]
     u = attach_sector_relative(attach_sector(causal.load_panel(cutoff)), 5)
@@ -67,6 +71,9 @@ def main() -> int:
     corr = causal.split_corrections(u, causal.load_vendor_splits(cutoff))
     paths = causal.holding_paths(u, df["_pos"].to_numpy(), HOLD, TARGET, None, corr)
     out = {}
+    p_out = bars.DATA_ROOT / "r17" / "r17_dev_decompose.json"
+    if p_out.exists():
+        out = json.loads(p_out.read_text(encoding="utf-8"))
 
     # ---- D1: same causal trades, realised-only booking ------------------------
     # c varies by trade; the stepped mark holds value at par only if c matches,
@@ -75,14 +82,19 @@ def main() -> int:
                        sector_cap=3, cost_mode="none", mark="mtm")
     st = stepped(paths, 0.0)
     sh_mtm, sh_step = [], []
-    for s in range(SEEDS):
+    for s in ([] if args.skip_d1 else range(SEEDS)):
         a = run_book(df, cal, cfg_m, seed=s, paths=paths)
         b = run_book(df, cal, cfg_m, seed=s, paths=st)
         sh_mtm.append(bm.sharpe(a.daily.to_numpy()[1:]))
         sh_step.append(bm.sharpe(b.daily.to_numpy()[1:]))
-    out["D1_gross_of_cost"] = {"mtm_sharpe": float(np.mean(sh_mtm)),
-                               "realised_booking_sharpe": float(np.mean(sh_step))}
-    logger.info("D1 %s", out["D1_gross_of_cost"])
+    if not args.skip_d1:
+        out["D1_gross_of_cost"] = {"mtm_sharpe": float(np.mean(sh_mtm)),
+                                   "realised_booking_sharpe": float(np.mean(sh_step))}
+        logger.info("D1 %s", out["D1_gross_of_cost"])
+    else:
+        out.setdefault("D1_gross_of_cost", {"mtm_sharpe": 0.7666768993634768,
+                                            "realised_booking_sharpe": 1.634900397120932,
+                                            "note": "recorded from the 2026-11-22 run (LOG §101)"})
 
     # ---- D2 / D3: candidate level, legacy frame vs causal frame ----------------
     leg = attach_sector_r15(build_frame("dev"))
