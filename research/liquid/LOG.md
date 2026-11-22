@@ -75,3 +75,13 @@ guard. That guard was fixed in advance and is not relaxed here.
   belongs to the user. The cleanest test of the cost question does not spend the
   confirmation window: forward paper trading C3 to measure real stop and
   closing-auction slippage on SPY. That needs the Phase 2 broker layer.
+
+## 2. User decision: forward paper trading of C3 (labelled deviation)
+
+2026-11-22. Asked how to proceed after L1, the user chose **"Paper-trade C3"**
+over reading the confirmation window or accepting the kill.
+
+C3 failed only L1's cost-stress rule (c). So the question that decides it is
+**what C3 really costs to trade**, and that can be measured live without
+spending the confirmation window. The rules, measurements and gates are fixed
+in `PAPER_C3.md`, before any order is sent. The confirmation window stays sealed.

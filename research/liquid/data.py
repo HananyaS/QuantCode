@@ -62,9 +62,12 @@ class Minutes:
                        *(getattr(self, f)[k] for f in FIELDS), self.prev_close[k], self.valid[k])
 
 
-def _day_grid(day: pd.Timestamp, rows: pd.DataFrame) -> tuple[np.ndarray, int, bool, float]:
-    """One session's (6, 390) grid, its bar count, validity and late-volume ratio."""
-    n = session_bars(day)
+def _day_grid(day: pd.Timestamp, rows: pd.DataFrame,
+              n_bars: int | None = None) -> tuple[np.ndarray, int, bool, float]:
+    """One session's (6, 390) grid, its bar count, validity and late-volume ratio.
+
+    `n_bars` overrides the research calendar (the live runner passes Alpaca's)."""
+    n = session_bars(day) if n_bars is None else n_bars
     g = np.full((len(FIELDS), FULL_BARS), np.nan)
     hh = rows["minute_et"].str.slice(0, 2).astype(int)
     mm = rows["minute_et"].str.slice(3, 5).astype(int)
