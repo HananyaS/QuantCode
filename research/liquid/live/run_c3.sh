@@ -37,8 +37,9 @@ else
     echo "guard exit code: $?" >>"$log"
 fi
 
-# Publish the day's dashboard data (optional: skipped when the hook is absent).
-if [ -x "$root/data/research_liquid/live/publish_hook.sh" ]; then
-    "$root/data/research_liquid/live/publish_hook.sh" >>"$log" 2>&1
-    echo "publish exit code: $?" >>"$log"
+# Publish the dashboard data to Drive (only where publish.json names the two files; a failure
+# here never touches trading, it only leaves the dashboard a day behind).
+if [ -f "$root/data/research_liquid/live/publish.json" ]; then
+    "$py" -m research.liquid.live.dashboard --live --publish >>"$log" 2>&1
+    echo "dashboard publish exit code: $?" >>"$log"
 fi
