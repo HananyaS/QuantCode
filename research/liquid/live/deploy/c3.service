@@ -1,0 +1,13 @@
+[Unit]
+Description=C3 SPY paper session (guard, run, evening report)
+Wants=network-online.target
+After=network-online.target time-sync.target
+
+[Service]
+Type=oneshot
+User=c3
+Group=c3
+WorkingDirectory=/home/c3/QuantCode
+ExecStart=/bin/bash /home/c3/QuantCode/research/liquid/live/run_c3.sh
+# A session plus its report ends by about 16:25 ET; 13 hours from 08:00 is only a backstop.
+TimeoutStartSec=13h

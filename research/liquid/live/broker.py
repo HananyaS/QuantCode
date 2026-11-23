@@ -97,6 +97,17 @@ def with_timeout(client, seconds: float = HTTP_TIMEOUT_S) -> None:
     session.request = request
 
 
+PAPER_HOST = "https://paper-api.alpaca.markets"
+CONFIG_PATH = "/account/configurations"
+NO_SHORTING = "no_shorting"
+
+
+def paper_endpoint(base: object) -> str:
+    """The client's base URL as text. alpaca-py 0.43 keeps it as a BaseURL enum whose str() is the
+    member name ("BaseURL.TRADING_PAPER"), not the URL, so read .value when there is one."""
+    return str(getattr(base, "value", base))
+
+
 def _iso(x) -> str | None:
     return x.isoformat() if isinstance(x, datetime) else (str(x) if x is not None else None)
 
@@ -105,8 +116,8 @@ class AlpacaPaperBroker:
     def __init__(self, key: str, secret: str) -> None:
         from alpaca.trading.client import TradingClient
         self._c = TradingClient(key, secret, paper=True)
-        base = str(getattr(self._c, "_base_url", ""))
-        assert "paper" in base, f"refusing a non-paper endpoint: {base!r}"
+        base = paper_endpoint(getattr(self._c, "_base_url", ""))
+        assert base.startswith(PAPER_HOST), f"refusing a non-paper endpoint: {base!r}"
         self._c._retry = 0                  # never re-send an order POST; _submit looks it up instead
         with_timeout(self._c)
 
@@ -151,14 +162,20 @@ class AlpacaPaperBroker:
         a = self._read(self._c.get_account)
         return AccountState(float(a.equity), float(a.last_equity), float(a.buying_power))
 
+    def _config(self) -> dict:
+        """The raw account configuration. alpaca-py 0.43's AccountConfiguration model requires dtbp_check and
+        pdt_check, which the paper API no longer returns (2026-11-24), so its parsed call raises. The shorting
+        flag is ``no_shorting`` (True = shorting off)."""
+        cfg = self._read(lambda: self._c.get(CONFIG_PATH))
+        assert isinstance(cfg, dict) and isinstance(cfg.get(NO_SHORTING), bool), f"unexpected account configuration: {cfg!r}"
+        return cfg
+
     def shorting_enabled(self) -> bool:
-        return bool(self._read(self._c.get_account_configurations).shorting_enabled)
+        return not self._config()[NO_SHORTING]
 
     def disable_shorting(self) -> None:
-        """An oversell can then only be rejected, never open a short."""
-        cfg = self._read(self._c.get_account_configurations)
-        cfg.shorting_enabled = False
-        self._c.set_account_configurations(cfg)
+        """An oversell can then only be rejected, never open a short. Patches only that one field."""
+        self._c.patch(CONFIG_PATH, data={NO_SHORTING: True})
 
     def position_qty(self, symbol: str) -> int:
         def read():

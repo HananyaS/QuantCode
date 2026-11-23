@@ -6,6 +6,11 @@
 # PowerShell 5.1, `& python ... *>> log` with $ErrorActionPreference = "Stop" aborts the
 # script at the first stderr line (verified 2026-11-22, G3 W7).
 $ErrorActionPreference = "Continue"
+
+# Keep Windows awake until this script exits (the display may still turn off): ES_CONTINUOUS | ES_SYSTEM_REQUIRED.
+# Sleep would kill the runner and the guard mid-session (README step 5); the flag clears when the process ends.
+Add-Type -Namespace C3 -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);'
+[void][C3.Power]::SetThreadExecutionState([uint32]2147483649)
 $py = "C:\Users\Shachar\Desktop\venvs\ML\Scripts\python.exe"
 $root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 Set-Location $root

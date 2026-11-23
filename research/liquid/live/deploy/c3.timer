@@ -1,0 +1,13 @@
+[Unit]
+Description=Start the C3 SPY paper session on weekdays before the open
+
+[Timer]
+# New York time, so US daylight saving needs no change. Holidays and closed days exit on their own.
+OnCalendar=Mon..Fri *-*-* 08:00:00 America/New_York
+# Missed while the server was down: start at boot; the runner skips any check already past.
+Persistent=true
+AccuracySec=1min
+Unit=c3.service
+
+[Install]
+WantedBy=timers.target
