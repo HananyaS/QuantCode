@@ -330,6 +330,24 @@ def build_dev(out: Path) -> dict[str, Path]:
 
 
 # --------------------------------------------------------------- live side --
+LEDGER_BOOLS = ("enter", "in_position")      # the runner logs numpy bools; json(default=str) stores "True"/"False"
+
+
+def _stored_bool(v: Any) -> Any:
+    return v == "True" if v in ("True", "False") else v
+
+
+def nested_events(rows: list[dict]) -> list[dict]:
+    """Ledger.events() rows are flat ({ts, day, kind, **payload}); the live tables read {ts, day, kind, payload}."""
+    out = []
+    for r in rows:
+        p = {k: v for k, v in r.items() if k not in ("ts", "day", "kind")}
+        p.update({k: _stored_bool(p[k]) for k in LEDGER_BOOLS if k in p})
+        out.append({"ts": r["ts"], "day": r["day"], "kind": r["kind"], "payload": p})
+    assert len(out) == len(rows)
+    return out
+
+
 def check_action(ev: dict, later: list[dict]) -> str:
     """What happened at one live check, from its own event and the events logged at the same check."""
     d = ev["d"]
@@ -520,7 +538,8 @@ def build_live(now: datetime | None = None) -> tuple[dict, dict]:
             market[day] = {}
             continue
         f.write_text(json.dumps(market[day]), encoding="utf-8")
-    tables = live_tables(days, {d: led.trades(d) for d in days}, {d: led.events(d) for d in days}, reports, market)
+    tables = live_tables(days, {d: led.trades(d) for d in days}, {d: nested_events(led.events(d)) for d in days},
+                         reports, market)
     summary_path = M.LIVE_DIR / "summary.json"
     summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.exists() else {}
     nxt = next((s for s in cal if s.open > now), None)
