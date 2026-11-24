@@ -212,7 +212,7 @@
     const day = selectedDay();
     if (!day) { C3.empty(el, 'No paper session yet.'); return; }
     const { intr, checks, trades } = dayParts(day);
-    if (!intr) { C3.empty(el, `No minute bars were saved for ${day}.`); return; }
+    if (!intr) { C3.empty(el, `No minute bars for ${day}: the replay keeps the last 40 sessions.`); return; }
     const n = num(intr.n_bars);
     const tr = trades.map((t) => {
       const x0 = C3.clockToMin(t.entry_time), x1 = C3.clockToMin(t.exit_time);

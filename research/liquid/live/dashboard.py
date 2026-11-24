@@ -522,8 +522,8 @@ def build_live(now: datetime | None = None) -> tuple[dict, dict]:
                         equity=equity, code=git_state(), host=socket.gethostname(), timer_next=_timer_next())
     live = {"version": 1, "status": table([status]), "days": table(tables["days"] or [], DAY_COLS),
             "trades": table(tables["trades"], TRADE_COLS), "checks": table(tables["checks"], CHECK_COLS)}
-    intraday = {"version": 1, "intraday": table([{"day": d, **market[d]["arrays"]} for d in days
-                                                   if market[d].get("arrays")], INTRADAY_COLS)}
+    kept = [d for d in days if market[d].get("arrays")][-INTRADAY_KEEP:]        # keeps the Drive file small
+    intraday = {"version": 1, "intraday": table([{"day": d, **market[d]["arrays"]} for d in kept], INTRADAY_COLS)}
     return live, intraday
 
 
@@ -534,6 +534,7 @@ TRADE_COLS = ["trade", "day", "n", "check", "entry_time", "exit_time", "qty", "n
               "exit_price", "exit", "exit_check", "pnl", "gross_bp", "cost_bp", "exec_entry_bp", "exec_exit_bp",
               "fees_bp", "latency_bp", "model_bp", "cost_usable", "research_match"]
 CHECK_COLS = ["day", "d", "time", "price", "ub", "vwap", "stop", "in_position", "action", "research_enters"]
+INTRADAY_KEEP = 40                         # sessions of minute bars in c3_intraday.json (~4 KB each, compressed)
 INTRADAY_COLS = ["day", "n_bars", "open0", "prev_close", "close", "ub", "lb", "vwap"]
 
 
