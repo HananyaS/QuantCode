@@ -466,6 +466,19 @@ def _timer_next() -> str | None:
         return None
 
 
+def market_day(feed: Any, cal: list, day: str, history_sessions: int, symbol: str) -> dict:
+    """SPY and QQQ close-to-close returns and SPY's chart arrays for one paper session (SIP, adjusted)."""
+    window = [s for s in cal if s.day <= pd.Timestamp(day)][-(history_sessions + 1):]
+    m = feed.history(symbol, [(s.day, s.n_bars) for s in window])
+    q = feed.history("QQQ", [(s.day, s.n_bars) for s in window[-2:]])
+    i = len(m.dates) - 1
+    assert f"{m.dates[i]:%Y-%m-%d}" == day, f"last session fetched is {m.dates[i]:%Y-%m-%d}, not {day}"
+    assert f"{q.dates[-1]:%Y-%m-%d}" == day and len(q.dates) == 2
+    spy_ret = m.close[i, m.n_bars[i] - 1] / m.prev_close[i] - 1
+    qqq_ret = q.close[1, q.n_bars[1] - 1] / q.prev_close[1] - 1
+    return {"spy_ret": num(spy_ret, 7), "qqq_ret": num(qqq_ret, 7), "arrays": day_arrays(m, i)}
+
+
 def build_live(now: datetime | None = None) -> tuple[dict, dict]:
     """The two live documents. Server side: reads the ledger, the reports and Alpaca (read-only)."""
     from research.liquid.live import main as M
@@ -488,14 +501,12 @@ def build_live(now: datetime | None = None) -> tuple[dict, dict]:
         if f.exists():
             market[day] = json.loads(f.read_text(encoding="utf-8"))
             continue
-        window = [s for s in cal if s.day <= pd.Timestamp(day)][-(M.HISTORY_SESSIONS + 1):]
-        m = feed.history(M.SYMBOL, [(s.day, s.n_bars) for s in window])
-        q = feed.history("QQQ", [(s.day, s.n_bars) for s in window[-2:]])
-        i = len(m.dates) - 1
-        assert f"{m.dates[i]:%Y-%m-%d}" == day
-        spy_ret = m.close[i, m.n_bars[i] - 1] / m.prev_close[i] - 1
-        qqq_ret = q.close[1, q.n_bars[1] - 1] / q.prev_close[1] - 1
-        market[day] = {"spy_ret": num(spy_ret, 7), "qqq_ret": num(qqq_ret, 7), "arrays": day_arrays(m, i)}
+        try:
+            market[day] = market_day(feed, cal, day, M.HISTORY_SESSIONS, M.SYMBOL)
+        except Exception:                                              # noqa: BLE001
+            logger.exception("minute bars for %s failed; the day shows without its replay", day)
+            market[day] = {}
+            continue
         f.write_text(json.dumps(market[day]), encoding="utf-8")
     tables = live_tables(days, {d: led.trades(d) for d in days}, {d: led.events(d) for d in days}, reports, market)
     summary_path = M.LIVE_DIR / "summary.json"
@@ -511,7 +522,8 @@ def build_live(now: datetime | None = None) -> tuple[dict, dict]:
                         equity=equity, code=git_state(), host=socket.gethostname(), timer_next=_timer_next())
     live = {"version": 1, "status": table([status]), "days": table(tables["days"] or [], DAY_COLS),
             "trades": table(tables["trades"], TRADE_COLS), "checks": table(tables["checks"], CHECK_COLS)}
-    intraday = {"version": 1, "intraday": table([{"day": d, **market[d]["arrays"]} for d in days], INTRADAY_COLS)}
+    intraday = {"version": 1, "intraday": table([{"day": d, **market[d]["arrays"]} for d in days
+                                                   if market[d].get("arrays")], INTRADAY_COLS)}
     return live, intraday
 
 
