@@ -136,3 +136,34 @@ test of the live code on dev data L1 already read. None is a new trial.
 IEX-vs-SIP comparisons and the SIP quote probe read market data with the KELLY
 key pair. No order was sent and no account endpoint was called. The committed
 scripts default to the C3 pair; `--env-pair` records any other.
+
+## 4. The paper runner moves to a server; a dashboard
+
+2026-11-24, before the first paper session.
+
+**The first real-API run** (`main --check`, then `--drill`, on the new C3
+account) found two broker bugs that the fake-broker tests could not catch. Both
+were fixed in 7bce49f, with regression tests in
+`tests/test_liquid_live_paper_guard.py`.
+- The paper-endpoint guard read `str()` of alpaca-py's `BaseURL` enum.
+- The shorting switch is `no_shorting`, and alpaca-py 0.43 no longer parses
+  the account-configuration reply. The broker now uses raw GET/PATCH.
+
+**The server.** Running on the PC needed it awake from 08:00 to 16:25 ET every
+weekday. The runner now runs on a Google Cloud e2-micro (README, "Where it
+runs").
+- Same code, a Linux launcher `run_c3.sh` (the twin of `run_c3.ps1`), a systemd
+  timer, and pinned requirements.
+- On the server, `--check` passed (peak memory 174 MB of 964 MB) and a test fire
+  of the service exited 0 after the close without trading.
+- The Windows task is disabled.
+
+**The dashboard.** `live/dashboard.py` (commit 417e77d) builds what the
+dashboard shows:
+- research: dev window only, with checks that it reproduces §1 and A1;
+- live: the ledger, the reports and the runner's check events, plus SIP minute
+  bars of paper days only.
+
+It reads nothing in the confirmation window or the holdout. The four example
+days in "How it trades" were picked from 2021–2022 by fixed rules in
+`pick_examples`, not by eye.

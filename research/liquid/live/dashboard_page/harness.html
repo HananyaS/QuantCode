@@ -1,0 +1,99 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>C3 harness</title>
+<style>
+:root { --color-fg:#1f1e1d; --color-fg-muted:#6b6a68; --color-bg:#faf9f5; --color-panel:#f0eee6; --color-border-line:#dedcd1;
+  --color-ok:#2e7d32; --color-warn:#b7791f; --color-bad:#c62828; --font-anthropic-sans: system-ui, sans-serif; --font-anthropic-serif: Georgia, serif;
+  --cds-font-size-caption:12px; --cds-font-size-body:14px; --cds-font-size-heading:17px; --cds-font-size-title:28px; --cds-font-weight-medium:600;
+  --cds-gap-xs:4px; --cds-gap-sm:8px; --cds-gap-md:12px; --cds-gap-lg:16px; --cds-gap-xl:24px; --cds-pad-xs:4px; --cds-pad-sm:8px; --cds-pad-md:12px; --cds-pad-lg:16px; --cds-pad-xl:24px; --cds-radius:8px;
+  --cds-chart-muted:#d9d6cb; --cds-chart-grid:#ebe9e1; --cds-chart-axis:#c9c6ba; --cds-chart-reference:#8f8c82; --cds-text-secondary:#5f5e5a;
+  --cds-surface-popover:#ffffff; --cds-border:#dedcd1; --cds-shadow-popover:0 4px 16px rgba(0,0,0,.12); --cds-dur-slow:300ms; --cds-ease-out:ease-out;
+  --s0:#c96442; --s1:#3b6fb6; --s2:#7a8f2b; --s3:#9a5ab8; --s4:#2b8a8a; --s5:#d4a72c; }
+.dark { --color-fg:#ecebe6; --color-fg-muted:#a3a19a; --color-bg:#1f1e1d; --color-panel:#2a2927; --color-border-line:#3a3936;
+  --cds-chart-muted:#3d3c38; --cds-chart-grid:#302f2c; --cds-chart-axis:#4a4945; --cds-chart-reference:#8a887f; --cds-text-secondary:#b3b1aa; --cds-surface-popover:#2a2927; --cds-border:#3a3936; }
+body { margin:0; background:var(--color-bg); color:var(--color-fg); font: 14px var(--font-anthropic-sans); }
+#dash-root { padding: 16px; }
+[hidden] { display:none !important; }
+.dash-select { font: inherit; padding: 4px 8px; }
+.dash-skeleton { background: var(--color-panel); color: transparent !important; }
+#errors { white-space: pre-wrap; color: #c62828; font: 12px monospace; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="test/harness-data.js"></script>
+</head><body>
+<pre id="errors"></pre>
+<div id="dash-root"></div>
+<script>
+const Q = new URLSearchParams(location.search);
+if (Q.get('dark')) document.documentElement.classList.add('dark');
+if (Q.get('w')) document.head.insertAdjacentHTML('beforeend', '<style>#dash-root{width:' + Q.get('w') + 'px;box-sizing:border-box;outline:1px dashed red}</style>');
+window.__errors = [];
+const err = (m) => { __errors.push(m); document.getElementById('errors').textContent = 'ERRORS:\n' + __errors.join('\n'); };
+window.onerror = (m, s, l, c, e) => err(`${m} @${(s || '').split('/').pop()}:${l}:${c}`);
+window.onunhandledrejection = (e) => err('rejection: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason));
+const liveMode = Q.get('live') || 'fake';
+const state = {}, loaders = {}, calcs = {}, draws = {}, onDatas = [], mounted = new Map();
+window.dash = {
+  colors: ['var(--s0)', 'var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(--s5)'],
+  loader(id, o) { loaders[id] = o; }, calc(id, o) { calcs[id] = o; },
+  draw(name, fn) { if (fn === undefined) { runDraw(name); return; } draws[name] = typeof fn === 'function' ? { update: fn } : fn; },
+  onData(fn) { onDatas.push(fn); try { fn(); } catch (e) { err('onData: ' + e.stack); } },
+  data(id) {
+    if (calcs[id]) {
+      const ins = calcs[id].inputs.map((i) => state[i]);
+      if (ins.some((s) => !s || s.status !== 'ok')) return { status: 'loading', data: null };
+      try { return { status: 'ok', data: calcs[id].fn(...ins.map((s) => s.data)) }; } catch (e) { err(`calc ${id}: ${e.stack}`); return { status: 'error', data: null }; }
+    }
+    return state[id] || { status: 'loading', data: [] };
+  },
+  setLink() {}, params() { return {}; }, setParams() {}, resetParams() {}, refresh() {},
+};
+function visible(el) { return !el.closest('[hidden]'); }
+function runDraw(name) {
+  const d = draws[name]; if (!d) return;
+  document.querySelectorAll(`#dash-root [data-draw="${name}"]`).forEach((el) => {
+    if (!visible(el)) return;
+    try {
+      if (d.mount && !mounted.has(el)) { el.replaceChildren(); mounted.set(el, d.mount(el)); }
+      d.update(el, mounted.get(el));
+    } catch (e) { err(`draw ${name}: ${e.stack}`); }
+  });
+}
+function runAll() { onDatas.forEach((f) => { try { f(); } catch (e) { err('onData: ' + e.stack); } }); Object.keys(draws).forEach(runDraw); }
+async function loadAll() {
+  for (const id of Object.keys(__DATA)) {
+    const l = loaders[id];
+    try { const r = l ? await l.fn({ answer: __DATA[id], items: [__DATA[id]] }) : __DATA[id]; state[id] = { status: 'ok', data: r.data || r.rows, columns: r.columns }; }
+    catch (e) { err(`loader ${id}: ${e.stack}`); state[id] = { status: 'error', data: [] }; }
+  }
+  const ids = { live_status: 0, live_days: 0, live_trades: 0, live_checks: 0, live_intraday: 1 };
+  for (const [id, k] of Object.entries(ids)) {
+    if (liveMode === 'none') { state[id] = { status: 'connect', data: [] }; continue; }
+    const text = __LIVE[liveMode][k];
+    if (text === null) { state[id] = { status: 'ok', data: [] }; continue; }
+    try { const r = await loaders[id].fn({ answer: { fileContent: text, title: 'x', viewUrl: 'x' }, items: [{ fileContent: text }] }); state[id] = { status: 'ok', data: r.data, columns: r.columns }; }
+    catch (e) { err(`loader ${id}: ${e.stack}`); state[id] = { status: 'error', data: [] }; }
+  }
+}
+(async () => {
+  const root = document.getElementById('dash-root');
+  const page = __PAGE.replace(/<script[^>]*><\/script>/g, '');
+  root.innerHTML = page;
+  const scripts = [...__PAGE.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
+  for (const s of scripts) await new Promise((res) => { const el = document.createElement('script'); el.src = s; el.onload = res; el.onerror = () => { err('load ' + s); res(); }; document.body.appendChild(el); });
+  if (Q.get('tab')) C3.openTab(Q.get('tab'));
+  if (Q.get('all')) document.querySelectorAll('.c3-pane').forEach((p) => { p.hidden = false; });
+  if (Q.get('step')) C3.state.step = +Q.get('step');
+  if (Q.get('ex')) C3.state.ex = Q.get('ex');
+  runAll();
+  await loadAll();
+  runAll(); runAll();
+  document.body.dataset.done = '1';
+  const out = document.createElement('pre'); out.id = 'report';
+  out.textContent = 'REPORT ' + JSON.stringify({ errors: __errors.length, svgs: document.querySelectorAll('#dash-root svg').length,
+    dashes: [...document.querySelectorAll('#dash-root [data-draw="val"]')].filter((e) => visible(e) && e.textContent === '—').map((e) => e.dataset.field || e.dataset.source),
+    rows: document.querySelectorAll('#dash-root tbody tr').length });
+  document.body.appendChild(out);
+})();
+</script>
+</body></html>

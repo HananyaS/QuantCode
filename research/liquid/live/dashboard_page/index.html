@@ -1,0 +1,305 @@
+<meta name="dash-one-writer">
+<link rel="stylesheet" href="c3.css">
+<div class="c3" id="c3">
+
+<header class="c3-head" id="head">
+  <div class="c3-eyebrow">SPY · Alpaca paper account · long only · a labelled deviation</div>
+  <h1 class="c3-title" id="title">C3 SPY paper trading</h1>
+  <p class="c3-lede" id="takeaway"><span data-draw="phase"></span><span data-phase="loading">Reading the server's latest file from Google Drive.</span><span data-phase="offline" hidden>The server's file could not be read here; Sources says why. The research record in the other tabs does not depend on it.</span><span data-phase="waiting" hidden>The server is set up and waiting for the first paper session, <b data-draw="val" data-source="live_status" data-field="next_open" data-row="0" data-fmt="when">—</b>. Until then the yardstick is the research record: a Sharpe of <b data-draw="val" data-source="dev_c3" data-field="sharpe" data-row="0" data-fmt="f2">—</b> against SPY's <b data-draw="val" data-source="dev_c3" data-field="spy_sharpe" data-row="0" data-fmt="f2">—</b> on 2016–2022, if a round trip costs no more than <b data-draw="val" data-source="dev_c3" data-field="breakeven_bp" data-row="0" data-fmt="f2">—</b> bp.</span><span data-phase="running" hidden>After <b data-draw="val" data-source="live_status" data-field="sessions" data-row="0" data-fmt="int">—</b> paper sessions and <b data-draw="val" data-source="live_status" data-field="round_trips" data-row="0" data-fmt="int">—</b> round trips the account is <b data-draw="val" data-source="live_status" data-field="ret_total" data-row="0" data-fmt="spct2" data-tone="sign">—</b>, against <b data-draw="val" data-source="live_status" data-field="spy_total" data-row="0" data-fmt="spct2">—</b> for SPY on the same days. The research rule, replayed on those days at model costs, made <b data-draw="val" data-source="live_status" data-field="research_total" data-row="0" data-fmt="spct2">—</b>.</span><span data-phase="stopped" hidden>Trading is stopped: the server found a KILL file and will not open new trades until it is removed. Reason given: <b data-draw="val" data-source="live_status" data-field="kill_text" data-row="0" data-fmt="text">—</b>.</span></p>
+  <div class="c3-chips" id="chips" data-source="live_status">
+    <span class="c3-chip" data-chip="phase"><span class="c3-k">Server</span><b data-draw="val" data-source="live_status" data-field="phase" data-row="0" data-fmt="phase">—</b></span>
+    <span class="c3-chip" data-chip="fresh"><span class="c3-k">File written</span><b data-draw="val" data-source="live_status" data-field="updated" data-row="0" data-fmt="ago">—</b></span>
+    <span class="c3-chip" data-chip="g_cost"><span class="c3-k">G-cost</span><b data-draw="val" data-source="live_status" data-field="g_cost" data-row="0" data-fmt="gate">—</b></span>
+    <span class="c3-chip" data-chip="g_fidelity"><span class="c3-k">G-fidelity</span><b data-draw="val" data-source="live_status" data-field="g_fidelity" data-row="0" data-fmt="gate">—</b></span>
+    <span class="c3-chip" data-chip="g_safety"><span class="c3-k">G-safety</span><b data-draw="val" data-source="live_status" data-field="g_safety" data-row="0" data-fmt="gate">—</b></span>
+    <span class="c3-chip" data-chip="code"><span class="c3-k">Code</span><b data-draw="val" data-source="live_status" data-field="code_sha" data-row="0" data-fmt="text">—</b></span>
+  </div>
+</header>
+
+<nav class="c3-tabs" role="tablist" aria-label="Sections" id="tabs">
+  <button class="c3-tab" role="tab" id="tab-live" aria-controls="live" aria-selected="true">Live paper</button>
+  <button class="c3-tab" role="tab" id="tab-strategy" aria-controls="strategy" aria-selected="false" tabindex="-1">How it trades</button>
+  <button class="c3-tab" role="tab" id="tab-research" aria-controls="research" aria-selected="false" tabindex="-1">Research 2016–2022</button>
+  <button class="c3-tab" role="tab" id="tab-method" aria-controls="method" aria-selected="false" tabindex="-1">Method &amp; caveats</button>
+</nav>
+
+<!-- ============================== LIVE ============================== -->
+<section class="c3-pane" id="live" role="tabpanel" aria-labelledby="tab-live">
+
+  <div class="c3-empty" id="live-waiting" data-phase="waiting" hidden>
+    <div class="c3-big">First paper session: <span data-draw="val" data-source="live_status" data-field="next_open" data-row="0" data-fmt="when">—</span></div>
+    <p class="c3-p"><span data-draw="countdown" data-source="live_status" data-field="next_open" data-row="0">—</span></p>
+    <p class="c3-p">A small Google Cloud server starts the runner at 08:00 ET on weekdays. It trades the session on the paper account, writes the evening report at 16:20 ET, then publishes this page's data. Trades, the gate counters and the day replay appear here after that first evening.</p>
+    <dl class="c3-dl" id="server-facts">
+      <dt>Server timer</dt><dd data-draw="val" data-source="live_status" data-field="timer_next" data-row="0" data-fmt="text">—</dd>
+      <dt>Paper equity</dt><dd data-draw="val" data-source="live_status" data-field="equity" data-row="0" data-fmt="usd0">—</dd>
+      <dt>Host</dt><dd data-draw="val" data-source="live_status" data-field="host" data-row="0" data-fmt="text">—</dd>
+      <dt>Code</dt><dd data-draw="val" data-source="live_status" data-field="code_sha" data-row="0" data-fmt="text">—</dd>
+    </dl>
+  </div>
+
+  <div class="c3-block" id="live-day" aria-label="The trading day">
+    <h2 class="c3-h2" id="live-day-head">What the server does each weekday</h2>
+    <ol class="c3-timeline" id="timeline">
+      <li><time>08:00</time><span>Starts, checks the account is flat, builds the day plan: noise area, size, the 12 check times.</span></li>
+      <li><time>09:30</time><span>The session opens. The plan's upper and lower bounds are fixed for the whole day.</span></li>
+      <li><time>10:00–15:30</time><span>Every half hour: enter if the close is above the upper bound and above VWAP; otherwise re-price the stop.</span></li>
+      <li><time>15:59</time><span>Sells anything still held. A separate guard flattens the account if the runner dies.</span></li>
+      <li><time>16:20</time><span>Evening report: execution cost against the SIP mid, the research replay, the three gates.</span></li>
+      <li><time>then</time><span>Publishes this page's data to Google Drive.</span></li>
+    </ol>
+  </div>
+
+  <div class="c3-block" id="live-results" data-phase="running stopped" hidden>
+    <h2 class="c3-h2" id="live-results-head">Paper results so far</h2>
+    <div class="c3-tiles" id="live-tiles">
+      <div class="c3-tile" id="tile-pnl"><span class="c3-tile-k">Paper P&amp;L, after fees</span><span class="c3-tile-v" data-draw="val" data-source="live_status" data-field="pnl_total" data-row="0" data-fmt="susd" data-tone="sign">—</span><span class="c3-tile-s">Return on equity <span data-draw="val" data-source="live_status" data-field="ret_total" data-row="0" data-fmt="spct2">—</span></span></div>
+      <div class="c3-tile" id="tile-excess"><span class="c3-tile-k">Ahead of SPY, same days</span><span class="c3-tile-v" data-draw="val" data-source="live_excess_spy" data-fmt="spct2" data-tone="sign">—</span><span class="c3-tile-s">SPY <span data-draw="val" data-source="live_status" data-field="spy_total" data-row="0" data-fmt="spct2">—</span> · QQQ <span data-draw="val" data-source="live_status" data-field="qqq_total" data-row="0" data-fmt="spct2">—</span></span></div>
+      <div class="c3-tile" id="tile-trips"><span class="c3-tile-k">Round trips</span><span class="c3-tile-v" data-draw="val" data-source="live_status" data-field="round_trips" data-row="0" data-fmt="int">—</span><span class="c3-tile-s">In the market on <span data-draw="val" data-source="live_status" data-field="days_in_market" data-row="0" data-fmt="int">—</span> of <span data-draw="val" data-source="live_status" data-field="sessions" data-row="0" data-fmt="int">—</span> sessions · win rate <span data-draw="val" data-source="live_status" data-field="win_rate" data-row="0" data-fmt="pct0">—</span></span></div>
+      <div class="c3-tile" id="tile-cost"><span class="c3-tile-k">Cost per round trip</span><span class="c3-tile-v"><span data-draw="val" data-source="live_status" data-field="cost_mean_bp" data-row="0" data-fmt="f2">—</span> bp</span><span class="c3-tile-s">95% CI <span data-draw="val" data-source="live_status" data-field="cost_lo_bp" data-row="0" data-fmt="f2">—</span> to <span data-draw="val" data-source="live_status" data-field="cost_hi_bp" data-row="0" data-fmt="f2">—</span> · break-even <span data-draw="val" data-source="live_status" data-field="breakeven_bp" data-row="0" data-fmt="f2">—</span></span></div>
+      <div class="c3-tile" id="tile-fid"><span class="c3-tile-k">Entries matching research</span><span class="c3-tile-v" data-draw="val" data-source="live_status" data-field="jaccard" data-row="0" data-fmt="f2">—</span><span class="c3-tile-s">Jaccard, bar <span data-draw="val" data-source="live_status" data-field="fidelity_bar" data-row="0" data-fmt="f2">—</span> · <span data-draw="val" data-source="live_status" data-field="matched_entries" data-row="0" data-fmt="int">—</span> shared of <span data-draw="val" data-source="live_status" data-field="live_entries" data-row="0" data-fmt="int">—</span> live, <span data-draw="val" data-source="live_status" data-field="research_entries" data-row="0" data-fmt="int">—</span> research</span></div>
+      <div class="c3-tile" id="tile-equity"><span class="c3-tile-k">Paper equity now</span><span class="c3-tile-v" data-draw="val" data-source="live_status" data-field="equity" data-row="0" data-fmt="usd0">—</span><span class="c3-tile-s">Last session <span data-draw="val" data-source="live_status" data-field="last_day" data-row="0" data-fmt="date">—</span></span></div>
+    </div>
+
+    <div class="c3-grid2">
+      <div class="c3-card" id="live-cum-card">
+        <h3 class="c3-h3">Cumulative return on the paper days</h3>
+        <div class="c3-legend"><span><i class="c3-sw" data-color="0"></i>C3 paper</span><span><i class="c3-sw" data-color="3"></i>Research rule, same days</span><span><i class="c3-sw" data-color="1"></i>SPY</span><span><i class="c3-sw" data-color="2"></i>QQQ</span></div>
+        <div class="c3-chart" id="live-cum" data-draw="live-cum" data-source="live_days"></div>
+        <p class="c3-note">SPY and QQQ are close to close on the same sessions. The research line is the backtest rule run on the same minute bars after the close, at its cost model.</p>
+      </div>
+      <div class="c3-card" id="live-pnl-card">
+        <h3 class="c3-h3">P&amp;L per session, after fees</h3>
+        <div class="c3-chart" id="live-pnl" data-draw="live-pnl" data-source="live_days"></div>
+        <p class="c3-note">A session with no bar had no trade: the price never closed above both the upper bound and VWAP at a check.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="c3-block" id="gates">
+    <h2 class="c3-h2" id="gates-head">The three paper gates</h2>
+    <p class="c3-note">Fixed before the first order (PAPER_C3.md, amendment A1). Paper trading decides whether real costs leave the edge standing; it does not confirm the strategy.</p>
+    <div class="c3-grid2">
+      <div class="c3-card c3-gate" id="gate-cost">
+        <div class="c3-gate-top"><h3 class="c3-h3">G-cost: is a round trip cheaper than the break-even?</h3><span class="c3-pill" data-draw="val" data-source="live_status" data-field="g_cost" data-row="0" data-fmt="gate">—</span></div>
+        <p class="c3-note">Cost = the fill against the SIP mid at the decision, on entry and exit, plus regulatory fees. The bar is the dev break-even of <span data-draw="val" data-source="live_status" data-field="breakeven_bp" data-row="0" data-fmt="f2">—</span> bp, where C3's Sharpe falls to SPY's. A kill-only look at 20 usable trips, the decision at 40, one extension to 80.</p>
+        <div class="c3-chart is-short" id="gate-cost-chart" data-draw="gate-cost" data-source="live_status dev_c3"></div>
+      </div>
+      <div class="c3-card c3-gate" id="gate-fid">
+        <div class="c3-gate-top"><h3 class="c3-h3">G-fidelity: does live enter where research does?</h3><span class="c3-pill" data-draw="val" data-source="live_status" data-field="g_fidelity" data-row="0" data-fmt="gate">—</span></div>
+        <p class="c3-note">Entry checks taken live against those the research rule takes on the same bars, pooled over the decision window: shared entries divided by all entries (Jaccard). Pass at 0.85 or more. A missed session counts against it.</p>
+        <div class="c3-chart is-short" id="gate-fid-chart" data-draw="gate-fid" data-source="live_status"></div>
+      </div>
+      <div class="c3-card c3-gate" id="gate-safety">
+        <div class="c3-gate-top"><h3 class="c3-h3">G-safety: flat every night, never unprotected</h3><span class="c3-pill" data-draw="val" data-source="live_status" data-field="g_safety" data-row="0" data-fmt="gate">—</span></div>
+        <p class="c3-note">Every session must end flat with no open orders, the ledger must match the broker, and a held position must always have its stop working. Failing days so far: <b data-draw="val" data-source="live_status" data-field="failing_days" data-row="0" data-fmt="int">—</b>.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="c3-block" id="blotter" data-phase="running stopped" hidden>
+    <h2 class="c3-h2" id="blotter-head">Every paper trade</h2>
+    <p class="c3-note">Click a trade to replay its day below. Times are ET. Cost is per round trip in basis points of the entry price; "Research" says whether the backtest rule entered at the same check.</p>
+    <div class="c3-tablewrap">
+      <table class="c3-table" id="live-trades-table" data-source="live_trades" data-row-key="trade">
+        <thead><tr>
+          <th data-field="trade">Trade</th><th data-field="check">Check</th><th data-field="entry_time">Filled</th><th data-field="entry_price">Entry</th><th data-field="qty">Shares</th><th data-field="weight">Weight</th><th data-field="exit_time">Exit</th><th data-field="exit_price">Exit price</th><th data-field="exit" class="is-text">Exit by</th><th data-field="pnl">P&amp;L $</th><th data-field="gross_bp">Gross bp</th><th data-field="cost_bp">Cost bp</th><th data-field="research_match" class="is-text">Research</th>
+        </tr></thead>
+        <tbody data-draw="live-trades"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="c3-block" id="replay" data-phase="running stopped" hidden>
+    <h2 class="c3-h2" id="replay-head">Day replay</h2>
+    <div class="c3-controls">
+      <select class="dash-select" data-draw="replay-day" data-source="live_days" aria-label="Session"></select>
+      <div class="c3-legend"><span><i class="c3-sw" data-color="1"></i>SPY</span><span><i class="c3-sw is-band" data-muted="1"></i>Noise area</span><span><i class="c3-sw is-dash" data-color="4"></i>VWAP</span><span><i class="c3-sw is-tri" data-color="0"></i>C3 entry, stop path</span><span><i class="c3-sw is-tri" data-color="3"></i>Research entry</span></div>
+    </div>
+    <div class="c3-chart is-tall" id="replay-chart" data-draw="replay-chart" data-source="live_intraday live_checks live_trades"></div>
+    <ol class="c3-steps" id="replay-steps" data-draw="replay-steps" data-source="live_checks live_trades"></ol>
+  </div>
+
+  <div class="c3-block" id="days-block" data-phase="running stopped" hidden>
+    <h2 class="c3-h2" id="days-head">Sessions</h2>
+    <div class="c3-tablewrap">
+      <table class="c3-table" id="live-days-table" data-source="live_days" data-row-key="day">
+        <thead><tr>
+          <th data-field="day">Session</th><th data-field="trades">Trades</th><th data-field="pnl">P&amp;L $</th><th data-field="ret">C3</th><th data-field="research_ret">Research</th><th data-field="spy_ret">SPY</th><th data-field="qqq_ret">QQQ</th><th data-field="weight">Weight</th><th data-field="jaccard">Jaccard</th><th data-field="safety_ok" class="is-text">Safety</th>
+        </tr></thead>
+        <tbody data-draw="live-days"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== STRATEGY ============================== -->
+<section class="c3-pane" id="strategy" role="tabpanel" aria-labelledby="tab-strategy" hidden>
+  <div class="c3-block">
+    <h2 class="c3-h2" id="strategy-head">How C3 trades</h2>
+    <p class="c3-p">C3 is the long side of the "noise area" intraday momentum rule from Zarattini, Aziz and Barbon, <i>Beat the Market: An Effective Intraday Momentum Strategy for S&amp;P 500 ETF (SPY)</i> (2024), with the paper's own parameters. The idea: most intraday wandering stays inside a band set by how far SPY usually strays from its open by that minute. A close outside the band, backed by the day's volume-weighted price, tends to keep going until the close.</p>
+    <div class="c3-rules" id="rules">
+      <div class="c3-rule"><h4>1 · The noise area</h4><p>For each minute of the day, σ is the average absolute move from the open to that minute over the prior 14 sessions. Upper bound = max(open, yesterday's close) × (1 + σ); lower bound = min(open, yesterday's close) × (1 − σ). Both are known at 09:30.</p></div>
+      <div class="c3-rule"><h4>2 · When it looks</h4><p>Only on the half hour, from 10:00 to 15:30: twelve checks on a full day. Between checks it does nothing but let the stop work.</p></div>
+      <div class="c3-rule"><h4>3 · Entry</h4><p>Buy when the minute close is above the upper bound <i>and</i> above VWAP. A limit order 0.1% above that close caps the price paid. Long only: a break below the lower bound is no signal here.</p></div>
+      <div class="c3-rule"><h4>4 · Size</h4><p>Weight = 2% ÷ the daily volatility of the last 14 sessions, at most 4× equity, so calm days carry more. On the paper account the order is also capped by buying power.</p></div>
+      <div class="c3-rule"><h4>5 · Exit</h4><p>A stop at max(upper bound, VWAP), re-set at every check, so it trails up with VWAP. Whatever is left is sold at 15:59. Stopped out, it may enter again at a later check.</p></div>
+    </div>
+  </div>
+
+  <div class="c3-block" id="example">
+    <h2 class="c3-h2" id="example-head">Watch it decide</h2>
+    <p class="c3-note">Four days from 2021–2022, each picked by a fixed rule rather than by eye. Step through the checks: the band is known from the open, the price and VWAP appear as the day unfolds.</p>
+    <div class="c3-controls" id="example-pick">
+      <div class="c3-seg" role="group" aria-label="Example day">
+        <button type="button" data-ex="held" aria-pressed="true">Held to the close</button>
+        <button type="button" data-ex="stopped" aria-pressed="false">Stopped out</button>
+        <button type="button" data-ex="again" aria-pressed="false">Stopped, then back in</button>
+        <button type="button" data-ex="down" aria-pressed="false">A down day</button>
+      </div>
+    </div>
+    <div class="c3-why" id="example-sum" data-draw="ex-head" data-source="dev_examples"></div>
+    <div class="c3-legend"><span><i class="c3-sw" data-color="1"></i>SPY</span><span><i class="c3-sw is-band" data-muted="1"></i>Noise area</span><span><i class="c3-sw is-dash" data-color="4"></i>VWAP</span><span><i class="c3-sw is-tri" data-color="0"></i>C3 entry, stop path, exit</span></div>
+    <div class="c3-chart is-tall" id="example-chart" data-draw="ex-chart" data-source="dev_examples"></div>
+    <div class="c3-controls" id="example-steps-controls">
+      <button type="button" class="c3-btn" id="ex-prev" aria-label="Previous check">←</button>
+      <input class="c3-range" id="ex-range" type="range" min="0" max="12" step="1" value="12" aria-label="Check">
+      <button type="button" class="c3-btn" id="ex-next" aria-label="Next check">→</button>
+      <span class="c3-note" data-draw="ex-where" data-source="dev_examples">—</span>
+    </div>
+    <ol class="c3-steps" id="example-steps" data-draw="ex-steps" data-source="dev_examples"></ol>
+  </div>
+</section>
+
+<!-- ============================== RESEARCH ============================== -->
+<section class="c3-pane" id="research" role="tabpanel" aria-labelledby="tab-research" hidden>
+  <div class="c3-block">
+    <h2 class="c3-h2" id="research-head">The research record: dev window 2016–2022</h2>
+    <p class="c3-p" id="research-takeaway">On <b data-draw="val" data-source="dev_c3" data-field="sessions" data-row="0" data-fmt="int">—</b> sessions, C3 earned a Sharpe of <b data-draw="val" data-source="dev_c3" data-field="sharpe" data-row="0" data-fmt="f2">—</b> after costs against SPY's <b data-draw="val" data-source="dev_summary" data-field="sharpe" data-where="series=SPY" data-fmt="f2">—</b>, and its worst drawdown was <b data-draw="val" data-source="dev_summary" data-field="max_dd" data-where="series=C3" data-fmt="pct1">—</b> against SPY's <b data-draw="val" data-source="dev_summary" data-field="max_dd" data-where="series=SPY" data-fmt="pct1">—</b>. It grew less in total, <b data-draw="val" data-source="dev_summary" data-field="total_return" data-where="series=C3" data-fmt="pct0">—</b> against <b data-draw="val" data-source="dev_summary" data-field="total_return" data-where="series=SPY" data-fmt="pct0">—</b>: the edge is in risk, not in raw growth. The Sharpe lead over SPY, <b data-draw="val" data-source="dev_c3" data-field="diff_spy" data-row="0" data-fmt="sf2">—</b>, has a bootstrap 95% interval of <b data-draw="val" data-source="dev_c3" data-field="diff_spy_lo" data-row="0" data-fmt="sf2">—</b> to <b data-draw="val" data-source="dev_c3" data-field="diff_spy_hi" data-row="0" data-fmt="sf2">—</b>, which includes zero, and at double costs the Sharpe falls to <b data-draw="val" data-source="dev_c3" data-field="sharpe_2x_cost" data-row="0" data-fmt="f2">—</b>, below SPY. That is why no cell passed and paper trading is a labelled deviation.</p>
+    <p class="c3-note">Only the dev window has been read. The confirmation window (2023-01-03 to 2025-08-06) and the holdout (2025-08-07 to 2026-11-20) are sealed; nothing on this page uses them.</p>
+    <div class="c3-tiles" id="dev-tiles">
+      <div class="c3-tile"><span class="c3-tile-k">Sharpe, after costs</span><span class="c3-tile-v" data-draw="val" data-source="dev_c3" data-field="sharpe" data-row="0" data-fmt="f2">—</span><span class="c3-tile-s">95% CI <span data-draw="val" data-source="dev_c3" data-field="sharpe_lo" data-row="0" data-fmt="f2">—</span> to <span data-draw="val" data-source="dev_c3" data-field="sharpe_hi" data-row="0" data-fmt="f2">—</span> · QQQ <span data-draw="val" data-source="dev_summary" data-field="sharpe" data-where="series=QQQ" data-fmt="f2">—</span></span></div>
+      <div class="c3-tile"><span class="c3-tile-k">Alpha against SPY, a year</span><span class="c3-tile-v" data-draw="val" data-source="dev_c3" data-field="alpha" data-row="0" data-fmt="spct1">—</span><span class="c3-tile-s">95% CI <span data-draw="val" data-source="dev_c3" data-field="alpha_lo" data-row="0" data-fmt="pct1">—</span> to <span data-draw="val" data-source="dev_c3" data-field="alpha_hi" data-row="0" data-fmt="pct1">—</span> · beta <span data-draw="val" data-source="dev_c3" data-field="beta" data-row="0" data-fmt="f2">—</span></span></div>
+      <div class="c3-tile"><span class="c3-tile-k">Worst drawdown</span><span class="c3-tile-v" data-draw="val" data-source="dev_summary" data-field="max_dd" data-where="series=C3" data-fmt="pct1">—</span><span class="c3-tile-s">SPY <span data-draw="val" data-source="dev_summary" data-field="max_dd" data-where="series=SPY" data-fmt="pct1">—</span> · QQQ <span data-draw="val" data-source="dev_summary" data-field="max_dd" data-where="series=QQQ" data-fmt="pct1">—</span></span></div>
+      <div class="c3-tile"><span class="c3-tile-k">Growth a year</span><span class="c3-tile-v" data-draw="val" data-source="dev_summary" data-field="cagr" data-where="series=C3" data-fmt="pct1">—</span><span class="c3-tile-s">SPY <span data-draw="val" data-source="dev_summary" data-field="cagr" data-where="series=SPY" data-fmt="pct1">—</span> · QQQ <span data-draw="val" data-source="dev_summary" data-field="cagr" data-where="series=QQQ" data-fmt="pct1">—</span></span></div>
+      <div class="c3-tile"><span class="c3-tile-k">Edge per round trip, net</span><span class="c3-tile-v"><span data-draw="val" data-source="dev_c3" data-field="net_bp" data-row="0" data-fmt="f2">—</span> bp</span><span class="c3-tile-s">Gross <span data-draw="val" data-source="dev_c3" data-field="gross_bp" data-row="0" data-fmt="f2">—</span> less cost <span data-draw="val" data-source="dev_c3" data-field="cost_bp" data-row="0" data-fmt="f2">—</span> · break-even <span data-draw="val" data-source="dev_c3" data-field="breakeven_bp" data-row="0" data-fmt="f2">—</span></span></div>
+      <div class="c3-tile"><span class="c3-tile-k">Sessions in the market</span><span class="c3-tile-v" data-draw="val" data-source="dev_c3" data-field="share_days_in_market" data-row="0" data-fmt="pct0">—</span><span class="c3-tile-s"><span data-draw="val" data-source="dev_c3" data-field="trades" data-row="0" data-fmt="int">—</span> round trips · <span data-draw="val" data-source="dev_c3" data-field="trips_per_market_day" data-row="0" data-fmt="f2">—</span> a day when in</span></div>
+    </div>
+  </div>
+
+  <div class="c3-grid2">
+    <div class="c3-card" id="dev-equity-card">
+      <h3 class="c3-h3">Growth of $1, after costs</h3>
+      <div class="c3-legend"><span><i class="c3-sw" data-color="0"></i>C3</span><span><i class="c3-sw" data-color="1"></i>SPY</span><span><i class="c3-sw" data-color="2"></i>QQQ</span></div>
+      <div class="c3-chart" id="dev-equity" data-draw="dev-equity" data-source="dev_daily"></div>
+    </div>
+    <div class="c3-card" id="dev-dd-card">
+      <h3 class="c3-h3">Drawdown from the running peak</h3>
+      <div class="c3-legend"><span><i class="c3-sw" data-color="0"></i>C3</span><span><i class="c3-sw" data-color="1"></i>SPY</span><span><i class="c3-sw" data-color="2"></i>QQQ</span></div>
+      <div class="c3-chart" id="dev-dd" data-draw="dev-dd" data-source="dev_daily"></div>
+    </div>
+  </div>
+
+  <div class="c3-block" id="dev-table-block">
+    <h3 class="c3-h3" id="dev-table-head">Side by side, same sessions</h3>
+    <div class="c3-tablewrap">
+      <table class="c3-table" id="dev-summary-table" data-source="dev_summary" data-row-key="series">
+        <thead><tr><th data-field="series">Series</th><th data-field="sharpe">Sharpe</th><th data-field="cagr">Growth a year</th><th data-field="vol">Volatility</th><th data-field="max_dd">Worst drawdown</th><th data-field="total_return">Total return</th></tr></thead>
+        <tbody data-draw="dev-summary"></tbody>
+      </table>
+    </div>
+    <p class="c3-note">C3 is in cash two days in three, so its volatility is a third of SPY's. Sharpe is the mean daily return over its standard deviation, times √252, with no risk-free rate taken out (as in every earlier round).</p>
+  </div>
+
+  <div class="c3-grid2">
+    <div class="c3-card" id="dev-years-card">
+      <h3 class="c3-h3">Sharpe year by year</h3>
+      <div class="c3-legend"><span><i class="c3-sw" data-color="0"></i>C3</span><span><i class="c3-sw" data-color="1"></i>SPY</span><span><i class="c3-sw" data-color="2"></i>QQQ</span></div>
+      <div class="c3-chart" id="dev-years" data-draw="dev-years" data-source="dev_years"></div>
+      <p class="c3-note">C3 made money in the two down years, 2018 and 2022, and lagged in the strong up years, when buy-and-hold had every day and C3 waited for a breakout.</p>
+    </div>
+    <div class="c3-card" id="dev-cost-card">
+      <h3 class="c3-h3">What costs do to the Sharpe</h3>
+      <div class="c3-legend"><span><i class="c3-sw" data-color="0"></i>C3 at a flat cost per round trip</span><span><i class="c3-sw is-dash" data-muted="1"></i>SPY's Sharpe</span></div>
+      <div class="c3-chart" id="dev-cost" data-draw="dev-cost" data-source="dev_costcurve dev_c3 live_status"></div>
+      <p class="c3-note">The research charged about 1 bp per round trip. Above the break-even C3 no longer beats holding SPY. Once paper trips are counted, the live cost and its interval appear on this chart.</p>
+    </div>
+  </div>
+
+  <div class="c3-grid2">
+    <div class="c3-card" id="dev-hist-card">
+      <h3 class="c3-h3">Round trips by outcome, net bp</h3>
+      <div class="c3-legend"><span><i class="c3-sw" data-color="0"></i>Stopped out</span><span><i class="c3-sw" data-color="5"></i>Held to the close</span></div>
+      <div class="c3-chart" id="dev-hist" data-draw="dev-hist" data-source="dev_trades"></div>
+      <p class="c3-note">Many small losses at the stop and a few large gains held to the close: <span data-draw="val" data-source="dev_c3" data-field="win_rate" data-row="0" data-fmt="pct0">—</span> of round trips make money after costs, and they pay for the rest. Bars at the edges collect everything beyond them.</p>
+    </div>
+    <div class="c3-card" id="dev-check-card">
+      <h3 class="c3-h3">Where the money came from, by check time</h3>
+      <div class="c3-seg" role="group" aria-label="Measure" id="check-view">
+        <button type="button" data-view="contrib" aria-pressed="true">Return contributed</button>
+        <button type="button" data-view="trades" aria-pressed="false">Round trips</button>
+        <button type="button" data-view="mean" aria-pressed="false">Mean net bp</button>
+      </div>
+      <div class="c3-chart" id="dev-bycheck" data-draw="dev-bycheck" data-source="dev_by_check"></div>
+    </div>
+  </div>
+
+  <div class="c3-block" id="dev-exit-block">
+    <h3 class="c3-h3" id="dev-exit-head">How round trips end</h3>
+    <div class="c3-tablewrap">
+      <table class="c3-table" id="dev-exit-table" data-source="dev_by_exit" data-row-key="exit">
+        <thead><tr><th data-field="exit" class="is-text">Exit</th><th data-field="trades">Round trips</th><th data-field="share">Share</th><th data-field="win_rate">Won</th><th data-field="mean_gross_bp">Mean gross bp</th><th data-field="mean_net_bp">Mean net bp</th><th data-field="mean_hold_min">Mean minutes held</th></tr></thead>
+        <tbody data-draw="dev-exit"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="c3-block" id="dev-trades-block">
+    <div class="c3-gate-top"><h3 class="c3-h3" id="dev-trades-head">All research round trips</h3>
+      <select class="dash-select" id="dev-year" aria-label="Year"><option value="">All years</option><option>2016</option><option>2017</option><option>2018</option><option>2019</option><option>2020</option><option>2021</option><option>2022</option></select></div>
+    <p class="c3-note"><span data-draw="dev-trades-count" data-source="dev_trades">—</span> "On equity" is the net return times the weight.</p>
+    <div class="c3-tablewrap">
+      <table class="c3-table" id="dev-trades-table" data-source="dev_trades" data-row-key="id">
+        <thead><tr><th data-field="id">#</th><th data-field="date">Session</th><th data-field="check">Check</th><th data-field="close_at_check">Close</th><th data-field="ub">Upper bound</th><th data-field="vwap">VWAP</th><th data-field="weight">Weight</th><th data-field="exit" class="is-text">Exit by</th><th data-field="exit_time">At</th><th data-field="gross_bp">Gross bp</th><th data-field="net_bp">Net bp</th><th data-field="contrib_bp">On equity bp</th></tr></thead>
+        <tbody data-draw="dev-trades"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== METHOD ============================== -->
+<section class="c3-pane" id="method" role="tabpanel" aria-labelledby="tab-method" hidden>
+  <div class="c3-block">
+    <h2 class="c3-h2" id="method-head">Method and caveats</h2>
+    <details open id="m-windows"><summary>Which data has been read</summary>
+      <div class="c3-tablewrap"><table class="c3-table"><thead><tr><th>Window</th><th>Dates</th><th class="is-text">State</th></tr></thead><tbody>
+        <tr><td>Dev</td><td>2016-01-04 to 2022-12-30</td><td class="is-text">Read. Every research number on this page.</td></tr>
+        <tr><td>Confirmation</td><td>2023-01-03 to 2025-08-06</td><td class="is-text">Sealed. Read only on your decision.</td></tr>
+        <tr><td>Holdout</td><td>2025-08-07 to 2026-11-20</td><td class="is-text">Sealed. No return computed.</td></tr>
+        <tr><td>Paper</td><td>2026-11-24 on</td><td class="is-text">Live. The Live paper tab.</td></tr>
+      </tbody></table></div>
+    </details>
+    <details open id="m-deviation"><summary>Why this is paper trading and not a result</summary>
+      <p class="c3-p">The liquid track pre-registered three cells on SPY and QQQ. None passed: C3 had the best Sharpe and a positive alpha, but failed the guard that doubles costs (a Sharpe of 0.62 against SPY's 0.68), and its Sharpe lead over SPY has an interval that includes zero. Paper-trading it is a labelled deviation chosen to measure one thing the backtest cannot: what a round trip really costs on this broker. A G-cost pass leads to a decision (read the confirmation window, or a small real-money pilot), not to "C3 works".</p>
+    </details>
+    <details id="m-costs"><summary>Costs</summary>
+      <p class="c3-p">Alpaca charges no commission. The research cost model charges half a cent a share on each side for the spread, one more cent a share when a stop fills, and the SEC, FINRA TAF and CAT fees: about 1 bp per round trip at dev prices. Live cost is measured per trip against the SIP mid at the decision minute, so it includes the delay from decision to fill.</p>
+    </details>
+    <details id="m-live"><summary>How the live numbers are made</summary>
+      <p class="c3-p">The runner reads minute bars from a hybrid feed (SIP for bars at least 16 minutes old, IEX for the newest), places a limit buy and a stop, and logs every check and order to a ledger. After the close the report re-reads the day's SIP bars, replays the research rule on them, prices each fill against the SIP mid and updates the gates. The server then writes two compressed files to Google Drive, which this page decodes in your browser with your own Drive access.</p>
+      <p class="c3-p">Paper fills are simulated by Alpaca and can be kinder than real ones, so a G-cost pass on paper is an upper bound on what real money would see.</p>
+    </details>
+    <details id="m-ops"><summary>Running the server</summary>
+      <p class="c3-p">The server is a Google Cloud e2-micro in us-east1 (free-tier shape) with a systemd timer at 08:00 ET on weekdays; it reaches only Alpaca's paper endpoint and Google Drive. To stop trading at once, create the KILL file on the server; to stop the schedule, disable the timer. The spending alert is set at about $5 a month; Google Cloud has no hard cap for virtual machines.</p>
+    </details>
+  </div>
+  <p class="c3-note" id="footer-note">Research figures come from files built by research/liquid/live/dashboard.py (--dev) from the dev cache. Live figures come from the server's nightly files. Sources, beside the page, shows each file and its code.</p>
+</section>
+
+</div>
+<script src="c3-core.js"></script>
+<script src="c3-data.js"></script>
+<script src="c3-charts.js"></script>
+<script src="c3-live.js"></script>
+<script src="c3-research.js"></script>
+<script src="c3-strategy.js"></script>
