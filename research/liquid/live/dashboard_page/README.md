@@ -13,6 +13,7 @@ ArtifactData.
 | `c3-data.js` | the Drive loaders (gzip+base64 decode) and the calculations |
 | `c3-charts.js` | line, bar and intraday day charts, with tooltips |
 | `c3-live.js`, `c3-research.js`, `c3-strategy.js` | one tab each |
+| `c3-tv.js` | the TradingView candle view of a session (Lightweight Charts v5.1.0 from jsDelivr, loaded at run time; falls back to the d3 line chart) |
 | `harness.html` | a local test page that mocks `dash` (see below) |
 
 To run the local test:
