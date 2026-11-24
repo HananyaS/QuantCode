@@ -114,9 +114,17 @@
     <h2 class="c3-h2" id="replay-head">Day replay</h2>
     <div class="c3-controls">
       <select class="dash-select" data-draw="replay-day" data-source="live_days" aria-label="Session"></select>
-      <div class="c3-legend"><span><i class="c3-sw" data-color="1"></i>SPY</span><span><i class="c3-sw is-band" data-muted="1"></i>Noise area</span><span><i class="c3-sw is-dash" data-color="4"></i>VWAP</span><span><i class="c3-sw is-tri" data-color="0"></i>C3 entry, stop path</span><span><i class="c3-sw is-tri" data-color="3"></i>Research entry</span></div>
+      <div class="c3-seg" role="group" aria-label="Chart type" id="replay-view">
+        <button type="button" data-dayview="tv" aria-pressed="true">Candles</button>
+        <button type="button" data-dayview="line" aria-pressed="false">Line</button>
+      </div>
     </div>
-    <div class="c3-chart is-tall" id="replay-chart" data-draw="replay-chart" data-source="live_intraday live_checks live_trades"></div>
+    <div class="c3-controls">
+      <div class="c3-legend" data-legend-for="replay-view" data-view="tv"><span><i class="c3-sw is-candle"></i>SPY candles</span><span><i class="c3-sw is-ref"></i>Noise area bounds</span><span><i class="c3-sw is-dash" data-color="4"></i>VWAP</span><span><i class="c3-sw is-dash is-dot" data-color="0"></i>Stop</span><span><i class="c3-sw is-tri" data-color="0"></i>C3 buy</span><span><i class="c3-sw is-tri is-down"></i>Exit</span><span><i class="c3-sw is-ring" data-color="3"></i>Research buy</span><span><i class="c3-sw is-col"></i>Half-hour checks</span></div>
+      <div class="c3-legend" data-legend-for="replay-view" data-view="line" hidden><span><i class="c3-sw" data-color="1"></i>SPY</span><span><i class="c3-sw is-band" data-muted="1"></i>Noise area</span><span><i class="c3-sw is-dash" data-color="4"></i>VWAP</span><span><i class="c3-sw is-tri" data-color="0"></i>C3 entry, stop path</span><span><i class="c3-sw is-tri" data-color="3"></i>Research entry</span></div>
+    </div>
+    <div class="c3-tv" id="replay-tv" data-draw="replay-tv" data-source="live_intraday live_checks live_trades live_days"></div>
+    <div class="c3-chart is-tall" id="replay-chart" data-draw="replay-chart" data-source="live_intraday live_checks live_trades" hidden></div>
     <ol class="c3-steps" id="replay-steps" data-draw="replay-steps" data-source="live_checks live_trades"></ol>
   </div>
 
@@ -157,10 +165,16 @@
         <button type="button" data-ex="again" aria-pressed="false">Stopped, then back in</button>
         <button type="button" data-ex="down" aria-pressed="false">A down day</button>
       </div>
+      <div class="c3-seg" role="group" aria-label="Chart type" id="example-view">
+        <button type="button" data-dayview="tv" aria-pressed="true">Candles</button>
+        <button type="button" data-dayview="line" aria-pressed="false">Line</button>
+      </div>
     </div>
     <div class="c3-why" id="example-sum" data-draw="ex-head" data-source="dev_examples"></div>
-    <div class="c3-legend"><span><i class="c3-sw" data-color="1"></i>SPY</span><span><i class="c3-sw is-band" data-muted="1"></i>Noise area</span><span><i class="c3-sw is-dash" data-color="4"></i>VWAP</span><span><i class="c3-sw is-tri" data-color="0"></i>C3 entry, stop path, exit</span></div>
-    <div class="c3-chart is-tall" id="example-chart" data-draw="ex-chart" data-source="dev_examples"></div>
+    <div class="c3-legend" data-legend-for="example-view" data-view="tv"><span><i class="c3-sw is-candle"></i>SPY candles</span><span><i class="c3-sw is-ref"></i>Noise area bounds</span><span><i class="c3-sw is-dash" data-color="4"></i>VWAP</span><span><i class="c3-sw is-dash is-dot" data-color="0"></i>Stop</span><span><i class="c3-sw is-tri" data-color="0"></i>C3 buy</span><span><i class="c3-sw is-tri is-down"></i>Exit</span><span><i class="c3-sw is-col"></i>Half-hour checks</span></div>
+    <div class="c3-legend" data-legend-for="example-view" data-view="line" hidden><span><i class="c3-sw" data-color="1"></i>SPY</span><span><i class="c3-sw is-band" data-muted="1"></i>Noise area</span><span><i class="c3-sw is-dash" data-color="4"></i>VWAP</span><span><i class="c3-sw is-tri" data-color="0"></i>C3 entry, stop path, exit</span></div>
+    <div class="c3-tv" id="example-tv" data-draw="ex-tv" data-source="dev_examples"></div>
+    <div class="c3-chart is-tall" id="example-chart" data-draw="ex-chart" data-source="dev_examples" hidden></div>
     <div class="c3-controls" id="example-steps-controls">
       <button type="button" class="c3-btn" id="ex-prev" aria-label="Previous check">←</button>
       <input class="c3-range" id="ex-range" type="range" min="0" max="12" step="1" value="12" aria-label="Check">
@@ -303,3 +317,4 @@
 <script src="c3-live.js"></script>
 <script src="c3-research.js"></script>
 <script src="c3-strategy.js"></script>
+<script src="c3-tv.js"></script>

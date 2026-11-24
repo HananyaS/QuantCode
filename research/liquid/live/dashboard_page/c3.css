@@ -164,3 +164,32 @@
   .c3-timeline li { padding: 6px 0; }
   .c3-timeline li::before { top: 9px; left: -21px; }
 }
+
+/* TradingView view (Lightweight Charts draws on canvas; colours come from the tokens via c3-tv.js) */
+.c3-tv { display: grid; gap: var(--cds-gap-sm); min-width: 0; container: c3tv / inline-size; }
+.c3-tv-bar { display: flex; flex-wrap: wrap; gap: var(--cds-gap-sm); align-items: center; }
+.c3-tv-bar .c3-btn { font-size: var(--cds-font-size-caption); padding: 5px 10px; }
+.c3-tv-note { margin: 0; }
+.c3-tv-box { position: relative; height: 400px; min-width: 0; border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); overflow: hidden; }
+.c3-tv-legend { position: absolute; left: 8px; top: 6px; z-index: 3; pointer-events: none; max-width: calc(100% - 90px);
+                font-size: var(--cds-font-size-caption); line-height: 1.55; color: var(--cds-text-secondary); font-variant-numeric: tabular-nums;
+                padding: 2px 6px; border-radius: 6px; background: var(--color-bg); background: color-mix(in srgb, var(--color-bg) 78%, transparent); }
+.c3-tv-legend > div { display: flex; flex-wrap: wrap; gap: 0 10px; }
+.c3-tv-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.c3-tv-legend b { color: var(--color-fg); font-weight: var(--cds-font-weight-medium); }
+.c3-tv-legend .c3-tv-head { color: var(--color-fg); }
+.c3-tv-msg { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; padding: var(--cds-pad-lg); text-align: center;
+             color: var(--cds-text-secondary); font-size: var(--cds-font-size-caption); background: var(--color-bg); }
+.c3-tv-msg[hidden] { display: none; }
+.c3-legend .c3-sw.is-candle { width: 8px; height: 12px; border-radius: 1px; background: linear-gradient(var(--color-ok) 50%, var(--color-bad) 50%); }
+.c3-legend .c3-sw.is-ref { background: var(--cds-chart-reference); height: 1px; }
+.c3-legend .c3-sw.is-dash.is-dot { border-top-style: dotted; }
+.c3-legend .c3-sw.is-tri.is-down { border-bottom: 0; border-top: 9px solid var(--color-fg); }
+.c3-legend .c3-sw.is-ring { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.c3-legend .c3-sw.is-col { width: 8px; height: 12px; border-radius: 1px; background: var(--cds-chart-reference); opacity: .25; }
+@container c3tv (max-width: 560px) {
+  .c3-tv-box { height: 340px; }
+  .c3-tv-note, .c3-tv-legend .is-extra { display: none; }
+  .c3-tv-legend { font-size: 10.5px; left: 4px; top: 4px; }
+}
+@media print { .c3-tv-bar { display: none; } }

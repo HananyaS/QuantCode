@@ -24,7 +24,7 @@
     return { upto: num(c.d) + 1, hiX: num(c.d) + 1, check: c };
   };
 
-  const redraw = () => ['ex-chart', 'ex-steps', 'ex-where', 'ex-head'].forEach((nm) => dash.draw(nm));
+  const redraw = () => ['ex-chart', 'ex-tv', 'ex-steps', 'ex-where', 'ex-head'].forEach((nm) => dash.draw(nm));
   const range = document.querySelector('.c3 #ex-range');
   const setStep = (s) => {
     C3.state.step = Math.max(0, Math.min(LAST, s));
@@ -71,23 +71,32 @@
     el.textContent = check ? `Check ${C3.state.step + 1} of ${parts(ex).checks.length}, ${check.time} ET` : 'The close, 16:00 ET: the whole day';
   });
 
-  dash.draw('ex-chart', (el) => {
-    if (C3.notReady(el, 'dev_examples')) return;
+  // The example day as one object (minutes after 09:30 on x), for the line chart and the TradingView chart.
+  C3.exDay = () => {
     const ex = example();
-    if (!ex) { C3.empty(el, 'No example days.'); return; }
+    if (!ex) return null;
     const { n, checks, trades } = parts(ex);
     const { upto, hiX } = reveal(ex);
     const tr = trades.map((t) => {
       const x0 = num(t.entry_bar), x1 = t.exit_kind === 'close' ? n : num(t.exit_bar) + 0.5;
       const stops = checks.filter((c) => (c.action === 'enter' || c.action === 'hold') && num(c.d) + 1 >= x0 && num(c.d) + 1 < x1 && num(c.stop) !== null)
         .map((c) => [num(c.d) + 1, num(c.stop)]);
-      return { x0, p0: num(t.entry), x1, p1: num(t.exit), stops };
+      return { x0, p0: num(t.entry), x1, p1: num(t.exit), stops,
+        inText: `Buy ${t.check}`, outText: t.exit_kind === 'close' ? 'Close' : 'Stop' };
     });
-    C3.dayChart(el, {
-      label: `SPY on ${ex.day}: minute closes, the noise area, VWAP and C3's trades, revealed up to ${C3.hhmm(upto)} ET`,
-      n, close: C3.arr(ex.close), ub: C3.arr(ex.ub), lb: C3.arr(ex.lb), vwap: C3.arr(ex.vwap), upto, hiX,
-      checks: checks.map((c) => ({ x: num(c.d) + 1, action: c.action })), trades: tr,
-    });
+    return {
+      key: `ex-${ex.key}`, day: ex.day, n, upto, hiX,
+      open: C3.arr(ex.open), high: C3.arr(ex.high), low: C3.arr(ex.low), close: C3.arr(ex.close), volume: C3.arr(ex.volume),
+      ub: C3.arr(ex.ub), lb: C3.arr(ex.lb), vwap: C3.arr(ex.vwap),
+      checks: checks.map((c) => ({ x: num(c.d) + 1, action: c.action })), trades: tr, ghosts: [],
+    };
+  };
+
+  dash.draw('ex-chart', (el) => {
+    if (C3.notReady(el, 'dev_examples')) return;
+    const o = C3.exDay();
+    if (!o) { C3.empty(el, 'No example days.'); return; }
+    C3.dayChart(el, { ...o, label: `SPY on ${o.day}: minute closes, the noise area, VWAP and C3's trades, revealed up to ${C3.hhmm(o.upto)} ET` });
   });
 
   dash.draw('ex-steps', (ol) => {

@@ -99,16 +99,26 @@ def unwrap(text: str) -> dict:
     return json.loads(gzip.decompress(base64.b64decode(re.sub(r"\s+", "", m.group(1)))).decode("utf-8"))
 
 
+OHLCV = ("open", "high", "low", "volume")
+
+
 def day_arrays(m: Minutes, i: int) -> dict:
-    """One session's close, noise-area bounds and VWAP, for a chart (cents)."""
+    """One session's minute bars (OHLC in cents, volume in shares), noise-area bounds and VWAP, for a chart."""
     sigma, _ = cells.noise_area(m)
     n = int(m.n_bars[i])
     o0, pc = float(m.open[i, 0]), float(m.prev_close[i])
     ub = max(o0, pc) * (1 + sigma[i])
     lb = min(o0, pc) * (1 - sigma[i])
     return {"n_bars": n, "open0": num(o0, 2), "prev_close": num(pc, 2),
-            "close": series(m.close[i], n), "ub": series(ub, n), "lb": series(lb, n),
-            "vwap": series(cells.session_vwap(m, i), n)}
+            "open": series(m.open[i], n), "high": series(m.high[i], n), "low": series(m.low[i], n),
+            "close": series(m.close[i], n), "volume": series(m.volume[i], n, 0),
+            "ub": series(ub, n), "lb": series(lb, n), "vwap": series(cells.session_vwap(m, i), n)}
+
+
+def cache_is_current(doc: dict) -> bool:
+    """A cached paper day is reused only if it carries every array the page draws (older files lack OHLCV)."""
+    arrays = doc.get("arrays") or {}
+    return all(k in arrays for k in OHLCV)
 
 
 # ---------------------------------------------------------------- dev side --
@@ -499,8 +509,10 @@ def build_live(now: datetime | None = None) -> tuple[dict, dict]:
     for day in days:
         f = cache / f"{day}.json"
         if f.exists():
-            market[day] = json.loads(f.read_text(encoding="utf-8"))
-            continue
+            cached = json.loads(f.read_text(encoding="utf-8"))
+            if cache_is_current(cached):
+                market[day] = cached
+                continue
         try:
             market[day] = market_day(feed, cal, day, M.HISTORY_SESSIONS, M.SYMBOL)
         except Exception:                                              # noqa: BLE001
@@ -534,8 +546,8 @@ TRADE_COLS = ["trade", "day", "n", "check", "entry_time", "exit_time", "qty", "n
               "exit_price", "exit", "exit_check", "pnl", "gross_bp", "cost_bp", "exec_entry_bp", "exec_exit_bp",
               "fees_bp", "latency_bp", "model_bp", "cost_usable", "research_match"]
 CHECK_COLS = ["day", "d", "time", "price", "ub", "vwap", "stop", "in_position", "action", "research_enters"]
-INTRADAY_KEEP = 40                         # sessions of minute bars in c3_intraday.json (~4 KB each, compressed)
-INTRADAY_COLS = ["day", "n_bars", "open0", "prev_close", "close", "ub", "lb", "vwap"]
+INTRADAY_KEEP = 40                         # sessions of minute bars in c3_intraday.json (~10 KB each, compressed)
+INTRADAY_COLS = ["day", "n_bars", "open0", "prev_close", "open", "high", "low", "close", "volume", "ub", "lb", "vwap"]
 
 
 def publish(live: dict, intraday: dict, cfg_path: Path = PUBLISH_CFG) -> None:

@@ -36,7 +36,7 @@
   };
   C3.showDay = (day, scroll) => {
     C3.state.liveDay = day;
-    ['replay-day', 'replay-chart', 'replay-steps', 'live-trades'].forEach((n) => dash.draw(n));
+    ['replay-day', 'replay-chart', 'replay-tv', 'replay-steps', 'live-trades'].forEach((n) => dash.draw(n));
     if (scroll) { const r = document.getElementById('replay'); if (r) r.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   };
 
@@ -207,13 +207,13 @@
     return { intr, checks, trades };
   };
 
-  dash.draw('replay-chart', (el) => {
-    if (C3.notReady(el, 'live_intraday', 'live_checks', 'live_trades')) return;
-    const day = selectedDay();
-    if (!day) { C3.empty(el, 'No paper session yet.'); return; }
+  // One paper session as one object (minutes after 09:30 on x), for the line chart and the TradingView chart.
+  C3.liveSelectedDay = selectedDay;
+  C3.liveDayObj = (day) => {
     const { intr, checks, trades } = dayParts(day);
-    if (!intr) { C3.empty(el, `No minute bars for ${day}: the replay keeps the last 40 sessions.`); return; }
+    if (!intr) return null;
     const n = num(intr.n_bars);
+    const OUT = { sl: 'Stop', time: 'Close', tp: 'Target', kill: 'Kill' };
     const tr = trades.map((t) => {
       const x0 = C3.clockToMin(t.entry_time), x1 = C3.clockToMin(t.exit_time);
       const stops = [[x0, num(t.stop_at_entry)]];
@@ -221,15 +221,25 @@
         const cx = num(c.d) + 1;
         if (cx > x0 && (x1 === null || cx < x1) && num(c.stop) !== null && C3.bool(c.in_position)) stops.push([cx, num(c.stop)]);
       }
-      return { x0, p0: num(t.entry_price), x1, p1: num(t.exit_price), stops };
+      return { x0, p0: num(t.entry_price), x1, p1: num(t.exit_price), stops,
+        inText: `Buy ${String(t.entry_time || '').slice(0, 5)}`, outText: OUT[t.exit] || 'Sold' };
     });
-    C3.dayChart(el, {
-      label: `SPY minute closes on ${day} with the noise area, VWAP, the checks and the paper trades`,
-      n, close: C3.arr(intr.close), ub: C3.arr(intr.ub), lb: C3.arr(intr.lb), vwap: C3.arr(intr.vwap),
-      checks: checks.map((c) => ({ x: num(c.d) + 1, action: c.action })),
-      trades: tr,
+    return {
+      key: `live-${day}`, day, n, upto: n, hiX: null,
+      open: C3.arr(intr.open), high: C3.arr(intr.high), low: C3.arr(intr.low), close: C3.arr(intr.close), volume: C3.arr(intr.volume),
+      ub: C3.arr(intr.ub), lb: C3.arr(intr.lb), vwap: C3.arr(intr.vwap),
+      checks: checks.map((c) => ({ x: num(c.d) + 1, action: c.action })), trades: tr,
       ghosts: checks.filter((c) => C3.bool(c.research_enters)).map((c) => ({ x: num(c.d) + 1, y: num(c.price) })),
-    });
+    };
+  };
+
+  dash.draw('replay-chart', (el) => {
+    if (C3.notReady(el, 'live_intraday', 'live_checks', 'live_trades')) return;
+    const day = selectedDay();
+    if (!day) { C3.empty(el, 'No paper session yet.'); return; }
+    const o = C3.liveDayObj(day);
+    if (!o) { C3.empty(el, `No minute bars for ${day}: the replay keeps the last 40 sessions.`); return; }
+    C3.dayChart(el, { ...o, label: `SPY minute closes on ${day} with the noise area, VWAP, the checks and the paper trades` });
   });
 
   dash.draw('replay-steps', (ol) => {
